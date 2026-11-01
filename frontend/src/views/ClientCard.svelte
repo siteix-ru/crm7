@@ -17,12 +17,13 @@
     unblockClient,
     updateClientContacts
   } from '../lib/api/clients';
+  import { listPriceTypes, setUserPriceTypes } from '../lib/api/prices';
   import { listManagers, listRequests, requestFilters } from '../lib/api/requests';
   import type {
-    AssignedPriceType,
     ClientCard,
     ClientInterest,
     ManagerItem,
+    PriceType,
     RequestItem,
     RequestStatus
   } from '../lib/api/types';
@@ -33,7 +34,6 @@
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
-  import PriceTypesPicker from '../lib/components/ui/PriceTypesPicker.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import StatusBadge from '../lib/components/StatusBadge.svelte';
@@ -57,7 +57,9 @@
   type ActionKind = 'approve' | 'decline' | 'block' | 'unblock';
 
   let editOpen = $state(false);
-  let pricePickerOpen = $state(false);
+  let priceTypes = $state<PriceType[]>([]);
+  let priceTypesLoading = $state(false);
+  let priceBusy = $state(false);
   let tab = $state<TabId>('summary');
   let actionKind = $state<ActionKind | null>(null);
   let actionComment = $state('');
@@ -312,6 +314,10 @@
     }
 
     tab = next;
+
+    if (next === 'account') {
+      void loadPriceTypes();
+    }
   }
 
   function initials(name: string): string {
@@ -526,17 +532,62 @@
     }
   }
 
-  function onPriceTypesSaved(assigned: AssignedPriceType[]): void {
-    if (card === null) {
+  async function loadPriceTypes(): Promise<void> {
+    if (!pricesEnabled || priceTypes.length > 0) {
       return;
     }
 
-    const defaultType = assigned.find((type) => type.is_default) ?? null;
-    card = {
-      ...card,
-      client: { ...card.client, price_types: assigned, price_type_id: defaultType?.id ?? null }
-    };
-    actionNotice = 'Типы цен обновлены';
+    priceTypesLoading = true;
+
+    try {
+      priceTypes = (await listPriceTypes()).items;
+    } catch {
+      priceTypes = [];
+    } finally {
+      priceTypesLoading = false;
+    }
+  }
+
+  async function togglePriceType(type: PriceType): Promise<void> {
+    if (!card || !canAssignPrices || priceBusy) {
+      return;
+    }
+
+    const assigned = card.client.price_types;
+    const isOn = assigned.some((item) => item.id === type.id);
+    let ids = assigned.map((item) => item.id);
+    ids = isOn ? ids.filter((id) => id !== type.id) : [...ids, type.id];
+
+    let defaultId = card.client.price_type_id;
+
+    if (defaultId !== null && !ids.includes(defaultId)) {
+      defaultId = null;
+    }
+
+    if (defaultId === null && ids.length > 0) {
+      defaultId = ids[0];
+    }
+
+    priceBusy = true;
+    actionError = '';
+    actionNotice = '';
+
+    try {
+      const result = await setUserPriceTypes(card.client.id, ids, defaultId);
+      card = {
+        ...card,
+        client: {
+          ...card.client,
+          price_type_id: result.price_type_id,
+          price_types: result.price_types
+        }
+      };
+      actionNotice = 'Типы цен обновлены';
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось обновить типы цен';
+    } finally {
+      priceBusy = false;
+    }
   }
 
   async function loadManagers(): Promise<void> {
@@ -1219,24 +1270,39 @@
         <div class="card">
           <div class="card-head">
             <h2>Типы цен</h2>
-            {#if canAssignPrices}
-              <Button variant="ghost" disabled={busy} onclick={() => (pricePickerOpen = true)}>
-                Изменить
-              </Button>
+            {#if priceBusy}
+              <Spinner size={16} />
             {/if}
           </div>
           {#if !pricesEnabled}
             <p class="empty">Типы цен отключены в настройках</p>
-          {:else if card.client.price_types.length === 0}
-            <p class="empty">Не назначены — клиент видит базовые цены</p>
+          {:else if priceTypesLoading && priceTypes.length === 0}
+            <div class="price-loading"><Spinner size={18} /></div>
+          {:else if priceTypes.length === 0}
+            <p class="empty">Типы цен не настроены</p>
           {:else}
-            <div class="chips">
-              {#each card.client.price_types as type (type.id)}
-                <span class="chip" class:on={type.is_default}>
-                  {type.title}{#if type.is_default} · по умолчанию{/if}
-                </span>
+            <div class="price-toggles">
+              {#each priceTypes as type (type.id)}
+                {@const on = card.client.price_types.some((item) => item.id === type.id)}
+                <button
+                  type="button"
+                  class="price-toggle"
+                  class:on
+                  disabled={!canAssignPrices || priceBusy}
+                  aria-pressed={on}
+                  title={on ? 'Доступен клиенту — нажмите, чтобы выключить' : 'Недоступен — нажмите, чтобы включить'}
+                  onclick={() => void togglePriceType(type)}
+                >
+                  {type.title}
+                  {#if on && type.id === card.client.price_type_id}
+                    <span class="price-default">по умолчанию</span>
+                  {/if}
+                </button>
               {/each}
             </div>
+            {#if !canAssignPrices}
+              <p class="hint">Недостаточно прав для изменения типов цен.</p>
+            {/if}
           {/if}
         </div>
 
@@ -1607,14 +1673,6 @@
       </div>
     </Modal>
 
-    <PriceTypesPicker
-      open={pricePickerOpen}
-      userId={card.client.id}
-      userName={card.client.name}
-      assigned={card.client.price_types}
-      onclose={() => (pricePickerOpen = false)}
-      onsaved={onPriceTypesSaved}
-    />
   {/if}
 </section>
 
@@ -2111,25 +2169,54 @@
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 
-  .chips {
+  .price-toggles {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
   }
 
-  .chip {
-    padding: 2px 10px;
+  .price-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
     border: 1px solid var(--border);
     border-radius: 999px;
-    font-size: 12px;
-    color: var(--text);
     background: var(--surface);
+    font: inherit;
+    font-size: 13px;
+    color: var(--text-description);
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
   }
 
-  .chip.on {
+  .price-toggle:hover:not(:disabled) {
     border-color: var(--primary);
     color: var(--primary);
-    background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  }
+
+  .price-toggle.on {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+    color: var(--primary);
+    font-weight: 500;
+  }
+
+  .price-toggle:disabled {
+    opacity: 0.65;
+    cursor: not-allowed;
+  }
+
+  .price-default {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--muted);
+  }
+
+  .price-loading {
+    display: flex;
+    justify-content: center;
+    padding: var(--space-3);
   }
 
   .account {
