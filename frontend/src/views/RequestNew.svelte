@@ -93,13 +93,11 @@
       errors.name = 'Укажите название клиента';
     }
 
-    if (inn === '') {
-      errors.inn = 'Укажите ИНН';
-    } else if (/^\d{10}(\d{2})?$/.test(inn) === false) {
+    if (inn !== '' && /^\d{10}(\d{2})?$/.test(inn) === false) {
       errors.inn = 'ИНН — 10 или 12 цифр';
     }
 
-    if (phoneDigits.length < 10 || phoneDigits.length > 15) {
+    if (phoneDigits.length > 0 && (phoneDigits.length < 10 || phoneDigits.length > 15)) {
       errors.phone = 'Телефон — от 10 до 15 цифр';
     }
 
@@ -867,7 +865,7 @@
                   autocomplete="organization"
                 />
                 <Input
-                  label="ИНН"
+                  label="ИНН (необязательно)"
                   bind:value={newClient.inn}
                   placeholder="10 или 12 цифр"
                   error={newClientErrors.inn}
@@ -876,7 +874,7 @@
                   maxlength={12}
                 />
                 <Input
-                  label="Телефон"
+                  label="Телефон (необязательно)"
                   bind:value={newClient.phone}
                   placeholder="+7 999 000-00-00"
                   error={newClientErrors.phone}
@@ -896,9 +894,9 @@
                   autocomplete="email"
                 />
                 <p class="new-client-hint">
-                  После создания для клиента будет заведена учётная запись. Логин и пароль покажем
-                  один раз — их нужно передать клиенту. Контакты нового клиента в черновик не
-                  сохраняются.
+                  Достаточно названия — ИНН и контакты можно заполнить позже. После создания для
+                  клиента будет заведена учётная запись: логин и пароль покажем один раз, их нужно
+                  передать клиенту. Контакты нового клиента в черновик не сохраняются.
                 </p>
               </div>
             {/if}

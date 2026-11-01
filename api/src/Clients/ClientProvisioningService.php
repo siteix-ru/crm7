@@ -39,17 +39,13 @@ final class ClientProvisioningService
             throw new HttpException(422, 'validation_error', 'Название клиента слишком длинное');
         }
 
-        if ($inn === '') {
-            throw new HttpException(422, 'validation_error', 'Укажите ИНН клиента');
-        }
-
-        if (preg_match('/^(\d{10}|\d{12})$/', $inn) !== 1) {
+        if ($inn !== '' && preg_match('/^(\d{10}|\d{12})$/', $inn) !== 1) {
             throw new HttpException(422, 'validation_error', 'ИНН должен содержать 10 или 12 цифр');
         }
 
         $phoneDigits = preg_replace('/\D+/', '', $phone) ?? '';
 
-        if (strlen($phoneDigits) < 10 || strlen($phoneDigits) > 15) {
+        if ($phone !== '' && (strlen($phoneDigits) < 10 || strlen($phoneDigits) > 15)) {
             throw new HttpException(422, 'validation_error', 'Телефон должен содержать от 10 до 15 цифр');
         }
 
@@ -57,7 +53,7 @@ final class ClientProvisioningService
             throw new HttpException(422, 'validation_error', 'Неверный формат e-mail');
         }
 
-        $existing = $this->users->findActiveClientByInn($inn);
+        $existing = $inn !== '' ? $this->users->findActiveClientByInn($inn) : null;
 
         if ($existing !== null) {
             throw new HttpException(
@@ -67,7 +63,7 @@ final class ClientProvisioningService
             );
         }
 
-        if ($this->users->findAnyByPhone($phone) !== null) {
+        if ($phone !== '' && $this->users->findAnyByPhone($phone) !== null) {
             throw new HttpException(422, 'phone_taken', 'Клиент с таким телефоном уже есть в системе');
         }
 
