@@ -65,9 +65,6 @@
   let passwordResult = $state<{ login: string; password: string; emailSent: boolean; email: string | null } | null>(
     null
   );
-  let passwordVisible = $state(false);
-  let passwordSaved = $state(false);
-  let passwordCloseWarn = $state(false);
   let accessDraft = $state<'active' | 'blocked'>('active');
   let copied = $state<'' | 'login' | 'password'>('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
@@ -463,20 +460,7 @@
   }
 
   function closePasswordResult(): void {
-    if (!passwordSaved) {
-      passwordCloseWarn = true;
-
-      return;
-    }
-
-    forceClosePasswordResult();
-  }
-
-  function forceClosePasswordResult(): void {
     passwordResult = null;
-    passwordVisible = false;
-    passwordSaved = false;
-    passwordCloseWarn = false;
     copied = '';
   }
 
@@ -494,9 +478,6 @@
         emailSent: result.email_sent,
         email: result.email
       };
-      passwordVisible = false;
-      passwordSaved = false;
-      passwordCloseWarn = false;
       await load(true);
     } catch (cause) {
       passwordConfirmOpen = false;
@@ -1435,15 +1416,7 @@
         <div>
           <dt>Пароль</dt>
           <dd class="copy-row">
-            <code>{passwordVisible ? passwordResult?.password : '••••••••'}</code>
-            <button
-              type="button"
-              class="copy-btn"
-              aria-pressed={passwordVisible}
-              onclick={() => (passwordVisible = !passwordVisible)}
-            >
-              {passwordVisible ? 'Скрыть' : 'Показать'}
-            </button>
+            <code>{passwordResult?.password}</code>
             <button type="button" class="copy-btn" onclick={() => void copyText(passwordResult?.password ?? '', 'password')}>
               {copied === 'password' ? 'Скопировано' : 'Копировать'}
             </button>
@@ -1451,25 +1424,8 @@
         </div>
       </dl>
 
-      <label class="radio">
-        <input type="checkbox" bind:checked={passwordSaved} />
-        Я сохранил(а) пароль
-      </label>
-
-      {#if passwordCloseWarn}
-        <div class="alert" role="alert">
-          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-          <span>Пароль не сохранён. Если закрыть окно, посмотреть его будет нельзя.</span>
-        </div>
-      {/if}
-
       <div class="modal-actions">
-        {#if passwordCloseWarn}
-          <Button variant="ghost" onclick={() => (passwordCloseWarn = false)}>Вернуться</Button>
-          <Button variant="danger" onclick={forceClosePasswordResult}>Закрыть всё равно</Button>
-        {:else}
-          <Button disabled={!passwordSaved} onclick={closePasswordResult}>Готово</Button>
-        {/if}
+        <Button onclick={closePasswordResult}>Готово</Button>
       </div>
     </Modal>
 
