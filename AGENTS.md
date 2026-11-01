@@ -8,7 +8,7 @@ CRM для заявок клиентов: склад с ценами и корз
 
 - Фронтенд: Svelte 5 (runes) + Vite 7 + TypeScript, hash-роутинг.
 - Бэкенд: PHP 8.2+ (собственный REST API v2 без фреймворка) + MySQL/MariaDB.
-- Источник истины — этот репозиторий (GitHub `yygomail-code/crm7`, ветка `master`).
+- Источник истины — этот репозиторий (GitHub `siteix-ru/crm7`, ветка `master`).
 
 ## Структура
 

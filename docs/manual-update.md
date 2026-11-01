@@ -10,7 +10,7 @@
 | Где | Что делает |
 |---|---|
 | Локальный репозиторий | правки, `git add`, `git commit` |
-| GitHub (`yygomail-code/crm7`) | хранит коммиты; сюда идёт `git push` |
+| GitHub (`siteix-ru/crm7`) | хранит коммиты; сюда идёт `git push` |
 | Dev-сервер (`/srv/build/crm7`) | сборка образов `crm7-app` и `crm7-web` |
 | GHCR | реестр образов `ghcr.io/yygomail-code/crm7-app`, `.../crm7-web` |
 | `/srv/projects/crm7-{test,demo,k}` | окружения: `.env`, `docker-compose.yml`, тома |
@@ -171,7 +171,7 @@ git push origin master
 ```text
 Enumerating objects: 12, done.
 ...
-To https://github.com/yygomail-code/crm7.git
+To https://github.com/siteix-ru/crm7.git
    f72c6c7..1a2b3c4  master -> master
 ```
 

@@ -5,7 +5,7 @@
 дизайн-система — в [`docs/ui.md`](docs/ui.md).
 
 ## Роли и источник истины
-- **Исходный код** — GitHub: `https://github.com/yygomail-code/crm7` (ветка `master`).
+- **Исходный код** — GitHub: `https://github.com/siteix-ru/crm7` (ветка `master`).
   Это единственный источник истины. Локальные «копии-в-стороне» не ведутся.
 - **Стенд для проверки** — `test.crm7.local` (доступен **только из локальной сети** сервера).
 - Окружения: `test.crm7.local` (общий тест), `k.crm7.local` (dev клиента «Камень»),
@@ -13,7 +13,7 @@
 
 ## Первый раз
 ```bash
-git clone https://github.com/yygomail-code/crm7.git
+git clone https://github.com/siteix-ru/crm7.git
 cd crm7
 ```
 
