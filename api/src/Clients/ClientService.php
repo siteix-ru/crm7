@@ -144,7 +144,7 @@ final class ClientService
         if (($client['reg_state'] ?? 'active') === 'pending') {
             $this->requireConfirm($capabilities);
         } else {
-            $this->managers->assertCanManage($actor, $capabilities, $clientId);
+            $this->assertCanManageAccount($actor, $capabilities, $clientId);
         }
 
         $name = trim((string) ($input['name'] ?? ''));
@@ -226,6 +226,58 @@ final class ClientService
         );
 
         return ['id' => $clientId];
+    }
+
+    public function changeLogin(array $actor, array $capabilities, int $clientId, string $login): array
+    {
+        $client = $this->assertClient($clientId);
+        $this->assertCanManageAccount($actor, $capabilities, $clientId);
+
+        if (Config::demoMode()) {
+            throw new HttpException(403, 'demo_mode', 'В демо-режиме изменение логина недоступно');
+        }
+
+        $login = trim($login);
+
+        if (!preg_match('/^[A-Za-z0-9][A-Za-z0-9._@-]{2,63}$/', $login)) {
+            throw new HttpException(
+                422,
+                'validation_error',
+                'Логин — 3–64 символа: латиница, цифры, точка, дефис, подчёркивание или @'
+            );
+        }
+
+        $existing = $this->users->findAnyByLogin($login);
+
+        if ($existing !== null && (int) $existing['ID'] !== $clientId) {
+            throw new HttpException(422, 'login_taken', 'Такой логин уже занят');
+        }
+
+        $previous = (string) ($client['LOGIN'] ?? '');
+        $changed = false;
+
+        if (strcasecmp($previous, $login) !== 0) {
+            $changed = true;
+            $pdo = Database::pdo();
+            $pdo->beginTransaction();
+
+            try {
+                $this->users->updateLogin($clientId, $login);
+                $this->tokens->revokeAllForUser($clientId);
+                $this->history->add(
+                    $clientId,
+                    'login_changed',
+                    (int) $actor['ID'],
+                    'Логин: «' . $previous . '» → «' . $login . '»'
+                );
+                $pdo->commit();
+            } catch (\Throwable $exception) {
+                $pdo->rollBack();
+                throw $exception;
+            }
+        }
+
+        return ['id' => $clientId, 'login' => $login, 'changed' => $changed];
     }
 
     public function card(array $actor, array $capabilities, int $clientId): array
@@ -323,6 +375,61 @@ final class ClientService
         ];
     }
 
+    public function history(array $actor, array $capabilities, int $clientId): array
+    {
+        $this->assertClient($clientId);
+        $this->assertCanView($actor, $capabilities, $clientId);
+
+        $views = array_map(static fn (array $row): array => [
+            'id' => (int) $row['id'],
+            'action' => (string) $row['action'],
+            'user' => [
+                'id' => (int) $row['user_id'],
+                'name' => (string) $row['user_name'],
+                'level' => (int) $row['user_level'],
+            ],
+            'created_at' => (string) $row['created_at'],
+        ], $this->views->listForEntityAll('user', $clientId));
+
+        $history = array_map(static fn (array $row): array => [
+            'id' => (int) $row['id'],
+            'event' => (string) $row['event'],
+            'comment' => (string) ($row['comment'] ?? ''),
+            'actor' => $row['actor_id'] !== null
+                ? [
+                    'id' => (int) $row['actor_id'],
+                    'name' => (string) ($row['actor_name'] ?? ''),
+                    'level' => (int) ($row['actor_level'] ?? 0),
+                ]
+                : null,
+            'created_at' => (string) $row['created_at'],
+        ], $this->history->listByUser($clientId));
+
+        $requests = array_map(static fn (array $row): array => [
+            'id' => (int) $row['ID'],
+            'number' => (string) $row['number'],
+            'subject' => (string) $row['subject'],
+            'status' => [
+                'code' => (string) $row['status_id'],
+                'title' => (string) $row['status_title'],
+                'color' => (string) $row['status_color'],
+                'is_final' => (bool) $row['status_is_final'],
+            ],
+            'manager' => $row['manager_id'] !== null
+                ? ['id' => (int) $row['manager_id'], 'name' => (string) ($row['manager_name'] ?? '')]
+                : null,
+            'created_at' => (string) $row['created_at'],
+            'due_at' => $row['due_at'] !== null ? (string) $row['due_at'] : null,
+            'is_overdue' => (bool) $row['is_overdue'],
+        ], $this->requests->listForClientAll($clientId));
+
+        return [
+            'history' => $history,
+            'views' => $views,
+            'requests' => $requests,
+        ];
+    }
+
     public function interests(array $actor, array $capabilities, int $clientId, array $filters): array
     {
         $client = $this->users->findById($clientId);
@@ -338,6 +445,17 @@ final class ClientService
         $page = max(1, (int) ($filters['page'] ?? 1));
         $perPage = (int) ($filters['per_page'] ?? 20);
         $perPage = $perPage <= 0 ? 0 : max(10, min(100, $perPage));
+        $warehousesRaw = $filters['warehouses'] ?? [];
+        $warehousesRaw = is_array($warehousesRaw) ? $warehousesRaw : explode(',', (string) $warehousesRaw);
+        $warehouses = array_values(array_filter(
+            array_map(static fn ($value): string => trim((string) $value), $warehousesRaw),
+            static fn (string $value): bool => $value !== ''
+        ));
+        $listFilters = [
+            'warehouses' => $warehouses,
+            'from' => $this->dateFilterValue((string) ($filters['from'] ?? '')),
+            'to' => $this->dateFilterValue((string) ($filters['to'] ?? '')),
+        ];
 
         $items = array_map(static fn (array $row): array => [
             'name' => (string) $row['name'],
@@ -347,14 +465,32 @@ final class ClientService
             'orders' => (int) $row['orders'],
             'total_qty' => (float) $row['total_qty'],
             'last_at' => (string) $row['last_at'],
-        ], $this->requests->clientInterests($clientId, $query, $sort, $perPage, ($page - 1) * $perPage));
+        ], $this->requests->clientInterests($clientId, $query, $sort, $perPage, ($page - 1) * $perPage, $listFilters));
 
         return [
             'items' => $items,
-            'total' => $this->requests->countClientInterests($clientId, $query),
+            'total' => $this->requests->countClientInterests($clientId, $query, $listFilters),
+            'warehouses' => $this->requests->clientInterestWarehouses($clientId),
             'page' => $page,
             'per_page' => $perPage,
         ];
+    }
+
+    private function dateFilterValue(string $value): string
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return '';
+        }
+
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+
+        if ($date === false || $date->format('Y-m-d') !== $value) {
+            throw new HttpException(422, 'validation_error', 'Некорректная дата периода');
+        }
+
+        return $value;
     }
 
     private function assertPendingClient(int $clientId): array

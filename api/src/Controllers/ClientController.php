@@ -74,18 +74,37 @@ final class ClientController extends ApiController
         return Response::ok($this->service->card($user, $capabilities, (int) ($params['id'] ?? 0)));
     }
 
+    public function history(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        return Response::ok($this->service->history($user, $capabilities, (int) ($params['id'] ?? 0)));
+    }
+
     public function interests(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
 
         $sort = trim($request->queryParam('sort'));
+        $sortTerms = array_values(array_filter(
+            array_map('trim', explode(',', $sort)),
+            static fn (string $term): bool => preg_match(
+                '/^(qty|orders|last|name|warehouse)_(asc|desc)$/',
+                $term
+            ) === 1
+        ));
+        $query = $request->queryAll();
+        $warehousesRaw = $query['warehouses'] ?? [];
+        $warehouses = is_array($warehousesRaw)
+            ? $warehousesRaw
+            : explode(',', (string) $warehousesRaw);
 
         return Response::ok($this->service->interests($user, $capabilities, (int) ($params['id'] ?? 0), [
             'q' => trim($request->queryParam('q')),
-            'sort' => in_array($sort, [
-                'qty_desc', 'qty_asc', 'orders_desc', 'orders_asc',
-                'last_desc', 'last_asc', 'name_asc', 'name_desc',
-            ], true) ? $sort : 'qty_desc',
+            'sort' => $sortTerms !== [] ? implode(',', $sortTerms) : 'qty_desc',
+            'warehouses' => $warehouses,
+            'from' => trim((string) $request->queryParam('from', '')),
+            'to' => trim((string) $request->queryParam('to', '')),
             'page' => (int) $request->queryParam('page', '1'),
             'per_page' => (int) $request->queryParam('per_page', '20'),
         ]));
@@ -135,6 +154,27 @@ final class ClientController extends ApiController
         $result = $this->service->updateContacts($user, $capabilities, $clientId, $request->bodyAll());
 
         $this->audit($request, $user, 'client.update', 'user', $clientId, []);
+
+        return Response::ok($result);
+    }
+
+    public function changeLogin(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $clientId = (int) ($params['id'] ?? 0);
+
+        $result = $this->service->changeLogin(
+            $user,
+            $capabilities,
+            $clientId,
+            (string) $request->input('login', '')
+        );
+
+        if (($result['changed'] ?? false) === true) {
+            $this->audit($request, $user, 'client.login_changed', 'user', $clientId, [
+                'login' => $result['login'],
+            ]);
+        }
 
         return Response::ok($result);
     }

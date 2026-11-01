@@ -20,6 +20,7 @@
   import HolderOutlined from '@ant-design/icons-svg/es/asn/HolderOutlined';
   import ImportOutlined from '@ant-design/icons-svg/es/asn/ImportOutlined';
   import InfoCircleOutlined from '@ant-design/icons-svg/es/asn/InfoCircleOutlined';
+  import KeyOutlined from '@ant-design/icons-svg/es/asn/KeyOutlined';
   import MessageOutlined from '@ant-design/icons-svg/es/asn/MessageOutlined';
   import PieChartOutlined from '@ant-design/icons-svg/es/asn/PieChartOutlined';
   import PictureOutlined from '@ant-design/icons-svg/es/asn/PictureOutlined';
@@ -68,6 +69,7 @@
     help: QuestionCircleOutlined,
     import: ImportOutlined,
     info: InfoCircleOutlined,
+    key: KeyOutlined,
     'my-reports': PieChartOutlined,
     picture: PictureOutlined,
     search: SearchOutlined,

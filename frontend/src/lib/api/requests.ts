@@ -41,6 +41,7 @@ export interface RequestFilters {
   warehouse_ids?: number[];
   client_id?: number;
   state?: string;
+  states?: string[];
   overdue?: string[];
   from?: string;
   to?: string;
@@ -85,6 +86,9 @@ function requestParams(filters: RequestFilters): URLSearchParams {
   }
   if (filters.client_id) query.set('client_id', String(filters.client_id));
   if (filters.state) query.set('state', filters.state);
+  if (filters.states && filters.states.length > 0) {
+    query.set('states', filters.states.join(','));
+  }
   if (filters.overdue && filters.overdue.length > 0) {
     query.set('overdue', filters.overdue.join(','));
   }
@@ -99,7 +103,7 @@ export function listRequests(filters: RequestFilters = {}): Promise<RequestListR
   const query = requestParams(filters);
 
   if (filters.page && filters.page > 1) query.set('page', String(filters.page));
-  if (filters.per_page) query.set('per_page', String(filters.per_page));
+  if (filters.per_page !== undefined) query.set('per_page', String(filters.per_page));
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
 

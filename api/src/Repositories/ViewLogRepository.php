@@ -44,6 +44,21 @@ final class ViewLogRepository
         return $stmt->fetchColumn() !== false;
     }
 
+    public function listForEntityAll(string $entityType, int $entityId): array
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT v.ID AS id, v.action, v.meta, v.created_at, v.user_id,
+                    u.FULL_NAME AS user_name, u.LEVEL AS user_level
+             FROM view_log v
+             INNER JOIN users u ON u.ID = v.user_id
+             WHERE v.entity_type = ? AND v.entity_id = ?
+             ORDER BY v.ID DESC'
+        );
+        $stmt->execute([$entityType, $entityId]);
+
+        return $stmt->fetchAll() ?: [];
+    }
+
     public function listForEntity(string $entityType, int $entityId, int $limit = 30): array
     {
         $stmt = Database::pdo()->prepare(

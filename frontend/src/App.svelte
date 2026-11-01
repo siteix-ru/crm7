@@ -113,7 +113,9 @@
     {:else if route === '/clients'}
       <Clients />
     {:else if clientMatch}
-      <ClientCard id={Number(clientMatch.id)} />
+      {#key clientMatch.id}
+        <ClientCard id={Number(clientMatch.id)} />
+      {/key}
     {:else if route === '/chat'}
       <Chat />
     {:else if route === '/stocks'}

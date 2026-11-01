@@ -146,6 +146,12 @@ final class UserRepository
         ]);
     }
 
+    public function updateLogin(int $id, string $login): void
+    {
+        $stmt = Database::pdo()->prepare('UPDATE users SET LOGIN = ? WHERE ID = ?');
+        $stmt->execute([$login, $id]);
+    }
+
     public function findById(int $id): ?array
     {
         $stmt = Database::pdo()->prepare('SELECT * FROM users WHERE ID = ? LIMIT 1');

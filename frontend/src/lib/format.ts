@@ -18,7 +18,7 @@ export function formatDateTime(value: string | null | undefined): string {
   });
 }
 
-export function formatRelative(value: string | null | undefined): string {
+export function formatRelative(value: string | null | undefined, now = Date.now()): string {
   if (!value) {
     return '';
   }
@@ -29,7 +29,7 @@ export function formatRelative(value: string | null | undefined): string {
     return value;
   }
 
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  const seconds = Math.floor((now - date.getTime()) / 1000);
 
   if (seconds < 60) {
     return 'только что';

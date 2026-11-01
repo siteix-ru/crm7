@@ -144,7 +144,7 @@ const scenarios = [
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
       const card = page
         .locator('a.card[href^="#/requests/"]')
-        .filter({ hasText: /позиций: [1-9]/ })
+        .filter({ has: page.locator('.col-count', { hasText: /[1-9]/ }) })
         .first();
       await expectVisible(card, 'нет заявки с позициями в списке');
       await card.click();
@@ -197,7 +197,7 @@ const scenarios = [
       );
 
       await page.getByRole('button', { name: 'Сортировка' }).click();
-      await page.getByRole('button', { name: 'Остаток на складе: по убыванию' }).click();
+      await page.getByRole('button', { name: 'Остаток: по убыванию' }).click();
       await page.getByRole('button', { name: 'Применить' }).click();
       await expectVisible(page.locator('.levels .level').first(), 'после смены сортировки пропали строки');
     }
@@ -210,7 +210,10 @@ const scenarios = [
       await expectVisible(page.getByText('Создано за период'), 'не загрузились плитки отчёта');
 
       await page.getByRole('button', { name: 'По складам' }).click();
-      await expectVisible(page.getByText(/Топ/).first(), 'вкладка «По складам» не отрисовалась');
+      await expectVisible(
+        page.getByText('По складам — остатки и реализация').first(),
+        'вкладка «По складам» не отрисовалась'
+      );
 
       await page.getByRole('button', { name: 'Динамика' }).click();
       await expectVisible(page.getByText(/Динамика/).first(), 'вкладка «Динамика» не отрисовалась');
@@ -224,10 +227,13 @@ const scenarios = [
     role: 'manager',
     async run(page) {
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
-      await expectVisible(page.locator('.list .row').first(), 'не загрузился список заявок');
+      await expectVisible(
+        page.locator('.levels .card, .tiles .tile').first(),
+        'не загрузился список заявок'
+      );
 
-      await page.getByRole('button', { name: /^Фильтры/ }).click();
-      const dates = page.locator('.filter-form input[type="date"]');
+      await page.getByRole('button', { name: /^Вид/ }).click();
+      const dates = page.locator('.view-period input[type="date"]');
       await dates.nth(0).fill('2000-01-01');
       await dates.nth(1).fill('2000-01-31');
       await page.getByRole('button', { name: 'Применить' }).click();
@@ -244,7 +250,10 @@ const scenarios = [
       );
 
       await page.getByRole('button', { name: 'Сбросить фильтры' }).click();
-      await expectVisible(page.locator('.list .row').first(), 'после сброса фильтров список не вернулся');
+      await expectVisible(
+        page.locator('.levels .card, .tiles .tile').first(),
+        'после сброса фильтров список не вернулся'
+      );
     }
   },
   {

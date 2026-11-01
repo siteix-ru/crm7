@@ -104,6 +104,23 @@ final class RequestService
         ];
     }
 
+    private function dateFilterValue(string $value): string
+    {
+        $value = trim($value);
+
+        if ($value === '') {
+            return '';
+        }
+
+        $date = \DateTimeImmutable::createFromFormat('!Y-m-d', $value);
+
+        if ($date === false || $date->format('Y-m-d') !== $value) {
+            throw new HttpException(422, 'validation_error', 'Некорректная дата периода');
+        }
+
+        return $value;
+    }
+
     private function normalizeItems(mixed $raw): array
     {
         $items = RequestItems::normalize($raw);
@@ -354,6 +371,12 @@ final class RequestService
             static fn (string $code): bool => $code !== ''
         ));
         $state = (string) ($filters['state'] ?? '');
+        $statesRaw = $filters['states'] ?? [];
+        $statesRaw = is_array($statesRaw) ? $statesRaw : explode(',', (string) $statesRaw);
+        $states = array_values(array_intersect(
+            array_map(static fn ($value): string => trim((string) $value), $statesRaw),
+            ['open', 'closed', 'overdue']
+        ));
         $overdueRaw = $filters['overdue'] ?? [];
         $overdueRaw = is_array($overdueRaw) ? $overdueRaw : explode(',', (string) $overdueRaw);
         $overdue = array_values(array_intersect(
@@ -377,11 +400,12 @@ final class RequestService
             'manager_id' => $filters['manager_id'] ?? null,
             'client_id' => $filters['client_id'] ?? null,
             'state' => in_array($state, ['open', 'closed', 'overdue'], true) ? $state : '',
+            'states' => $states,
             'overdue' => $overdue,
             'warehouse_id' => $filters['warehouse_id'] ?? null,
             'warehouse_ids' => $warehouseIds,
-            'from' => trim((string) ($filters['from'] ?? '')),
-            'to' => trim((string) ($filters['to'] ?? '')),
+            'from' => $this->dateFilterValue((string) ($filters['from'] ?? '')),
+            'to' => $this->dateFilterValue((string) ($filters['to'] ?? '')),
             'sort' => trim((string) ($filters['sort'] ?? '')),
         ];
     }

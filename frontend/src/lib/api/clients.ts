@@ -1,5 +1,12 @@
 import { apiRequest } from './client';
-import type { ClientCard, ClientInterest, PendingClient } from './types';
+import type {
+  ClientCard,
+  ClientCardRequest,
+  ClientHistoryItem,
+  ClientInterest,
+  PendingClient,
+  ViewEntry
+} from './types';
 
 export interface RegisterPayload {
   name: string;
@@ -43,18 +50,53 @@ export function getClientCard(id: number): Promise<ClientCard> {
   return apiRequest<ClientCard>(`/clients/${id}`, { auth: true });
 }
 
+export interface ClientHistoryPayload {
+  history: ClientHistoryItem[];
+  views: ViewEntry[];
+  requests: ClientCardRequest[];
+}
+
+export function getClientHistory(id: number): Promise<ClientHistoryPayload> {
+  return apiRequest<ClientHistoryPayload>(`/clients/${id}/history`, { auth: true });
+}
+
+export interface ClientInterestFilters {
+  q?: string;
+  sort?: string;
+  page?: number;
+  perPage?: number;
+  warehouses?: string[];
+  from?: string;
+  to?: string;
+}
+
+export interface ClientInterestsResult {
+  items: ClientInterest[];
+  total: number;
+  warehouses: string[];
+  page: number;
+  per_page: number;
+}
+
 export function getClientInterests(
   id: number,
-  filters: { q?: string; sort?: string; page?: number; perPage?: number } = {}
-): Promise<{ items: ClientInterest[]; total: number; page: number; per_page: number }> {
+  filters: ClientInterestFilters = {}
+): Promise<ClientInterestsResult> {
   const params = new URLSearchParams();
 
   if (filters.q) params.set('q', filters.q);
   if (filters.sort) params.set('sort', filters.sort);
+  if (filters.warehouses && filters.warehouses.length > 0) {
+    for (const warehouse of filters.warehouses) {
+      params.append('warehouses[]', warehouse);
+    }
+  }
+  if (filters.from) params.set('from', filters.from);
+  if (filters.to) params.set('to', filters.to);
   params.set('page', String(filters.page ?? 1));
   params.set('per_page', String(filters.perPage ?? 20));
 
-  return apiRequest<{ items: ClientInterest[]; total: number; page: number; per_page: number }>(
+  return apiRequest<ClientInterestsResult>(
     `/clients/${id}/interests?${params.toString()}`,
     { auth: true }
   );
@@ -97,6 +139,14 @@ export function updateClientContacts(id: number, payload: ClientContactsPayload)
     method: 'PATCH',
     auth: true,
     body: payload
+  });
+}
+
+export function changeClientLogin(id: number, login: string): Promise<{ id: number; login: string }> {
+  return apiRequest<{ id: number; login: string }>(`/clients/${id}/login`, {
+    method: 'PATCH',
+    auth: true,
+    body: { login }
   });
 }
 

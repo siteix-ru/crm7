@@ -1,3 +1,23 @@
+<script module lang="ts">
+  let scrollLockCount = 0;
+
+  function lockBodyScroll(): void {
+    if (scrollLockCount === 0) {
+      document.body.style.overflow = 'hidden';
+    }
+
+    scrollLockCount += 1;
+  }
+
+  function unlockBodyScroll(): void {
+    scrollLockCount = Math.max(0, scrollLockCount - 1);
+
+    if (scrollLockCount === 0) {
+      document.body.style.overflow = '';
+    }
+  }
+</script>
+
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
@@ -8,6 +28,7 @@
     label?: string;
     wide?: boolean;
     closeButton?: boolean;
+    persistent?: boolean;
     bodyMinHeight?: number;
     onclose: () => void;
     children?: Snippet;
@@ -19,36 +40,122 @@
     label,
     wide = false,
     closeButton = true,
+    persistent = false,
     bodyMinHeight,
     onclose,
     children
   }: Props = $props();
 
   const hasHead = $derived(title !== '' || closeButton);
+  const titleId = `modal-title-${Math.random().toString(36).slice(2, 9)}`;
+  let dialogEl: HTMLDivElement | null = $state(null);
+  let previouslyFocused: HTMLElement | null = null;
+
+  function focusableElements(): HTMLElement[] {
+    if (dialogEl === null) {
+      return [];
+    }
+
+    return Array.from(
+      dialogEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => element.offsetParent !== null);
+  }
 
   function onKeydown(event: KeyboardEvent): void {
+    if (!open) {
+      return;
+    }
+
     if (event.key === 'Escape') {
-      onclose();
+      if (!persistent) {
+        onclose();
+      }
+
+      return;
+    }
+
+    if (event.key !== 'Tab' || dialogEl === null) {
+      return;
+    }
+
+    const elements = focusableElements();
+
+    if (elements.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = elements[0];
+    const last = elements[elements.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+
+    if (event.shiftKey) {
+      if (active === first || active === null || !dialogEl.contains(active)) {
+        event.preventDefault();
+        last.focus();
+      }
+    } else if (active === last || active === null || !dialogEl.contains(active)) {
+      event.preventDefault();
+      first.focus();
     }
   }
+
+  $effect(() => {
+    if (!open) {
+      return;
+    }
+
+    previouslyFocused = document.activeElement as HTMLElement | null;
+    lockBodyScroll();
+    const timer = setTimeout(() => {
+      const preferred =
+        dialogEl?.querySelector<HTMLElement>('[data-autofocus], [autofocus]')
+        ?? dialogEl?.querySelector<HTMLElement>(
+          'input:not([disabled]), textarea:not([disabled]), select:not([disabled])'
+        )
+        ?? focusableElements()[0];
+
+      preferred?.focus();
+    }, 0);
+
+    return () => {
+      clearTimeout(timer);
+      unlockBodyScroll();
+      previouslyFocused?.focus?.();
+    };
+  });
 </script>
 
 <svelte:window onkeydown={onKeydown} />
 
 {#if open}
   <div class="overlay">
-    <button type="button" class="backdrop" aria-label="Закрыть окно" onclick={onclose}></button>
+    {#if persistent}
+      <div class="backdrop" aria-hidden="true"></div>
+    {:else}
+      <button
+        type="button"
+        class="backdrop"
+        tabindex="-1"
+        aria-label="Закрыть окно"
+        onclick={onclose}
+      ></button>
+    {/if}
     <div
       class="dialog"
       class:wide
+      bind:this={dialogEl}
       role="dialog"
       aria-modal="true"
-      aria-label={label ?? (title !== '' ? title : 'Окно')}
+      aria-labelledby={title !== '' ? titleId : undefined}
+      aria-label={label ?? (title === '' ? 'Окно' : undefined)}
     >
       {#if hasHead}
         <div class="dialog-head" class:empty={title === ''}>
           {#if title !== ''}
-            <h2>{title}</h2>
+            <h2 id={titleId}>{title}</h2>
           {/if}
           {#if closeButton}
             <button type="button" class="close" aria-label="Закрыть" onclick={onclose}>

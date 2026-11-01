@@ -140,7 +140,7 @@
           </a>
         {/if}
         {#if showClients}
-          <a href="#/clients" class:active={path === '/clients'} title="Клиенты">
+          <a href="#/clients" class:active={path.startsWith('/clients')} title="Клиенты">
             <Icon name="clients" size={20} />
             <span class="nav-label">Клиенты</span>
           </a>
@@ -272,7 +272,7 @@
       </a>
     {/if}
     {#if showClients}
-      <a href="#/clients" class:active={path === '/clients'} title="Клиенты">
+      <a href="#/clients" class:active={path.startsWith('/clients')} title="Клиенты">
         <Icon name="clients" size={20} />
         <span class="nav-label">Клиенты</span>
       </a>

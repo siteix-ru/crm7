@@ -120,6 +120,16 @@ final class RequestRepository
         return $stmt->fetchAll() ?: [];
     }
 
+    public function listForClientAll(int $clientId): array
+    {
+        $stmt = Database::pdo()->prepare(
+            self::DETAIL_SELECT . ' WHERE r.client_id = ? ORDER BY r.ID DESC'
+        );
+        $stmt->execute([$clientId]);
+
+        return $stmt->fetchAll() ?: [];
+    }
+
     public function findBySubstitution(int $substitutionId): array
     {
         $stmt = Database::pdo()->prepare('SELECT * FROM requests WHERE substitution_id = ? ORDER BY ID ASC');
@@ -203,6 +213,31 @@ final class RequestRepository
             $where[] = 's.is_final = 1';
         } elseif ($state === 'overdue') {
             $where[] = 's.is_final = 0 AND r.due_at IS NOT NULL AND r.due_at < NOW()';
+        }
+
+        $states = is_array($filters['states'] ?? null)
+            ? array_values(array_intersect(
+                array_map(static fn ($value): string => (string) $value, $filters['states']),
+                ['open', 'closed', 'overdue']
+            ))
+            : [];
+
+        if ($states !== []) {
+            $stateConditions = [];
+
+            foreach ($states as $stateValue) {
+                if ($stateValue === 'open') {
+                    $stateConditions[] = 's.is_final = 0';
+                } elseif ($stateValue === 'closed') {
+                    $stateConditions[] = 's.is_final = 1';
+                } elseif ($stateValue === 'overdue') {
+                    $stateConditions[] = '(s.is_final = 0 AND r.due_at IS NOT NULL AND r.due_at < NOW())';
+                }
+            }
+
+            if ($stateConditions !== []) {
+                $where[] = '(' . implode(' OR ', $stateConditions) . ')';
+            }
         }
 
         $overdueValues = is_array($filters['overdue'] ?? null)
@@ -329,21 +364,44 @@ final class RequestRepository
         return $value !== false && $value !== null ? (int) $value : null;
     }
 
-    public function clientInterests(int $clientId, string $query = '', string $sort = 'qty_desc', int $limit = 20, int $offset = 0): array
-    {
+    public function clientInterests(
+        int $clientId,
+        string $query = '',
+        string $sort = 'qty_desc',
+        int $limit = 20,
+        int $offset = 0,
+        array $filters = []
+    ): array {
         $limit = $limit <= 0 ? 0 : max(1, min(100, $limit));
-        [$where, $params] = $this->interestsWhere($clientId, $query);
+        [$where, $params] = $this->interestsWhere($clientId, $query, $filters);
 
-        $order = match ($sort) {
-            'qty_asc' => 'total_qty ASC, ri.name ASC',
-            'orders_desc' => 'orders DESC, ri.name ASC',
-            'orders_asc' => 'orders ASC, ri.name ASC',
-            'last_desc' => 'last_at DESC, ri.name ASC',
-            'last_asc' => 'last_at ASC, ri.name ASC',
-            'name_asc' => 'ri.name ASC, ri.unit ASC',
-            'name_desc' => 'ri.name DESC, ri.unit DESC',
-            default => 'total_qty DESC, ri.name ASC',
-        };
+        $orderParts = [];
+
+        foreach (explode(',', $sort) as $term) {
+            $clause = match (trim($term)) {
+                'qty_asc' => 'total_qty ASC',
+                'qty_desc' => 'total_qty DESC',
+                'orders_asc' => 'orders ASC',
+                'orders_desc' => 'orders DESC',
+                'last_asc' => 'last_at ASC',
+                'last_desc' => 'last_at DESC',
+                'name_asc' => 'ri.name ASC',
+                'name_desc' => 'ri.name DESC',
+                'warehouse_asc' => 'warehouse_name ASC',
+                'warehouse_desc' => 'warehouse_name DESC',
+                default => '',
+            };
+
+            if ($clause !== '') {
+                $orderParts[] = $clause;
+            }
+        }
+
+        if ($orderParts === []) {
+            $orderParts[] = 'total_qty DESC';
+        }
+
+        $order = implode(', ', $orderParts) . ', ri.name ASC';
 
         $stmt = Database::pdo()->prepare(
             "SELECT ri.name, ri.unit,
@@ -364,9 +422,9 @@ final class RequestRepository
         return $stmt->fetchAll() ?: [];
     }
 
-    public function countClientInterests(int $clientId, string $query = ''): int
+    public function countClientInterests(int $clientId, string $query = '', array $filters = []): int
     {
-        [$where, $params] = $this->interestsWhere($clientId, $query);
+        [$where, $params] = $this->interestsWhere($clientId, $query, $filters);
 
         $stmt = Database::pdo()->prepare(
             'SELECT COUNT(*) FROM (
@@ -382,7 +440,7 @@ final class RequestRepository
         return (int) $stmt->fetchColumn();
     }
 
-    private function interestsWhere(int $clientId, string $query): array
+    private function interestsWhere(int $clientId, string $query, array $filters = []): array
     {
         $where = "r.client_id = ? AND r.status_id <> 'canceled'";
         $params = [$clientId];
@@ -392,7 +450,49 @@ final class RequestRepository
             $params[] = '%' . trim($query) . '%';
         }
 
+        $warehouses = array_values(array_filter(
+            array_map(static fn ($value): string => trim((string) $value), (array) ($filters['warehouses'] ?? [])),
+            static fn (string $value): bool => $value !== ''
+        ));
+
+        if ($warehouses !== []) {
+            $where .= ' AND ri.warehouse_name IN (' . implode(',', array_fill(0, count($warehouses), '?')) . ')';
+            foreach ($warehouses as $warehouse) {
+                $params[] = $warehouse;
+            }
+        }
+
+        $from = trim((string) ($filters['from'] ?? ''));
+        $to = trim((string) ($filters['to'] ?? ''));
+
+        if ($from !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) === 1) {
+            $where .= ' AND r.created_at >= ?';
+            $params[] = $from . ' 00:00:00';
+        }
+
+        if ($to !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) === 1) {
+            $where .= ' AND r.created_at <= ?';
+            $params[] = $to . ' 23:59:59';
+        }
+
         return [$where, $params];
+    }
+
+    public function clientInterestWarehouses(int $clientId): array
+    {
+        $stmt = Database::pdo()->prepare(
+            "SELECT DISTINCT ri.warehouse_name
+             FROM request_items ri
+             INNER JOIN requests r ON r.ID = ri.request_id
+             WHERE r.client_id = ? AND r.status_id <> 'canceled' AND ri.warehouse_name <> ''
+             ORDER BY ri.warehouse_name"
+        );
+        $stmt->execute([$clientId]);
+
+        return array_values(array_filter(
+            array_map('strval', $stmt->fetchAll(\PDO::FETCH_COLUMN)),
+            static fn (string $value): bool => $value !== ''
+        ));
     }
 
     public function statsForClient(int $clientId): array

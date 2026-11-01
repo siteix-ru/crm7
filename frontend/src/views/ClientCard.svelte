@@ -7,12 +7,15 @@
     assignClient,
     blockClient,
     cancelTransfer,
+    changeClientLogin,
     claimClient,
     declineTransfer,
     getClientCard,
+    getClientHistory,
     getClientInterests,
     rejectClient,
     resetClientPassword,
+    sendClientPasswordLink,
     transferClient,
     unblockClient,
     updateClientContacts
@@ -21,19 +24,23 @@
   import { listManagers, listRequests, requestFilters } from '../lib/api/requests';
   import type {
     ClientCard,
+    ClientCardRequest,
+    ClientHistoryItem,
     ClientInterest,
     ManagerItem,
     PriceType,
     RequestItem,
-    RequestStatus
+    RequestStatus,
+    ViewEntry
   } from '../lib/api/types';
   import { todayIso } from '../lib/period';
-  import { formatDate, formatDateTime } from '../lib/format';
+  import { formatDate, formatDateTime, formatRelative } from '../lib/format';
   import { tooltip } from '../lib/actions/tooltip';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
+  import SortDialog from '../lib/components/ui/SortDialog.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import StatusBadge from '../lib/components/StatusBadge.svelte';
@@ -53,25 +60,127 @@
   let actionError = $state('');
   let actionNotice = $state('');
   let busy = $state(false);
-  type TabId = 'summary' | 'requests' | 'interests' | 'history' | 'account';
+  type TabId = 'requests' | 'interests' | 'account';
   type ActionKind = 'approve' | 'decline' | 'block' | 'unblock';
+  type ContactField = 'name' | 'email' | 'phone' | 'company' | 'position' | 'inn';
+  type HistoryKind = 'all' | 'request' | 'account';
+  type HistoryPayload = {
+    history: ClientHistoryItem[];
+    views: ViewEntry[];
+    requests: ClientCardRequest[];
+  };
 
-  let editOpen = $state(false);
+  interface ContactFieldMeta {
+    key: ContactField;
+    label: string;
+    title: string;
+    hint: string;
+    type: 'email' | 'tel' | 'text';
+    maxlength: number;
+    inputmode?: 'numeric';
+  }
+
+  const contactFields: ReadonlyArray<ContactFieldMeta> = [
+    {
+      key: 'name',
+      label: 'Имя',
+      title: 'Изменить имя',
+      hint: 'Имя клиента или контактного лица.',
+      type: 'text',
+      maxlength: 255
+    },
+    {
+      key: 'email',
+      label: 'E-mail',
+      title: 'Изменить e-mail',
+      hint: 'На этот адрес приходят письма о доступе, сбросе пароля и заявках.',
+      type: 'email',
+      maxlength: 255
+    },
+    {
+      key: 'phone',
+      label: 'Телефон',
+      title: 'Изменить телефон',
+      hint: 'Контактный телефон для связи с клиентом.',
+      type: 'tel',
+      maxlength: 255
+    },
+    {
+      key: 'company',
+      label: 'Компания',
+      title: 'Изменить компанию',
+      hint: 'Название организации клиента.',
+      type: 'text',
+      maxlength: 255
+    },
+    {
+      key: 'position',
+      label: 'Должность',
+      title: 'Изменить должность',
+      hint: 'Должность контактного лица.',
+      type: 'text',
+      maxlength: 255
+    },
+    {
+      key: 'inn',
+      label: 'ИНН',
+      title: 'Изменить ИНН',
+      hint: '10 цифр для организации, 12 — для ИП.',
+      type: 'text',
+      maxlength: 12,
+      inputmode: 'numeric'
+    }
+  ];
+
   let priceTypes = $state<PriceType[]>([]);
   let priceTypesLoading = $state(false);
   let priceBusy = $state(false);
-  let tab = $state<TabId>('summary');
+  let helpBlock = $state<'' | 'prices' | 'access' | 'password'>('');
+  let tab = $state<TabId>('requests');
   let actionKind = $state<ActionKind | null>(null);
   let actionComment = $state('');
+  let accessBusy = $state<'' | 'active' | 'blocked'>('');
   let passwordConfirmOpen = $state(false);
+  let passwordLinkBusy = $state(false);
   let passwordResult = $state<{ login: string; password: string; emailSent: boolean; email: string | null } | null>(
     null
   );
-  let accessDraft = $state<'active' | 'blocked'>('active');
   let copied = $state<'' | 'login' | 'password'>('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
-  let editBusy = $state(false);
-  let editForm = $state({ name: '', company: '', inn: '', position: '', phone: '', email: '' });
+  let noticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  $effect(() => {
+    if (!actionNotice) {
+      return;
+    }
+
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => {
+      actionNotice = '';
+    }, 6000);
+
+    return () => clearTimeout(noticeTimer);
+  });
+
+  let clock = $state(Date.now());
+
+  $effect(() => {
+    const timer = setInterval(() => {
+      clock = Date.now();
+    }, 60000);
+
+    return () => clearInterval(timer);
+  });
+
+  let contactEditField = $state<ContactField | ''>('');
+  let contactEditValue = $state('');
+  let contactEditBusy = $state(false);
+  const activeContactField = $derived(
+    contactFields.find((field) => field.key === contactEditField) ?? null
+  );
+  let loginOpen = $state(false);
+  let loginBusy = $state(false);
+  let loginForm = $state({ login: '' });
   let managerOpen = $state(false);
   let transferOpen = $state(false);
   let managerBusy = $state(false);
@@ -84,8 +193,26 @@
   let interestsInput = $state('');
   let interestsSort = $state('qty_desc');
   let interestsLoading = $state(false);
-  let requestsState = $state<'' | 'open' | 'closed' | 'overdue'>('');
-  let requestsStatus = $state('');
+  let interestsError = $state('');
+  let interestsSeq = 0;
+  let interestWarehouseOptions = $state<string[]>([]);
+  let interestsWarehouses = $state<string[]>([]);
+  let interestsFrom = $state('');
+  let interestsTo = $state('');
+  let interestsFiltersOpen = $state(false);
+  let interestsFilterDraft = $state({
+    warehouses: [] as string[],
+    from: '',
+    to: ''
+  });
+  let interestsSortOpen = $state(false);
+  let interestsSearchTimer: ReturnType<typeof setTimeout> | undefined;
+  let requestsStates = $state<string[]>([]);
+  let requestsStatuses = $state<string[]>([]);
+  let requestsFrom = $state('');
+  let requestsTo = $state('');
+  let requestsFiltersOpen = $state(false);
+  let requestsSort = $state('created_desc');
   let requestsQuery = $state('');
   let requestsInput = $state('');
   let requestsItems = $state<RequestItem[]>([]);
@@ -93,8 +220,25 @@
   let requestsPage = $state(1);
   let requestsPerPage = $state(20);
   let requestsLoading = $state(false);
+  let requestsError = $state('');
+  let requestsSeq = 0;
+  let requestsFilterDraft = $state({
+    states: [] as string[],
+    statuses: [] as string[],
+    from: '',
+    to: ''
+  });
+  let requestsSortOpen = $state(false);
+  let historyOpen = $state(false);
+  let fullHistory = $state<HistoryPayload | null>(null);
+  let historyLoading = $state(false);
+  let historyError = $state('');
+  let historySeq = 0;
+  let historyKind = $state<HistoryKind>('all');
+  let historyQuery = $state('');
+  let historyFrom = $state('');
+  let historyTo = $state('');
   let historyPage = $state(1);
-  let historyPerPage = $state(20);
   let statuses = $state<RequestStatus[]>([]);
   let managerForm = $state({ manager_id: '', comment: '' });
   let transferForm = $state({
@@ -103,6 +247,38 @@
     date_from: '',
     date_to: '',
     comment: ''
+  });
+  let requestsSearchTimer: ReturnType<typeof setTimeout> | undefined;
+
+  $effect(() => {
+    const value = requestsInput.trim();
+
+    clearTimeout(requestsSearchTimer);
+    requestsSearchTimer = setTimeout(() => {
+      if (value !== requestsQuery) {
+        requestsQuery = value;
+        requestsPage = 1;
+        void loadRequests();
+      }
+    }, 350);
+
+    return () => clearTimeout(requestsSearchTimer);
+  });
+
+  $effect(() => {
+    const value = interestsInput.trim();
+
+    clearTimeout(interestsSearchTimer);
+    interestsSearchTimer = setTimeout(() => {
+      if (value !== interestsQuery) {
+        interestsQuery = value;
+    interestsPage = 1;
+    interestsFiltersOpen = false;
+    void loadInterests();
+      }
+    }, 350);
+
+    return () => clearTimeout(interestsSearchTimer);
   });
 
   const canConfirm = $derived(auth.can('clients.confirm'));
@@ -113,20 +289,45 @@
     card?.transfer !== null && card?.transfer !== undefined
       && ['pending', 'scheduled'].includes(card.transfer.status)
   );
-  const canStartTransfer = $derived(canManage && !transferInProgress);
+  const canStartTransfer = $derived(
+    (canManage || (card?.can.assign ?? false)) && !transferInProgress
+  );
   const canOpenAccount = $derived(
     Boolean(
       card
       && (card.can.reset_password
         || card.can.assign
         || card.can.manage
+        || card.can.claim
         || (pricesEnabled && auth.can('prices.assign')))
     )
   );
-  const displayName = $derived(card?.client.name || card?.client.company || '');
+  const canEditContacts = $derived(
+    card
+      ? card.client.reg_state === 'pending'
+        ? canConfirm
+        : card.can.access
+      : false
+  );
+  const displayName = $derived(card?.client.name || card?.client.company || `Клиент #${id}`);
   const currentAccess = $derived(card?.client.active ? 'active' : 'blocked');
-  const recentRequests = $derived(card?.requests.slice(0, 5) ?? []);
-  const topInterests = $derived(card?.interests.slice(0, 5) ?? []);
+  const accessState = $derived.by(() => {
+    if (!card) {
+      return { title: '', color: 'var(--muted)' };
+    }
+
+    if (card.client.reg_state === 'pending') {
+      return { title: 'Ожидает подтверждения', color: 'var(--warning)' };
+    }
+
+    if (card.client.reg_state === 'rejected') {
+      return { title: 'Отклонён', color: 'var(--danger)' };
+    }
+
+    return card.client.active
+      ? { title: 'Активен', color: 'var(--success)' }
+      : { title: 'Заблокирован', color: 'var(--danger)' };
+  });
   const lastPasswordReset = $derived(
     card?.history.find((item) => item.event === 'password_reset' || item.event === 'password_changed') ?? null
   );
@@ -135,6 +336,37 @@
       ? [...card.history].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
       : []
   );
+  const requestHistory = $derived(
+    [...(card?.requests ?? [])].sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    )
+  );
+  const requestsActiveFilters = $derived(
+    (requestsStates.length > 0 ? 1 : 0)
+    + (requestsStatuses.length > 0 ? 1 : 0)
+    + (requestsFrom ? 1 : 0)
+    + (requestsTo ? 1 : 0)
+  );
+
+  const requestSortFields = [
+    { field: 'created', label: 'Дата' },
+    { field: 'number', label: 'Номер' },
+    { field: 'subject', label: 'Тема' }
+  ];
+
+  const interestsActiveFilters = $derived(
+    (interestsWarehouses.length > 0 ? 1 : 0)
+    + (interestsFrom ? 1 : 0)
+    + (interestsTo ? 1 : 0)
+  );
+
+  const interestSortFields = [
+    { field: 'name', label: 'Номенклатура' },
+    { field: 'warehouse', label: 'Склад' },
+    { field: 'orders', label: 'Заказы' },
+    { field: 'qty', label: 'Количество' },
+    { field: 'last', label: 'Последний заказ' }
+  ];
 
   const eventTitles: Record<string, string> = {
     registered: 'Регистрация',
@@ -142,6 +374,7 @@
     rejected: 'Регистрация отклонена',
     password_reset: 'Сброс пароля',
     password_changed: 'Смена пароля',
+    login_changed: 'Логин изменён',
     manager_assigned: 'Назначен менеджер',
     manager_claimed: 'Менеджер взял клиента',
     manager_unassigned: 'Менеджер снят',
@@ -163,36 +396,146 @@
     consent: 'Согласие на обработку данных'
   };
 
-  const timeline = $derived(
-    card
-      ? [
-          ...card.history.map((item) => ({
-            id: `h${item.id}`,
-            title: eventTitles[item.event] ?? item.event,
-            actor: item.actor?.name ?? '',
-            comment: item.comment,
-            created_at: item.created_at
-          })),
-          ...(card.views ?? []).map((item) => ({
-            id: `v${item.id}`,
-            title: 'Открыл(а) профиль клиента',
-            actor: item.user.name,
-            comment: '',
-            created_at: item.created_at
-          }))
-        ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
-      : []
+  function eventTone(event: string): '' | 'success' | 'danger' | 'warning' {
+    if (event === 'activated' || event === 'unblocked') {
+      return 'success';
+    }
+
+    if (event === 'blocked' || event === 'rejected') {
+      return 'danger';
+    }
+
+    if (
+      event === 'password_reset'
+      || event === 'password_changed'
+      || event === 'login_changed'
+      || event === 'price_types'
+    ) {
+      return 'warning';
+    }
+
+    return '';
+  }
+
+  interface HistoryEntry {
+    id: string;
+    kind: 'account' | 'request';
+    title: string;
+    comment: string;
+    actor: string;
+    created_at: string;
+    href?: string;
+    status?: { title: string; color: string };
+  }
+
+  const historySource = $derived<HistoryPayload>(
+    fullHistory ?? {
+      history: card?.history ?? [],
+      views: card?.views ?? [],
+      requests: card?.requests ?? []
+    }
   );
+
+  const accountEntries = $derived(
+    [
+      ...historySource.history.map((item) => ({
+        id: `h${item.id}`,
+        kind: 'account' as const,
+        title: eventTitles[item.event] ?? item.event,
+        actor: item.actor?.name ?? '',
+        comment: item.comment,
+        created_at: item.created_at
+      })),
+      ...historySource.views.map((item) => ({
+        id: `v${item.id}`,
+        kind: 'account' as const,
+        title: 'Открыл(а) профиль клиента',
+        actor: item.user.name,
+        comment: '',
+        created_at: item.created_at
+      }))
+    ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)) as HistoryEntry[]
+  );
+
+  const requestEntries = $derived(
+    historySource.requests
+      .map((item) => ({
+        id: `r${item.id}`,
+        kind: 'request' as const,
+        title: `Заявка ${item.number}`,
+        comment: item.subject,
+        actor: item.manager?.name ?? '',
+        created_at: item.created_at,
+        href: `#/requests/${item.id}`,
+        status: item.status
+      }))
+      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1)) as HistoryEntry[]
+  );
+
+  const allHistoryEntries = $derived(
+    [...accountEntries, ...requestEntries].sort((a, b) =>
+      a.created_at < b.created_at ? 1 : -1
+    )
+  );
+
+  const filteredHistory = $derived.by(() => {
+    const query = historyQuery.trim().toLowerCase();
+    const from = historyFrom ? new Date(`${historyFrom}T00:00:00`).getTime() : null;
+    const to = historyTo ? new Date(`${historyTo}T23:59:59`).getTime() : null;
+
+    return allHistoryEntries.filter((item) => {
+      if (historyKind !== 'all' && item.kind !== historyKind) {
+        return false;
+      }
+
+      if (
+        query !== ''
+        && !`${item.title} ${item.comment} ${item.actor} ${item.status?.title ?? ''}`
+          .toLowerCase()
+          .includes(query)
+      ) {
+        return false;
+      }
+
+      const time = new Date(item.created_at.replace(' ', 'T')).getTime();
+
+      if (from !== null && time < from) {
+        return false;
+      }
+
+      if (to !== null && time > to) {
+        return false;
+      }
+
+      return true;
+    });
+  });
+
+  const historyPageItems = $derived(
+    filteredHistory.slice((historyPage - 1) * 50, historyPage * 50)
+  );
+
+  $effect(() => {
+    historyQuery;
+    historyKind;
+    historyFrom;
+    historyTo;
+    historyPage = 1;
+  });
+
+  $effect(() => {
+    const pages = Math.max(1, Math.ceil(filteredHistory.length / 50));
+
+    if (historyPage > pages) {
+      historyPage = pages;
+    }
+  });
 
   const stateTitles: Record<string, string> = {
     active: 'активен',
     pending: 'ожидает подтверждения',
     rejected: 'отклонён'
   };
-
-  const historyItems = $derived(
-    timeline.slice((historyPage - 1) * historyPerPage, historyPage * historyPerPage)
-  );
 
   onMount(() => {
     void load();
@@ -203,7 +546,7 @@
 
   $effect(() => {
     if (tab === 'account' && !canOpenAccount) {
-      tab = 'summary';
+      tab = 'requests';
     }
   });
 
@@ -219,48 +562,108 @@
   async function load(silent = false): Promise<void> {
     if (!silent) {
       loading = true;
+      error = '';
     }
-
-    error = '';
 
     try {
       card = await getClientCard(id);
+      fullHistory = null;
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить клиента';
+      const message = cause instanceof ApiError ? cause.message : 'Не удалось загрузить клиента';
+
+      if (!silent || card === null) {
+        error = message;
+      } else {
+        actionError = message;
+      }
     } finally {
-      loading = false;
+      if (!silent) {
+        loading = false;
+      }
     }
   }
 
   async function loadInterests(): Promise<void> {
+    const seq = ++interestsSeq;
     interestsLoading = true;
+    interestsError = '';
 
     try {
       const data = await getClientInterests(id, {
         q: interestsQuery,
         sort: interestsSort,
+        warehouses: interestsWarehouses.length > 0 ? interestsWarehouses : undefined,
+        from: interestsFrom || undefined,
+        to: interestsTo || undefined,
         page: interestsPage,
         perPage: interestsPerPage
       });
 
+      if (seq !== interestsSeq) {
+        return;
+      }
+
       interests = data.items;
       interestsTotal = data.total;
-    } catch {
-      interests = [];
-      interestsTotal = 0;
+      interestWarehouseOptions = data.warehouses;
+    } catch (cause) {
+      if (seq !== interestsSeq) {
+        return;
+      }
+
+      interestsError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить интересы';
     } finally {
-      interestsLoading = false;
+      if (seq === interestsSeq) {
+        interestsLoading = false;
+      }
     }
   }
 
-  function applyInterestsSearch(): void {
-    interestsQuery = interestsInput.trim();
+  function openInterestsFilters(): void {
+    interestsFilterDraft = {
+      warehouses: [...interestsWarehouses],
+      from: interestsFrom,
+      to: interestsTo
+    };
+    interestsFiltersOpen = true;
+  }
+
+  function resetInterestsFilters(): void {
+    interestsFilterDraft = { warehouses: [], from: '', to: '' };
+    interestsWarehouses = [];
+    interestsFrom = '';
+    interestsTo = '';
+    interestsPage = 1;
+    interestsFiltersOpen = false;
+    void loadInterests();
+  }
+
+  function resetInterestsSearchAndFilters(): void {
+    interestsInput = '';
+    interestsQuery = '';
+    interestsWarehouses = [];
+    interestsFrom = '';
+    interestsTo = '';
     interestsPage = 1;
     void loadInterests();
   }
 
-  function changeInterestsSort(): void {
+  function applyInterestsFilters(): void {
+    interestsWarehouses = [...interestsFilterDraft.warehouses];
+    interestsFrom = interestsFilterDraft.from;
+    interestsTo = interestsFilterDraft.to;
     interestsPage = 1;
+    void loadInterests();
+  }
+
+  function openInterestsSort(): void {
+    interestsSortOpen = true;
+  }
+
+  function applyInterestsSort(terms: string[]): void {
+    interestsSort = terms.length > 0 ? terms.join(',') : 'qty_desc';
+    interestsPage = 1;
+    interestsSortOpen = false;
     void loadInterests();
   }
 
@@ -276,36 +679,40 @@
   }
 
   async function loadRequests(): Promise<void> {
+    const seq = ++requestsSeq;
     requestsLoading = true;
+    requestsError = '';
 
     try {
       const data = await listRequests({
         client_id: id,
-        state: requestsState || undefined,
-        status: requestsStatus || undefined,
+        states: requestsStates.length > 0 ? requestsStates : undefined,
+        statuses: requestsStatuses.length > 0 ? requestsStatuses : undefined,
+        from: requestsFrom || undefined,
+        to: requestsTo || undefined,
+        sort: requestsSort || undefined,
         q: requestsQuery || undefined,
         page: requestsPage,
         per_page: requestsPerPage
       });
 
+      if (seq !== requestsSeq) {
+        return;
+      }
+
       requestsItems = data.items;
       requestsTotal = data.total;
-    } catch {
-      requestsItems = [];
-      requestsTotal = 0;
-    } finally {
-      requestsLoading = false;
-    }
-  }
+    } catch (cause) {
+      if (seq !== requestsSeq) {
+        return;
+      }
 
-  function openRequests(state: '' | 'open' | 'closed' | 'overdue'): void {
-    requestsState = state;
-    requestsStatus = '';
-    requestsQuery = '';
-    requestsInput = '';
-    requestsPage = 1;
-    tab = 'requests';
-    void loadRequests();
+      requestsError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить заявки';
+    } finally {
+      if (seq === requestsSeq) {
+        requestsLoading = false;
+      }
+    }
   }
 
   function showTab(next: TabId): void {
@@ -330,21 +737,56 @@
     return ((parts[0][0] ?? '') + (parts.length > 1 ? parts[1][0] ?? '' : '')).toUpperCase();
   }
 
-  function changeRequestsState(value: string): void {
-    requestsState = value as '' | 'open' | 'closed' | 'overdue';
+  function openRequestsFilters(): void {
+    requestsFilterDraft = {
+      states: [...requestsStates],
+      statuses: [...requestsStatuses],
+      from: requestsFrom,
+      to: requestsTo
+    };
+    requestsFiltersOpen = true;
+  }
+
+  function resetRequestsFilters(): void {
+    requestsFilterDraft = { states: [], statuses: [], from: '', to: '' };
+    requestsStates = [];
+    requestsStatuses = [];
+    requestsFrom = '';
+    requestsTo = '';
+    requestsPage = 1;
+    requestsFiltersOpen = false;
+    void loadRequests();
+  }
+
+  function resetRequestsSearchAndFilters(): void {
+    requestsInput = '';
+    requestsQuery = '';
+    requestsStates = [];
+    requestsStatuses = [];
+    requestsFrom = '';
+    requestsTo = '';
     requestsPage = 1;
     void loadRequests();
   }
 
-  function changeRequestsStatus(value: string): void {
-    requestsStatus = value;
+  function applyRequestsFilters(): void {
+    requestsStates = [...requestsFilterDraft.states];
+    requestsStatuses = [...requestsFilterDraft.statuses];
+    requestsFrom = requestsFilterDraft.from;
+    requestsTo = requestsFilterDraft.to;
     requestsPage = 1;
+    requestsFiltersOpen = false;
     void loadRequests();
   }
 
-  function applyRequestsSearch(): void {
-    requestsQuery = requestsInput.trim();
+  function openRequestsSort(): void {
+    requestsSortOpen = true;
+  }
+
+  function applyRequestsSort(terms: string[]): void {
+    requestsSort = terms.length > 0 ? terms.join(',') : 'created_desc';
     requestsPage = 1;
+    requestsSortOpen = false;
     void loadRequests();
   }
 
@@ -359,13 +801,43 @@
     void loadRequests();
   }
 
-  function changeHistoryPage(next: number): void {
-    historyPage = next;
+  async function openHistory(kind: HistoryKind): Promise<void> {
+    historyKind = kind;
+    historyQuery = '';
+    historyFrom = '';
+    historyTo = '';
+    historyPage = 1;
+    historyOpen = true;
+
+    if (fullHistory === null) {
+      await loadFullHistory();
+    }
   }
 
-  function changeHistoryPerPage(value: number): void {
-    historyPerPage = value;
-    historyPage = 1;
+  async function loadFullHistory(): Promise<void> {
+    const seq = ++historySeq;
+    historyLoading = true;
+    historyError = '';
+
+    try {
+      const data = await getClientHistory(id);
+
+      if (seq !== historySeq) {
+        return;
+      }
+
+      fullHistory = data;
+    } catch (cause) {
+      if (seq !== historySeq) {
+        return;
+      }
+
+      historyError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить историю';
+    } finally {
+      if (seq === historySeq) {
+        historyLoading = false;
+      }
+    }
   }
 
   async function runAction<T>(action: () => Promise<T>, notice: string): Promise<T | null> {
@@ -392,6 +864,7 @@
     actionKind = kind;
     actionComment = '';
     actionError = '';
+    actionNotice = '';
   }
 
   function closeAction(): void {
@@ -399,19 +872,27 @@
       return;
     }
 
-    if (actionKind === 'block' || actionKind === 'unblock') {
-      accessDraft = currentAccess;
-    }
-
     actionKind = null;
   }
 
-  function applyAccess(): void {
-    if (accessDraft === currentAccess) {
+  async function setAccess(target: 'active' | 'blocked'): Promise<void> {
+    if (busy || target === currentAccess) {
       return;
     }
 
-    openAction(accessDraft === 'blocked' ? 'block' : 'unblock');
+    accessBusy = target;
+
+    try {
+      if (target === 'blocked') {
+        const result = await runAction(() => blockClient(id, ''), 'Клиент заблокирован');
+        reportAccessEmail(result, 'Клиент заблокирован');
+      } else {
+        const result = await runAction(() => unblockClient(id, ''), 'Клиент активирован');
+        reportAccessEmail(result, 'Клиент активирован');
+      }
+    } finally {
+      accessBusy = '';
+    }
   }
 
   async function confirmAction(): Promise<void> {
@@ -462,6 +943,7 @@
   async function copyText(text: string, kind: 'login' | 'password'): Promise<void> {
     try {
       await navigator.clipboard.writeText(text);
+      actionError = '';
       copied = kind;
       clearTimeout(copyTimer);
       copyTimer = setTimeout(() => (copied = ''), 2000);
@@ -473,6 +955,7 @@
   function closePasswordResult(): void {
     passwordResult = null;
     copied = '';
+    actionError = '';
   }
 
   async function confirmPasswordReset(): Promise<void> {
@@ -498,12 +981,74 @@
     }
   }
 
-  function openEdit(): void {
-    if (!card) {
+  async function confirmPasswordLink(): Promise<void> {
+    passwordLinkBusy = true;
+    actionError = '';
+    actionNotice = '';
+
+    try {
+      const result = await sendClientPasswordLink(id);
+      passwordConfirmOpen = false;
+      actionNotice = `Ссылка для сброса пароля отправлена на ${result.email}`;
+      await load(true);
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось отправить ссылку';
+    } finally {
+      passwordLinkBusy = false;
+    }
+  }
+
+  function startContactEdit(field: ContactField): void {
+    if (!card || contactEditBusy) {
       return;
     }
 
-    editForm = {
+    contactEditField = field;
+    contactEditValue = card.client[field] ?? '';
+    actionError = '';
+    actionNotice = '';
+  }
+
+  function cancelContactEdit(): void {
+    if (contactEditBusy) {
+      return;
+    }
+
+    contactEditField = '';
+    contactEditValue = '';
+  }
+
+  function validateContactValue(field: ContactField, value: string): string {
+    if (field === 'name' && value.length < 2) {
+      return 'Укажите имя — минимум 2 символа';
+    }
+
+    if (field === 'email' && value !== '' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+      return 'Некорректный e-mail';
+    }
+
+    if (field === 'inn' && value !== '' && !/^\d{10}(\d{2})?$/.test(value)) {
+      return 'ИНН — 10 или 12 цифр';
+    }
+
+    return '';
+  }
+
+  async function saveContactField(): Promise<void> {
+    if (!card || contactEditField === '' || contactEditBusy) {
+      return;
+    }
+
+    const field = contactEditField;
+    const value = contactEditValue.trim();
+    const validationError = validateContactValue(field, value);
+
+    if (validationError !== '') {
+      actionError = validationError;
+      return;
+    }
+
+    const data = {
       name: card.client.name,
       company: card.client.company,
       inn: card.client.inn,
@@ -511,24 +1056,51 @@
       phone: card.client.phone,
       email: card.client.email
     };
-    actionError = '';
-    actionNotice = '';
-    editOpen = true;
-  }
-
-  async function saveEdit(): Promise<void> {
-    editBusy = true;
+    data[field] = value;
+    contactEditBusy = true;
     actionError = '';
 
     try {
-      await updateClientContacts(id, { ...editForm });
-      editOpen = false;
+      await updateClientContacts(id, data);
+      contactEditField = '';
+      contactEditValue = '';
       actionNotice = 'Контакты сохранены';
       await load(true);
     } catch (cause) {
       actionError = cause instanceof ApiError ? cause.message : 'Не удалось сохранить контакты';
     } finally {
-      editBusy = false;
+      contactEditBusy = false;
+    }
+  }
+
+  function openLoginEdit(): void {
+    if (!card) {
+      return;
+    }
+
+    loginForm = { login: card.client.login };
+    actionError = '';
+    actionNotice = '';
+    loginOpen = true;
+  }
+
+  function isValidLogin(value: string): boolean {
+    return /^[A-Za-z0-9][A-Za-z0-9._@-]{2,63}$/.test(value);
+  }
+
+  async function saveLogin(): Promise<void> {
+    loginBusy = true;
+    actionError = '';
+
+    try {
+      await changeClientLogin(id, loginForm.login.trim());
+      loginOpen = false;
+      actionNotice = 'Логин изменён';
+      await load(true);
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить логин';
+    } finally {
+      loginBusy = false;
     }
   }
 
@@ -574,6 +1146,43 @@
       actionNotice = 'Типы цен обновлены';
     } catch (cause) {
       actionError = cause instanceof ApiError ? cause.message : 'Не удалось обновить типы цен';
+    } finally {
+      priceBusy = false;
+    }
+  }
+
+  async function setAllPriceTypes(enabled: boolean): Promise<void> {
+    if (!card || !canAssignPrices || priceBusy) {
+      return;
+    }
+
+    const current = card.client.price_types.map((item) => item.id);
+    const ids = enabled ? priceTypes.map((type) => type.id) : [];
+
+    if (enabled && priceTypes.every((type) => current.includes(type.id))) {
+      return;
+    }
+
+    if (!enabled && current.length === 0) {
+      return;
+    }
+
+    priceBusy = true;
+    actionError = '';
+    actionNotice = '';
+
+    try {
+      const result = await setUserPriceTypes(card.client.id, ids);
+      card = {
+        ...card,
+        client: {
+          ...card.client,
+          price_types: result.price_types
+        }
+      };
+      actionNotice = enabled ? 'Все типы цен включены' : 'Все типы цен выключены';
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить типы цен';
     } finally {
       priceBusy = false;
     }
@@ -695,29 +1304,10 @@
   <div class="head">
     <Button variant="ghost" onclick={() => router.navigate('/clients')}>← Клиенты</Button>
 
-    {#if card}
+    {#if card && card.client.reg_state === 'pending' && canConfirm}
       <div class="head-actions">
-        {#if card.client.reg_state === 'pending'}
-          {#if canConfirm}
-            <Button variant="ghost" disabled={busy} onclick={() => openAction('decline')}>Отклонить</Button>
-            <Button loading={busy} onclick={() => openAction('approve')}>Подтвердить регистрацию</Button>
-          {/if}
-        {:else}
-          {#if card.can.claim}
-            <Button loading={busy} onclick={() => void claimSelf()}>Взять себе</Button>
-          {/if}
-          {#if canManage}
-            <Button variant="ghost" disabled={busy} onclick={openEdit}>Редактировать</Button>
-            {#if canStartTransfer}
-              <Button variant="ghost" disabled={busy} onclick={openTransfer}>Передать</Button>
-            {/if}
-            {#if card.client.active}
-              <Button variant="danger" disabled={busy} onclick={() => openAction('block')}>Заблокировать</Button>
-            {:else}
-              <Button variant="ghost" disabled={busy} onclick={() => openAction('unblock')}>Разблокировать</Button>
-            {/if}
-          {/if}
-        {/if}
+        <Button variant="ghost" disabled={busy} onclick={() => openAction('decline')}>Отклонить</Button>
+        <Button loading={busy} onclick={() => openAction('approve')}>Подтвердить регистрацию</Button>
       </div>
     {/if}
   </div>
@@ -725,13 +1315,29 @@
   {#if actionError}
     <div class="alert" role="alert">
       <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-      <span>{actionError}</span>
+      <span class="notify-text">{actionError}</span>
+      <button
+        type="button"
+        class="notify-close"
+        aria-label="Закрыть уведомление"
+        onclick={() => (actionError = '')}
+      >
+        <Icon name="close" size={14} />
+      </button>
     </div>
   {/if}
   {#if actionNotice}
     <div class="notice">
       <span class="notice-icon"><Icon name="check-circle" size={16} /></span>
-      <span>{actionNotice}</span>
+      <span class="notify-text">{actionNotice}</span>
+      <button
+        type="button"
+        class="notify-close"
+        aria-label="Закрыть уведомление"
+        onclick={() => (actionNotice = '')}
+      >
+        <Icon name="close" size={14} />
+      </button>
     </div>
   {/if}
 
@@ -746,6 +1352,53 @@
     <div class="hero">
       <span class="avatar" aria-hidden="true">{initials(displayName)}</span>
       <h1>{displayName}</h1>
+
+      <div class="hero-tabs" role="tablist" aria-label="Разделы клиента">
+        <button
+          type="button"
+          class="hero-tab"
+          class:active={tab === 'requests'}
+          role="tab"
+          aria-selected={tab === 'requests'}
+          title={card.stats.open > 0 ? `Заявки, открытых: ${card.stats.open}` : 'Заявки'}
+          aria-label={card.stats.open > 0 ? `Заявки, открытых: ${card.stats.open}` : 'Заявки'}
+          onclick={() => showTab('requests')}
+        >
+          <Icon name="requests" size={18} />
+          {#if card.stats.open > 0}
+            <span class="tab-count">{card.stats.open > 99 ? '99+' : card.stats.open}</span>
+          {/if}
+        </button>
+        <button
+          type="button"
+          class="hero-tab"
+          class:active={tab === 'interests'}
+          role="tab"
+          aria-selected={tab === 'interests'}
+          title={interestsTotal > 0 ? `Интересы, позиций: ${interestsTotal}` : 'Интересы'}
+          aria-label={interestsTotal > 0 ? `Интересы, позиций: ${interestsTotal}` : 'Интересы'}
+          onclick={() => showTab('interests')}
+        >
+          <Icon name="tags" size={18} />
+          {#if interestsTotal > 0}
+            <span class="tab-count muted">{interestsTotal > 99 ? '99+' : interestsTotal}</span>
+          {/if}
+        </button>
+        {#if canOpenAccount}
+          <button
+            type="button"
+            class="hero-tab"
+            class:active={tab === 'account'}
+            role="tab"
+            aria-selected={tab === 'account'}
+            title="Учётная запись"
+            aria-label="Учётная запись"
+            onclick={() => showTab('account')}
+          >
+            <Icon name="settings" size={18} />
+          </button>
+        {/if}
+      </div>
 
       <div class="hero-status">
         <span class="state" class:on={card.client.reg_state === 'active' && card.client.active}>
@@ -800,242 +1453,76 @@
       </div>
     {/if}
 
-    <div class="card-tabs tab-scroll">
-      <button
-        type="button"
-        class="card-tab"
-        class:active={tab === 'summary'}
-        onclick={() => showTab('summary')}
-      >
-        Сводная
-      </button>
-      <button
-        type="button"
-        class="card-tab"
-        class:active={tab === 'requests'}
-        onclick={() => showTab('requests')}
-      >
-        Заявки{#if card.stats.open > 0}<span class="tab-count">{card.stats.open}</span>{/if}
-      </button>
-      <button
-        type="button"
-        class="card-tab"
-        class:active={tab === 'interests'}
-        onclick={() => showTab('interests')}
-      >
-        Интересы{#if interestsTotal > 0}<span class="tab-count muted">{interestsTotal}</span>{/if}
-      </button>
-      <button
-        type="button"
-        class="card-tab"
-        class:active={tab === 'history'}
-        onclick={() => showTab('history')}
-      >
-        История
-      </button>
-      {#if canOpenAccount}
-        <button
-          type="button"
-          class="card-tab"
-          class:active={tab === 'account'}
-          onclick={() => showTab('account')}
-        >
-          Учётная запись
-        </button>
-      {/if}
-    </div>
-
-    {#if tab === 'summary'}
-      <div class="summary">
-        <div class="summary-col">
-          <div class="card">
-            <div class="card-head">
-              <h2>Контакты</h2>
-              {#if canManage}
-                <Button variant="ghost" onclick={openEdit}>Изменить</Button>
-              {/if}
-            </div>
-            <dl class="contacts">
-              <div><dt>E-mail</dt><dd>{card.client.email || '—'}</dd></div>
-              <div><dt>Телефон</dt><dd>{card.client.phone || '—'}</dd></div>
-              <div><dt>Компания</dt><dd>{card.client.company || '—'}</dd></div>
-              <div><dt>Должность</dt><dd>{card.client.position || '—'}</dd></div>
-              <div><dt>ИНН</dt><dd>{card.client.inn || '—'}</dd></div>
-            </dl>
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <h2>Последние заявки</h2>
-              <button type="button" class="link-btn" onclick={() => showTab('requests')}>
-                Все заявки →
-              </button>
-            </div>
-            {#if recentRequests.length === 0}
-              <p class="empty">У клиента пока нет заявок</p>
-            {:else}
-              <div class="mini-list">
-                {#each recentRequests as item (item.id)}
-                  <a class="mini-row" href={`#/requests/${item.id}`}>
-                    <span class="mini-main">
-                      <span class="mini-title">{item.subject}</span>
-                      <span class="mini-sub">{item.number} · {formatDateTime(item.created_at)}</span>
-                    </span>
-                    <StatusBadge title={item.status.title} color={item.status.color} />
-                  </a>
-                {/each}
-              </div>
-            {/if}
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <h2>Интересы</h2>
-              <button type="button" class="link-btn" onclick={() => showTab('interests')}>
-                Все интересы →
-              </button>
-            </div>
-            {#if topInterests.length === 0}
-              <p class="empty">Интерес появится после первой заявки</p>
-            {:else}
-              <div class="mini-list">
-                {#each topInterests as item (item.name + '|' + item.unit)}
-                  <div class="mini-row">
-                    <span class="mini-main">
-                      <span class="mini-title">{item.name}</span>
-                      <span class="mini-sub">{item.warehouse_name || '—'} · заказов: {item.orders}</span>
-                    </span>
-                    <span class="mini-qty">{item.total_qty}</span>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-          </div>
-        </div>
-
-        <div class="summary-col">
-          <div class="card">
-            <h2>Статистика</h2>
-            <div class="tiles">
-              <button type="button" class="tile" onclick={() => openRequests('')}>
-                <span class="value">{card.stats.total}</span><span class="label">всего заявок</span>
-              </button>
-              <button type="button" class="tile" onclick={() => openRequests('open')}>
-                <span class="value">{card.stats.open}</span><span class="label">открыто</span>
-              </button>
-              <button type="button" class="tile" onclick={() => openRequests('closed')}>
-                <span class="value">{card.stats.closed}</span><span class="label">закрыто</span>
-              </button>
-              <button type="button" class="tile" onclick={() => openRequests('overdue')}>
-                <span class="value warn">{card.stats.overdue}</span><span class="label">просрочено</span>
-              </button>
-            </div>
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <h2>Менеджер</h2>
-              {#if canOpenAccount}
-                <button type="button" class="link-btn" onclick={() => showTab('account')}>
-                  Управление →
-                </button>
-              {/if}
-            </div>
-            {#if card.manager}
-              <div class="manager-box">
-                <a class="manager-name link" href={`#/users/${card.manager.id}`}>{card.manager.name}</a>
-                {#if card.manager.assigned_at}
-                  <span class="mini-sub">с {formatDate(card.manager.assigned_at)}</span>
-                {/if}
-                {#if card.manager.assigned_by}
-                  <span class="mini-sub">назначил(а): {card.manager.assigned_by.name}</span>
-                {/if}
-                {#if card.manager.temporary_until}
-                  <span class="state transfer-chip">
-                    временно до {formatDate(card.manager.temporary_until)}
-                  </span>
-                {/if}
-              </div>
-            {:else}
-              <p class="empty">Менеджер не назначен</p>
-            {/if}
-          </div>
-
-          <div class="card">
-            <div class="card-head">
-              <h2>Учётная запись</h2>
-              {#if canOpenAccount}
-                <button type="button" class="link-btn" onclick={() => showTab('account')}>
-                  Открыть →
-                </button>
-              {/if}
-            </div>
-            <dl class="contacts compact">
-              <div><dt>Регистрация</dt><dd>{formatDateTime(card.client.registered_at)}</dd></div>
-              <div>
-                <dt>Последняя активность</dt>
-                <dd>{card.client.last_seen_at ? formatDateTime(card.client.last_seen_at) : '—'}</dd>
-              </div>
-              {#if pricesEnabled}
-                <div>
-                  <dt>Типы цен</dt>
-                  <dd>
-                    {#if card.client.price_types.length > 0}
-                      {card.client.price_types.map((type) => type.title).join(', ')}
-                    {:else}
-                      —
-                    {/if}
-                  </dd>
-                </div>
-              {/if}
-            </dl>
-          </div>
-        </div>
-      </div>
-    {/if}
-
     {#if tab === 'interests'}
       <div class="card">
         <h2>Целевой интерес к номенклатуре</h2>
       <p class="hint">Что клиент заказывал — для будущих целевых продаж (без отменённых заявок)</p>
 
       <div class="block-toolbar">
-        <form
-          class="search"
-          onsubmit={(event) => {
-            event.preventDefault();
-            applyInterestsSearch();
-          }}
-        >
+        <div class="search">
           <SearchInput
             bind:value={interestsInput}
             historyKey="client-interests"
             placeholder="Поиск номенклатуры"
-            onclear={applyInterestsSearch}
-            onpick={applyInterestsSearch}
           />
-          <Button type="submit" variant="ghost">Найти</Button>
-        </form>
+        </div>
 
-        <select bind:value={interestsSort} onchange={changeInterestsSort}>
-          <option value="qty_desc">Количество: по убыванию</option>
-          <option value="qty_asc">Количество: по возрастанию</option>
-          <option value="orders_desc">Заказов: больше</option>
-          <option value="orders_asc">Заказов: меньше</option>
-          <option value="last_desc">Последний заказ: новые</option>
-          <option value="last_asc">Последний заказ: старые</option>
-          <option value="name_asc">Название: А–Я</option>
-          <option value="name_desc">Название: Я–А</option>
-        </select>
+        <button
+          type="button"
+          class="toolbar-btn"
+          class:active={interestsActiveFilters > 0}
+          title="Фильтры"
+          aria-label={interestsActiveFilters > 0
+            ? `Фильтры, активно: ${interestsActiveFilters}`
+            : 'Фильтры'}
+          onclick={openInterestsFilters}
+        >
+          <Icon name="filter" size={16} />
+          {#if interestsActiveFilters > 0}
+            <span class="filter-badge">{interestsActiveFilters}</span>
+          {/if}
+        </button>
+
+        <button
+          type="button"
+          class="toolbar-btn"
+          class:active={interestsSort !== 'qty_desc'}
+          title="Сортировка"
+          aria-label="Сортировка"
+          onclick={openInterestsSort}
+        >
+          <Icon name="sort" size={16} />
+        </button>
       </div>
+
+      {#if interestsError}
+        <div class="list-error">
+          <span>{interestsError}</span>
+          <Button size="sm" variant="ghost" onclick={() => void loadInterests()}>
+            Повторить
+          </Button>
+        </div>
+      {/if}
 
       {#if interestsLoading && interests.length === 0}
         <div class="center"><Spinner size={22} /></div>
-      {:else if interests.length === 0}
-        <p class="empty">{interestsQuery ? 'Ничего не найдено' : 'Номенклатуры пока нет'}</p>
+      {:else if interests.length === 0 && !interestsError}
+        <div class="empty-state">
+          <p class="empty">
+            {interestsQuery || interestsActiveFilters > 0
+              ? 'Ничего не найдено'
+              : 'Номенклатуры пока нет'}
+          </p>
+          {#if interestsQuery || interestsActiveFilters > 0}
+            <Button size="sm" variant="ghost" onclick={resetInterestsSearchAndFilters}>
+              Сбросить поиск и фильтры
+            </Button>
+          {/if}
+        </div>
       {:else}
-        <div class="interests">
-          <div class="tr th">
+        <div class="table-scroll">
+          <div class="interests">
+            <div class="tr th">
             <span>Номенклатура</span>
             <span>Склад</span>
             <span class="num">Заказов</span>
@@ -1051,6 +1538,7 @@
               <span>{formatDateTime(item.last_at)}</span>
             </div>
           {/each}
+          </div>
         </div>
 
         <div class="pager-wrap">
@@ -1067,115 +1555,136 @@
       </div>
     {/if}
 
-    {#if tab === 'history'}
-      <div class="card">
-        <h2>История</h2>
-        {#if timeline.length === 0}
-          <p class="empty">Событий нет</p>
-        {:else}
-          <ol class="timeline">
-            {#each historyItems as item (item.id)}
-              <li>
-                <div class="event">{item.title}</div>
-                <div class="when">
-                  {formatDateTime(item.created_at)}
-                  {#if item.actor}· {item.actor}{/if}
-                </div>
-                {#if item.comment}<div class="comment">{item.comment}</div>{/if}
-              </li>
-            {/each}
-          </ol>
-
-          <div class="pager-wrap">
-            <Pager
-              page={historyPage}
-              perPage={historyPerPage}
-              total={timeline.length}
-              onchange={changeHistoryPage}
-              onperpage={changeHistoryPerPage}
-            />
-          </div>
-        {/if}
-      </div>
-    {/if}
-
     {#if tab === 'requests'}
-      <div class="card">
-        <h2>Заявки клиента</h2>
-        <div class="block-toolbar">
-        <form
-          class="search"
-          onsubmit={(event) => {
-            event.preventDefault();
-            applyRequestsSearch();
-          }}
-        >
-          <SearchInput
-            bind:value={requestsInput}
-            historyKey="client-requests"
-            placeholder="Номер, тема, текст"
-            onclear={applyRequestsSearch}
-            onpick={applyRequestsSearch}
-          />
-          <Button type="submit" variant="ghost">Найти</Button>
-        </form>
-
-        <select
-          value={requestsState}
-          onchange={(event) => changeRequestsState(event.currentTarget.value)}
-        >
-          <option value="">Все состояния</option>
-          <option value="open">Открыто ({card.stats.open})</option>
-          <option value="closed">Закрыто ({card.stats.closed})</option>
-          <option value="overdue">Просрочено ({card.stats.overdue})</option>
-        </select>
-
-        <select
-          value={requestsStatus}
-          onchange={(event) => changeRequestsStatus(event.currentTarget.value)}
-        >
-          <option value="">Все статусы</option>
-          {#each statuses as status (status.code)}
-            <option value={status.code}>
-              {status.title} ({card.stats.by_status[status.code] ?? 0})
-            </option>
-          {/each}
-        </select>
-      </div>
-
-      {#if requestsLoading && requestsItems.length === 0}
-        <div class="center"><Spinner size={22} /></div>
-      {:else if requestsItems.length === 0}
-        <p class="empty">Заявок нет</p>
-      {:else}
-        <div class="requests">
-          {#each requestsItems as item (item.id)}
-            <a class="request" href={`#/requests/${item.id}`}>
-              <div class="line">
-                <span class="number">{item.number}</span>
-                <StatusBadge title={item.status.title} color={item.status.color} />
-                {#if item.is_overdue}<span class="overdue">просрочена</span>{/if}
+      <div class="requests-layout">
+        <div class="requests-main">
+          <div class="card">
+            <div class="card-head">
+              <h2>Заявки клиента</h2>
+            </div>
+            <div class="block-toolbar">
+              <div class="search">
+                <SearchInput
+                  bind:value={requestsInput}
+                  historyKey="client-requests"
+                  placeholder="Номер, тема, текст"
+                />
               </div>
-              <div class="subject">{item.subject}</div>
-              <div class="when">
-                {formatDateTime(item.created_at)}
-                {#if item.manager}· менеджер: {item.manager.name}{/if}
+
+              <button
+                type="button"
+                class="toolbar-btn"
+                class:active={requestsActiveFilters > 0}
+                title="Фильтры"
+                aria-label={requestsActiveFilters > 0
+                  ? `Фильтры, активно: ${requestsActiveFilters}`
+                  : 'Фильтры'}
+                onclick={openRequestsFilters}
+              >
+                <Icon name="filter" size={16} />
+                {#if requestsActiveFilters > 0}
+                  <span class="filter-badge">{requestsActiveFilters}</span>
+                {/if}
+              </button>
+
+              <button
+                type="button"
+                class="toolbar-btn"
+                class:active={requestsSort !== 'created_desc'}
+                title="Сортировка"
+                aria-label="Сортировка"
+                onclick={openRequestsSort}
+              >
+                <Icon name="sort" size={16} />
+              </button>
+            </div>
+
+            {#if requestsError}
+              <div class="list-error">
+                <span>{requestsError}</span>
+                <Button size="sm" variant="ghost" onclick={() => void loadRequests()}>
+                  Повторить
+                </Button>
               </div>
-            </a>
-          {/each}
+            {/if}
+
+            {#if requestsLoading && requestsItems.length === 0}
+              <div class="center"><Spinner size={22} /></div>
+            {:else if requestsItems.length === 0 && !requestsError}
+              <div class="empty-state">
+                <p class="empty">
+                  {requestsQuery || requestsActiveFilters > 0 ? 'Ничего не найдено' : 'Заявок нет'}
+                </p>
+                {#if requestsQuery || requestsActiveFilters > 0}
+                  <Button size="sm" variant="ghost" onclick={resetRequestsSearchAndFilters}>
+                    Сбросить поиск и фильтры
+                  </Button>
+                {/if}
+              </div>
+            {:else}
+              <div class="requests">
+                {#each requestsItems as item (item.id)}
+                  <a class="request" href={`#/requests/${item.id}`}>
+                    <div class="line">
+                      <span class="number">{item.number}</span>
+                      <StatusBadge title={item.status.title} color={item.status.color} />
+                      {#if item.is_overdue}<span class="overdue">просрочена</span>{/if}
+                    </div>
+                    <div class="subject">{item.subject}</div>
+                    <div class="when">
+                      {formatDateTime(item.created_at)}
+                      {#if item.manager}· менеджер: {item.manager.name}{/if}
+                    </div>
+                  </a>
+                {/each}
+              </div>
+
+              <div class="pager-wrap">
+                <Pager
+                  page={requestsPage}
+                  perPage={requestsPerPage}
+                  total={requestsTotal}
+                  loading={requestsLoading}
+                  onchange={changeRequestsPage}
+                  onperpage={changeRequestsPerPage}
+                />
+              </div>
+            {/if}
+          </div>
         </div>
 
-        <div class="pager-wrap">
-          <Pager
-            page={requestsPage}
-            perPage={requestsPerPage}
-            total={requestsTotal}
-            loading={requestsLoading}
-            onchange={changeRequestsPage}
-            onperpage={changeRequestsPerPage}
-          />
+        <div class="requests-side">
+          <div class="card">
+            <div class="card-head">
+              <h2>Последние заявки</h2>
+              {#if requestHistory.length > 0}
+                <button type="button" class="link-btn" onclick={() => openHistory('request')}>
+                  Вся история →
+                </button>
+              {/if}
+            </div>
+            {#if requestHistory.length === 0}
+              <p class="empty">Заявок нет</p>
+            {:else}
+              <div class="request-history">
+                {#each requestHistory.slice(0, 5) as item (item.id)}
+                  <a class="history-row" href={`#/requests/${item.id}`}>
+                    <div class="history-top">
+                      <span class="history-number">{item.number}</span>
+                      <span class="history-date">{formatDate(item.created_at)}</span>
+                    </div>
+                    <div class="history-subject">{item.subject}</div>
+                    <div class="history-meta">
+                      <span class="history-dot" style:background={item.status.color}></span>
+                      <span>{item.status.title}</span>
+                      {#if item.is_overdue}<span class="overdue">просрочена</span>{/if}
+                    </div>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+          </div>
         </div>
-      {/if}
       </div>
     {/if}
 
@@ -1183,84 +1692,212 @@
       <div class="account">
         <div class="account-main">
         <div class="card">
-          <h2>Вход в кабинет</h2>
-          <dl class="contacts">
-            <div>
-              <dt>Логин</dt>
-              <dd class="copy-row">
-                <code>{card.client.login}</code>
-                <button
-                  type="button"
-                  class="copy-btn"
-                  onclick={() => void copyText(card!.client.login, 'login')}
-                >
-                  {copied === 'login' ? 'Скопировано' : 'Копировать'}
-                </button>
-              </dd>
+          <div class="card-head">
+            <div class="card-head-tools">
+              <h2>Доступ</h2>
+              <StatusBadge title={accessState.title} color={accessState.color} />
             </div>
-            <div><dt>E-mail</dt><dd>{card.client.email || 'не указан'}</dd></div>
-            <div>
-              <dt>Статус</dt>
-              <dd>
-                {#if card.client.reg_state === 'active' && !card.client.active}
-                  заблокирован
+            <button
+              type="button"
+              class="help-btn"
+              class:active={helpBlock === 'access'}
+              aria-label="Подсказка по доступу"
+              aria-expanded={helpBlock === 'access'}
+              onclick={() => (helpBlock = helpBlock === 'access' ? '' : 'access')}
+            >
+              <Icon name="help" size={16} />
+            </button>
+          </div>
+          {#if helpBlock === 'access'}
+            <div class="block-help" role="note">
+              <p>
+                {#if card.client.reg_state === 'pending'}
+                  Регистрация ожидает подтверждения — доступ появится после подтверждения.
+                {:else if card.client.reg_state === 'rejected'}
+                  Регистрация отклонена — доступ к кабинету закрыт.
+                {:else if card.client.active}
+                  Клиент может входить в кабинет. Блокировка завершит его сеансы.
                 {:else}
-                  {stateTitles[card.client.reg_state] ?? card.client.reg_state}
+                  Доступ к кабинету заблокирован.
                 {/if}
-              </dd>
+              </p>
+              {#if card.client.email && appSettings.mailConfigured}
+                <p>После изменения клиенту придёт письмо на {card.client.email}.</p>
+              {/if}
             </div>
-            <div><dt>Регистрация</dt><dd>{formatDateTime(card.client.registered_at)}</dd></div>
-            <div>
-              <dt>Последняя активность</dt>
-              <dd>{card.client.last_seen_at ? formatDateTime(card.client.last_seen_at) : '—'}</dd>
-            </div>
-            <div>
-              <dt>Последний сброс пароля</dt>
-              <dd>
-                {#if lastPasswordReset}
-                  {formatDateTime(lastPasswordReset.created_at)}
-                  {#if lastPasswordReset.actor}· {lastPasswordReset.actor.name}{/if}
-                {:else}
-                  —
-                {/if}
-              </dd>
-            </div>
-          </dl>
+          {/if}
+          <div class="access-choice" role="group" aria-label="Доступ клиента">
+            <button
+              type="button"
+              class="access-option"
+              class:active={card.client.reg_state === 'active' && currentAccess === 'active'}
+              class:success={card.client.reg_state === 'active' && currentAccess === 'active'}
+              aria-pressed={card.client.reg_state === 'active' && currentAccess === 'active'}
+              disabled={busy || accessBusy !== '' || !card.can.access || card.client.reg_state !== 'active'}
+              onclick={() => void setAccess('active')}
+            >
+              {#if accessBusy === 'active'}
+                <Spinner size={14} />
+              {:else}
+                <Icon name="check-circle" size={16} />
+              {/if}
+              Активен
+            </button>
+            <button
+              type="button"
+              class="access-option"
+              class:active={card.client.reg_state === 'active' && currentAccess === 'blocked'}
+              class:danger={card.client.reg_state === 'active' && currentAccess === 'blocked'}
+              aria-pressed={card.client.reg_state === 'active' && currentAccess === 'blocked'}
+              disabled={busy || accessBusy !== '' || !card.can.access || card.client.reg_state !== 'active'}
+              onclick={() => void setAccess('blocked')}
+            >
+              {#if accessBusy === 'blocked'}
+                <Spinner size={14} />
+              {:else}
+                <Icon name="close-circle" size={16} />
+              {/if}
+              Заблокирован
+            </button>
+          </div>
         </div>
 
         <div class="card">
-          <h2>Пароль</h2>
-          <p class="hint">
-            Сброс завершит все активные сеансы клиента. Новый пароль будет показан один раз и
-            одновременно отправлен на e-mail, если он указан.
-          </p>
-          {#if !card.can.reset_password}
-            <p class="hint">Недостаточно прав для управления паролем клиента.</p>
-          {:else if card.client.reg_state !== 'active'}
-            <p class="hint">Сброс пароля доступен после подтверждения регистрации.</p>
-          {:else}
-            <div class="account-actions">
-              <Button variant="ghost" disabled={busy} onclick={() => (passwordConfirmOpen = true)}>
-                Сбросить пароль
-              </Button>
+          <div class="card-head">
+            <h2>Безопасность</h2>
+            <button
+              type="button"
+              class="help-btn"
+              class:active={helpBlock === 'password'}
+              aria-label="Подсказка по паролю"
+              aria-expanded={helpBlock === 'password'}
+              onclick={() => (helpBlock = helpBlock === 'password' ? '' : 'password')}
+            >
+              <Icon name="help" size={16} />
+            </button>
+          </div>
+          {#if helpBlock === 'password'}
+            <div class="block-help" role="note">
+              <p>
+                Сброс завершит все активные сеансы клиента. Новый пароль будет показан один раз и
+                одновременно отправлен на e-mail, если он указан.
+              </p>
+              {#if card.client.email && appSettings.mailConfigured}
+                <p>Копия пароля будет отправлена на {card.client.email}.</p>
+              {:else if card.client.email}
+                <p>Почта не настроена — пароль будет только показан.</p>
+              {:else}
+                <p>E-mail не указан — пароль будет только показан.</p>
+              {/if}
             </div>
-            {#if card.client.email && appSettings.mailConfigured}
-              <p class="hint">Копия пароля будет отправлена на {card.client.email}.</p>
-            {:else if card.client.email}
-              <p class="hint">Почта не настроена — пароль будет только показан.</p>
-            {:else}
-              <p class="hint">E-mail не указан — пароль будет только показан.</p>
-            {/if}
           {/if}
+          <div class="security-list">
+            <div class="security-row">
+              <div class="security-info">
+                <span class="security-label">Логин</span>
+                <code class="security-value">{card.client.login}</code>
+              </div>
+              {#if card.can.access && !appSettings.demoMode}
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Изменить логин"
+                  aria-label="Изменить логин"
+                  disabled={busy}
+                  onclick={openLoginEdit}
+                >
+                  <Icon name="edit" size={16} />
+                </button>
+              {/if}
+            </div>
+            <div class="security-row">
+              <div class="security-info">
+                <span class="security-label">Пароль</span>
+                <span class="security-note">
+                  {#if lastPasswordReset}
+                    Последний сброс: {formatDateTime(lastPasswordReset.created_at)}
+                    {#if lastPasswordReset.actor}· {lastPasswordReset.actor.name}{/if}
+                  {:else}
+                    Пароль ещё не сбрасывался
+                  {/if}
+                </span>
+              </div>
+              {#if !card.can.reset_password}
+                <span class="security-note">Недостаточно прав</span>
+              {:else if card.client.reg_state !== 'active'}
+                <span class="security-note">После подтверждения регистрации</span>
+              {:else}
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Сбросить пароль"
+                  aria-label="Сбросить пароль"
+                  disabled={busy}
+                  onclick={() => {
+                    actionError = '';
+                    passwordConfirmOpen = true;
+                  }}
+                >
+                  <Icon name="key" size={16} />
+                </button>
+              {/if}
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Контакты</h2>
+          </div>
+          <div class="contact-list">
+            {#each contactFields as field (field.key)}
+              <div class="contact-row">
+                <span class="contact-label">{field.label}</span>
+                <span class="contact-value">{card.client[field.key] || '—'}</span>
+                {#if canEditContacts}
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title={`Изменить: ${field.label}`}
+                    aria-label={`Изменить ${field.label}`}
+                    disabled={busy || contactEditBusy}
+                    onclick={() => startContactEdit(field.key)}
+                  >
+                    <Icon name="edit" size={16} />
+                  </button>
+                {/if}
+              </div>
+            {/each}
+          </div>
         </div>
 
         <div class="card">
           <div class="card-head">
             <h2>Типы цен</h2>
-            {#if priceBusy}
-              <Spinner size={16} />
-            {/if}
+            <div class="card-head-tools">
+              {#if priceBusy}
+                <Spinner size={16} />
+              {/if}
+              <button
+                type="button"
+                class="help-btn"
+                class:active={helpBlock === 'prices'}
+                aria-label="Подсказка по типам цен"
+                aria-expanded={helpBlock === 'prices'}
+                onclick={() => (helpBlock = helpBlock === 'prices' ? '' : 'prices')}
+              >
+                <Icon name="help" size={16} />
+              </button>
+            </div>
           </div>
+          {#if helpBlock === 'prices'}
+            <div class="block-help" role="note">
+              <p>
+                Включённые типы цен определяют, какие цены доступны клиенту. При оформлении заявки
+                применяется минимальная цена среди включённых типов.
+              </p>
+            </div>
+          {/if}
           {#if !pricesEnabled}
             <p class="empty">Типы цен отключены в настройках</p>
           {:else if priceTypesLoading && priceTypes.length === 0}
@@ -1280,105 +1917,116 @@
                   title={on ? 'Доступен клиенту — нажмите, чтобы выключить' : 'Недоступен — нажмите, чтобы включить'}
                   onclick={() => void togglePriceType(type)}
                 >
+                  {#if on}<Icon name="check" size={14} />{/if}
                   {type.title}
                 </button>
               {/each}
             </div>
+            {#if canAssignPrices && priceTypes.length > 1}
+              <div class="price-actions">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={priceBusy}
+                  onclick={() => void setAllPriceTypes(true)}
+                >
+                  Включить все
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={priceBusy}
+                  onclick={() => void setAllPriceTypes(false)}
+                >
+                  Выключить все
+                </Button>
+              </div>
+            {/if}
             {#if !canAssignPrices}
               <p class="hint">Недостаточно прав для изменения типов цен.</p>
             {/if}
-            <p class="hint">
-              При оформлении заявки применяется минимальная цена среди включённых типов.
-            </p>
           {/if}
         </div>
 
         <div class="card">
           <div class="card-head">
             <h2>Менеджер</h2>
+          </div>
+          <div class="manager-row">
+            {#if card.manager}
+              <div class="manager-box">
+                <a class="manager-name link" href={`#/users/${card.manager.id}`}>{card.manager.name}</a>
+                {#if card.manager.assigned_at}
+                  <span class="mini-sub">с {formatDate(card.manager.assigned_at)}</span>
+                {/if}
+                {#if card.manager.assigned_by}
+                  <span class="mini-sub">назначил(а): {card.manager.assigned_by.name}</span>
+                {/if}
+                {#if card.manager.temporary_until}
+                  <span class="state transfer-chip">
+                    временно до {formatDate(card.manager.temporary_until)}
+                  </span>
+                {/if}
+              </div>
+            {:else}
+              <p class="empty">Менеджер не назначен</p>
+            {/if}
             {#if card.can.assign}
-              <Button variant="ghost" disabled={busy} onclick={openAssign}>Назначить</Button>
+              <button
+                type="button"
+                class="icon-btn"
+                title="Редактировать менеджера"
+                aria-label="Редактировать менеджера"
+                disabled={busy}
+                onclick={openAssign}
+              >
+                <Icon name="edit" size={16} />
+              </button>
             {/if}
           </div>
-          {#if card.manager}
-            <div class="manager-box">
-              <a class="manager-name link" href={`#/users/${card.manager.id}`}>{card.manager.name}</a>
-              {#if card.manager.assigned_at}
-                <span class="mini-sub">с {formatDate(card.manager.assigned_at)}</span>
-              {/if}
-              {#if card.manager.assigned_by}
-                <span class="mini-sub">назначил(а): {card.manager.assigned_by.name}</span>
-              {/if}
-              {#if card.manager.temporary_until}
-                <span class="state transfer-chip">
-                  временно до {formatDate(card.manager.temporary_until)}
-                </span>
-              {/if}
-            </div>
-          {:else}
-            <p class="empty">Менеджер не назначен</p>
-          {/if}
-          {#if canStartTransfer}
+          {#if card.can.claim || canStartTransfer}
             <div class="account-actions">
-              <Button variant="ghost" disabled={busy} onclick={openTransfer}>Передать клиента</Button>
+              {#if card.can.claim}
+                <Button disabled={busy} onclick={() => void claimSelf()}>Взять себе</Button>
+              {/if}
+              {#if canStartTransfer}
+                <Button variant="ghost" disabled={busy} onclick={openTransfer}>Передать клиента</Button>
+              {/if}
             </div>
           {/if}
         </div>
 
-        <div class="card">
-          <h2>Доступ</h2>
-          <p class="hint">
-            {#if card.client.reg_state === 'pending'}
-              Регистрация ожидает подтверждения — доступ появится после подтверждения.
-            {:else if card.client.reg_state === 'rejected'}
-              Регистрация отклонена — доступ к кабинету закрыт.
-            {:else if card.client.active}
-              Клиент может входить в кабинет. Блокировка завершит его сеансы.
-            {:else}
-              Доступ к кабинету заблокирован.
-            {/if}
-          </p>
-          {#if card.can.access && card.client.reg_state === 'active'}
-            <div class="access-choice" role="radiogroup" aria-label="Доступ клиента">
-              <button
-                type="button"
-                class="access-option"
-                class:active={accessDraft === 'active'}
-                role="radio"
-                aria-checked={accessDraft === 'active'}
-                onclick={() => (accessDraft = 'active')}
-              >
-                Активен
-              </button>
-              <button
-                type="button"
-                class="access-option"
-                class:active={accessDraft === 'blocked'}
-                role="radio"
-                aria-checked={accessDraft === 'blocked'}
-                onclick={() => (accessDraft = 'blocked')}
-              >
-                Заблокирован
-              </button>
-            </div>
-            <div class="account-actions">
-              <Button disabled={busy || accessDraft === currentAccess} onclick={applyAccess}>
-                Применить
-              </Button>
-            </div>
-            {#if card.client.email && appSettings.mailConfigured}
-              <p class="hint">После изменения клиенту придёт письмо на {card.client.email}.</p>
-            {/if}
-          {/if}
-        </div>
         </div>
 
         <div class="account-side">
           <div class="card">
             <div class="card-head">
+              <h2>Активность</h2>
+            </div>
+            <dl class="contacts compact">
+              <div>
+                <dt>Регистрация</dt>
+                <dd class="dim">{formatDateTime(card.client.registered_at)}</dd>
+              </div>
+              <div>
+                <dt>Последняя активность</dt>
+                <dd
+                  class="dim"
+                  title={card.client.last_seen_at
+                    ? formatDateTime(card.client.last_seen_at)
+                    : undefined}
+                >
+                  {card.client.last_seen_at ? formatRelative(card.client.last_seen_at, clock) : '—'}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
               <h2>История учётной записи</h2>
-              {#if accountHistory.length > 10}
-                <button type="button" class="link-btn" onclick={() => showTab('history')}>
+              {#if accountHistory.length > 0}
+                <button type="button" class="link-btn" onclick={() => openHistory('account')}>
                   Вся история →
                 </button>
               {/if}
@@ -1387,8 +2035,8 @@
               <p class="empty">Событий пока нет</p>
             {:else}
               <ul class="account-events">
-                {#each accountHistory.slice(0, 10) as item (item.id)}
-                  <li>
+                {#each accountHistory.slice(0, 20) as item (item.id)}
+                  <li class={eventTone(item.event)}>
                     <span class="event">{eventTitles[item.event] ?? item.event}</span>
                     <span class="when">
                       {formatDateTime(item.created_at)}
@@ -1466,23 +2114,65 @@
         Текущий пароль перестанет действовать, все сеансы клиента будут завершены. Новый пароль
         будет показан один раз — сохраните его и передайте клиенту.
       </p>
+      {#if card.client.email && appSettings.mailConfigured}
+        <p class="hint">
+          Или отправьте клиенту ссылку для самостоятельной смены пароля на {card.client.email}.
+        </p>
+      {/if}
+
+      {#if actionError}
+        <div class="alert" role="alert">
+          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+          <span class="notify-text">{actionError}</span>
+        </div>
+      {/if}
+
       <div class="modal-actions">
-        <Button variant="ghost" disabled={busy} onclick={() => (passwordConfirmOpen = false)}>
+        <Button
+          variant="ghost"
+          disabled={busy || passwordLinkBusy}
+          onclick={() => (passwordConfirmOpen = false)}
+        >
           Отмена
         </Button>
-        <Button loading={busy} onclick={() => void confirmPasswordReset()}>Сбросить пароль</Button>
+        {#if card.client.email && appSettings.mailConfigured}
+          <Button
+            variant="ghost"
+            loading={passwordLinkBusy}
+            disabled={busy}
+            onclick={() => void confirmPasswordLink()}
+          >
+            Отправить ссылку
+          </Button>
+        {/if}
+        <Button
+          loading={busy}
+          disabled={passwordLinkBusy}
+          onclick={() => void confirmPasswordReset()}
+        >
+          Сбросить пароль
+        </Button>
       </div>
     </Modal>
 
     <Modal
       open={passwordResult !== null}
       title="Новый пароль"
+      persistent
+      closeButton={false}
       onclose={closePasswordResult}
     >
       <p class="hint">
         Пароль показывается один раз. После закрытия окна посмотреть его нельзя — только сбросить
         заново. Попросите клиента сменить пароль в профиле после входа.
       </p>
+
+      {#if actionError}
+        <div class="alert" role="alert">
+          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+          <span class="notify-text">{actionError}</span>
+        </div>
+      {/if}
 
       {#if passwordResult?.emailSent}
         <p class="hint">Копия пароля отправлена на {passwordResult.email}.</p>
@@ -1518,33 +2208,325 @@
       </div>
     </Modal>
 
-    <Modal open={editOpen} title="Редактирование клиента" onclose={() => (editOpen = false)}>
-      <div class="form">
-        <label class="edit-label">
-          <span>Имя</span>
-          <input bind:value={editForm.name} maxlength="255" />
+    <Modal
+      open={requestsFiltersOpen}
+      title="Фильтры"
+      onclose={() => (requestsFiltersOpen = false)}
+    >
+      <p class="sort-hint">Если ничего не выбрано — показываются все заявки.</p>
+
+      <div class="filter-group">
+        <span class="filter-group-label">Состояние</span>
+        <div class="filter-chips">
+          <button
+            type="button"
+            class="filter-chip"
+            class:on={requestsFilterDraft.states.length === 0}
+            aria-pressed={requestsFilterDraft.states.length === 0}
+            onclick={() => (requestsFilterDraft.states = [])}
+          >
+            Все
+          </button>
+          <button
+            type="button"
+            class="filter-chip"
+            class:on={requestsFilterDraft.states.includes('open')}
+            aria-pressed={requestsFilterDraft.states.includes('open')}
+            onclick={() => (requestsFilterDraft.states = requestsFilterDraft.states.includes('open')
+              ? requestsFilterDraft.states.filter((value) => value !== 'open')
+              : [...requestsFilterDraft.states, 'open'])}
+          >
+            Открыто ({card.stats.open})
+          </button>
+          <button
+            type="button"
+            class="filter-chip"
+            class:on={requestsFilterDraft.states.includes('closed')}
+            aria-pressed={requestsFilterDraft.states.includes('closed')}
+            onclick={() => (requestsFilterDraft.states = requestsFilterDraft.states.includes('closed')
+              ? requestsFilterDraft.states.filter((value) => value !== 'closed')
+              : [...requestsFilterDraft.states, 'closed'])}
+          >
+            Закрыто ({card.stats.closed})
+          </button>
+          <button
+            type="button"
+            class="filter-chip"
+            class:on={requestsFilterDraft.states.includes('overdue')}
+            aria-pressed={requestsFilterDraft.states.includes('overdue')}
+            onclick={() => (requestsFilterDraft.states = requestsFilterDraft.states.includes('overdue')
+              ? requestsFilterDraft.states.filter((value) => value !== 'overdue')
+              : [...requestsFilterDraft.states, 'overdue'])}
+          >
+            Просрочено ({card.stats.overdue})
+          </button>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-group-label">Статус</span>
+        <div class="filter-chips">
+          <button
+            type="button"
+            class="filter-chip"
+            class:on={requestsFilterDraft.statuses.length === 0}
+            aria-pressed={requestsFilterDraft.statuses.length === 0}
+            onclick={() => (requestsFilterDraft.statuses = [])}
+          >
+            Все
+          </button>
+          {#each statuses as status (status.code)}
+            <button
+              type="button"
+              class="filter-chip"
+              class:on={requestsFilterDraft.statuses.includes(status.code)}
+              aria-pressed={requestsFilterDraft.statuses.includes(status.code)}
+              onclick={() => (requestsFilterDraft.statuses = requestsFilterDraft.statuses.includes(status.code)
+                ? requestsFilterDraft.statuses.filter((code) => code !== status.code)
+                : [...requestsFilterDraft.statuses, status.code])}
+            >
+              {status.title} ({card.stats.by_status[status.code] ?? 0})
+            </button>
+          {/each}
+        </div>
+      </div>
+
+      <div class="filter-period">
+        <label class="filter-field">
+          <span>Период с</span>
+          <input type="date" bind:value={requestsFilterDraft.from} max={requestsFilterDraft.to} />
         </label>
-        <label class="edit-label">
-          <span>Компания</span>
-          <input bind:value={editForm.company} maxlength="255" />
-        </label>
-        <label class="edit-label">
-          <span>ИНН</span>
-          <input bind:value={editForm.inn} maxlength="12" />
-        </label>
-        <label class="edit-label">
-          <span>Должность</span>
-          <input bind:value={editForm.position} maxlength="255" />
-        </label>
-        <label class="edit-label">
-          <span>Телефон</span>
-          <input bind:value={editForm.phone} maxlength="255" />
-        </label>
-        <label class="edit-label">
-          <span>E-mail</span>
-          <input bind:value={editForm.email} maxlength="255" />
+        <label class="filter-field">
+          <span>Период по</span>
+          <input type="date" bind:value={requestsFilterDraft.to} min={requestsFilterDraft.from} />
         </label>
       </div>
+
+      <div class="modal-actions">
+        <Button variant="ghost" onclick={resetRequestsFilters}>Сбросить</Button>
+        <Button variant="ghost" onclick={() => (requestsFiltersOpen = false)}>Отмена</Button>
+        <Button onclick={applyRequestsFilters}>Применить</Button>
+      </div>
+    </Modal>
+
+    <SortDialog
+      open={requestsSortOpen}
+      fields={requestSortFields}
+      sort={requestsSort}
+      defaultValue="created_desc"
+      onclose={() => (requestsSortOpen = false)}
+      onapply={applyRequestsSort}
+    />
+
+    <Modal
+      open={interestsFiltersOpen}
+      title="Фильтры"
+      onclose={() => (interestsFiltersOpen = false)}
+    >
+      <p class="sort-hint">Если ничего не выбрано — показываются все позиции.</p>
+
+      <div class="filter-group">
+        <span class="filter-group-label">Склад</span>
+        <div class="filter-chips">
+          <button
+            type="button"
+            class="filter-chip"
+            class:on={interestsFilterDraft.warehouses.length === 0}
+            aria-pressed={interestsFilterDraft.warehouses.length === 0}
+            onclick={() => (interestsFilterDraft.warehouses = [])}
+          >
+            Все
+          </button>
+          {#each interestWarehouseOptions as warehouse (warehouse)}
+            <button
+              type="button"
+              class="filter-chip"
+              class:on={interestsFilterDraft.warehouses.includes(warehouse)}
+              aria-pressed={interestsFilterDraft.warehouses.includes(warehouse)}
+              onclick={() => (interestsFilterDraft.warehouses = interestsFilterDraft.warehouses.includes(warehouse)
+                ? interestsFilterDraft.warehouses.filter((value) => value !== warehouse)
+                : [...interestsFilterDraft.warehouses, warehouse])}
+            >
+              {warehouse}
+            </button>
+          {/each}
+        </div>
+        {#if interestWarehouseOptions.length === 0}
+          <p class="hint">Склады появятся после заявок клиента.</p>
+        {/if}
+      </div>
+
+      <div class="filter-period">
+        <label class="filter-field">
+          <span>Период с</span>
+          <input type="date" bind:value={interestsFilterDraft.from} max={interestsFilterDraft.to} />
+        </label>
+        <label class="filter-field">
+          <span>Период по</span>
+          <input type="date" bind:value={interestsFilterDraft.to} min={interestsFilterDraft.from} />
+        </label>
+      </div>
+
+      <div class="modal-actions">
+        <Button variant="ghost" onclick={resetInterestsFilters}>Сбросить</Button>
+        <Button variant="ghost" onclick={() => (interestsFiltersOpen = false)}>Отмена</Button>
+        <Button onclick={applyInterestsFilters}>Применить</Button>
+      </div>
+    </Modal>
+
+    <SortDialog
+      open={interestsSortOpen}
+      fields={interestSortFields}
+      sort={interestsSort}
+      defaultValue="qty_desc"
+      onclose={() => (interestsSortOpen = false)}
+      onapply={applyInterestsSort}
+    />
+
+    {#snippet historyEntry(item: HistoryEntry)}
+      <div class="history-entry-top">
+        <span class="history-kind" class:request={item.kind === 'request'}>
+          {item.kind === 'request' ? 'Заявка' : 'Учётка'}
+        </span>
+        <span class="history-entry-title">{item.title}</span>
+        <span class="history-date">{formatDateTime(item.created_at)}</span>
+      </div>
+      {#if item.comment}
+        <div class="history-entry-comment">{item.comment}</div>
+      {/if}
+      <div class="history-entry-meta">
+        {#if item.status}
+          <span class="history-dot" style:background={item.status.color}></span>
+          <span>{item.status.title}</span>
+        {/if}
+        {#if item.actor}<span>· {item.actor}</span>{/if}
+      </div>
+    {/snippet}
+
+    <Modal open={historyOpen} title="История" wide onclose={() => (historyOpen = false)}>
+      <div class="history-controls">
+        <div class="search">
+          <SearchInput
+            bind:value={historyQuery}
+            historyKey="client-history"
+            placeholder="Поиск по истории"
+          />
+        </div>
+        <select
+          value={historyKind}
+          aria-label="Тип истории"
+          onchange={(event) => (historyKind = event.currentTarget.value as HistoryKind)}
+        >
+          <option value="all">Вся история</option>
+          <option value="request">Заявки</option>
+          <option value="account">Учётная запись</option>
+        </select>
+        <input type="date" bind:value={historyFrom} aria-label="Период с" />
+        <input type="date" bind:value={historyTo} aria-label="Период по" />
+      </div>
+
+      {#if historyError}
+        <div class="list-error">
+          <span>{historyError}</span>
+          <Button size="sm" variant="ghost" onclick={() => void loadFullHistory()}>
+            Повторить
+          </Button>
+        </div>
+      {/if}
+
+      {#if historyLoading && filteredHistory.length === 0}
+        <div class="center"><Spinner size={20} /></div>
+      {:else if filteredHistory.length === 0}
+        <p class="empty">Ничего не найдено</p>
+      {:else}
+        <div class="history-modal-list">
+          {#each historyPageItems as item (item.id)}
+            {#if item.href}
+              <a class="history-entry" href={item.href} onclick={() => (historyOpen = false)}>
+                {@render historyEntry(item)}
+              </a>
+            {:else}
+              <div class="history-entry">{@render historyEntry(item)}</div>
+            {/if}
+          {/each}
+        </div>
+
+        {#if filteredHistory.length > 50}
+          <div class="pager-wrap">
+            <Pager
+              page={historyPage}
+              perPage={50}
+              total={filteredHistory.length}
+              onchange={(page) => (historyPage = page)}
+            />
+          </div>
+        {/if}
+      {/if}
+
+    </Modal>
+
+    <Modal
+      open={contactEditField !== ''}
+      title={activeContactField?.title ?? 'Изменить контакт'}
+      onclose={cancelContactEdit}
+    >
+      {#if activeContactField}
+        <div class="form">
+          <label class="edit-label">
+            <span>{activeContactField.label}</span>
+            <input
+              bind:value={contactEditValue}
+              type={activeContactField.type}
+              inputmode={activeContactField.inputmode}
+              maxlength={activeContactField.maxlength}
+              onkeydown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void saveContactField();
+                }
+              }}
+            />
+          </label>
+        </div>
+        <p class="hint">{activeContactField.hint}</p>
+      {/if}
+
+      {#if actionError}
+        <div class="alert" role="alert">
+          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+          <span class="notify-text">{actionError}</span>
+        </div>
+      {/if}
+
+      <div class="modal-actions">
+        <Button variant="ghost" disabled={contactEditBusy} onclick={cancelContactEdit}>Отмена</Button>
+        <Button
+          loading={contactEditBusy}
+          disabled={!activeContactField}
+          onclick={() => void saveContactField()}
+        >
+          Сохранить
+        </Button>
+      </div>
+    </Modal>
+
+    <Modal open={loginOpen} title="Изменить логин" onclose={() => (loginOpen = false)}>
+      <div class="form">
+        <label class="edit-label">
+          <span>Новый логин</span>
+          <input
+            bind:value={loginForm.login}
+            maxlength="64"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+        </label>
+      </div>
+      <p class="hint">
+        Логин — 3–64 символа: латиница, цифры, точка, дефис, подчёркивание или @. Все активные
+        сеансы клиента будут завершены.
+      </p>
 
       {#if actionError}
         <div class="alert" role="alert">
@@ -1554,8 +2536,15 @@
       {/if}
 
       <div class="modal-actions">
-        <Button variant="ghost" disabled={editBusy} onclick={() => (editOpen = false)}>Отмена</Button>
-        <Button loading={editBusy} onclick={() => void saveEdit()}>Сохранить</Button>
+        <Button variant="ghost" disabled={loginBusy} onclick={() => (loginOpen = false)}>Отмена</Button>
+        <Button
+          loading={loginBusy}
+          disabled={!isValidLogin(loginForm.login.trim())
+            || loginForm.login.trim().toLowerCase() === card.client.login.toLowerCase()}
+          onclick={() => void saveLogin()}
+        >
+          Сохранить
+        </Button>
       </div>
     </Modal>
 
@@ -1595,7 +2584,15 @@
       <div class="form">
         <label class="edit-label">
           <span>Кому</span>
-          <select bind:value={transferForm.to_manager_id}>
+          <select
+            bind:value={transferForm.to_manager_id}
+            onchange={() => {
+              if (transferForm.to_manager_id === '') {
+                transferForm.permanent = true;
+                transferForm.date_to = '';
+              }
+            }}
+          >
             <option value="">— в пул (без менеджера) —</option>
             {#each managers.filter((item) => item.id !== card?.manager?.id) as manager (manager.id)}
               <option value={String(manager.id)}>{manager.name}</option>
@@ -1610,7 +2607,12 @@
               <input type="radio" bind:group={transferForm.permanent} value={true} /> навсегда
             </label>
             <label class="radio">
-              <input type="radio" bind:group={transferForm.permanent} value={false} /> на период
+              <input
+                type="radio"
+                bind:group={transferForm.permanent}
+                value={false}
+                disabled={transferForm.to_manager_id === ''}
+              /> на период
             </label>
           </div>
         </label>
@@ -1707,6 +2709,45 @@
     background: var(--success-bg);
   }
 
+  .notify-text {
+    flex: 1;
+  }
+
+  .notify-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    margin: -2px -4px -2px 0;
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .notify-close:hover {
+    color: var(--text);
+  }
+
+  .list-error {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--error-border);
+    border-radius: var(--radius-sm);
+    background: var(--danger-bg);
+    color: var(--error-text);
+    font-size: 13px;
+  }
+
   .alert-icon {
     display: inline-flex;
     flex: 0 0 auto;
@@ -1727,9 +2768,14 @@
     font-size: 13px;
   }
 
+  .table-scroll {
+    overflow-x: auto;
+  }
+
   .interests {
     display: flex;
     flex-direction: column;
+    min-width: 620px;
   }
 
   .block-toolbar {
@@ -1748,43 +2794,38 @@
     max-width: none;
   }
 
-  .block-toolbar select {
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 13px;
-    color: var(--text);
-  }
-
-  .card-tabs {
+  .hero-tabs {
     display: flex;
-    gap: var(--space-6);
-    border-bottom: 1px solid var(--border-secondary);
-    margin-bottom: var(--space-4);
+    align-items: center;
+    gap: var(--space-1);
+    margin-left: auto;
   }
 
-  .card-tab {
-    padding: 12px 0;
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: none;
-    font: inherit;
-    font-size: 14px;
-    color: var(--text);
+  .hero-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
     cursor: pointer;
-    transition: color 0.2s ease;
-    white-space: nowrap;
+    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
   }
 
-  .card-tab:hover {
+  .hero-tab:hover {
     color: var(--primary);
+    background: var(--bg);
   }
 
-  .card-tab.active {
+  .hero-tab.active {
+    border-color: var(--primary-border);
+    background: var(--primary-bg);
     color: var(--primary);
-    border-bottom-color: var(--primary);
   }
 
   .interests .tr {
@@ -1921,6 +2962,7 @@
 
   .modal-actions {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: var(--space-2);
     margin-top: var(--space-4);
@@ -1977,55 +3019,15 @@
     font-size: 14px;
   }
 
-  .tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-    gap: var(--space-3);
-  }
-
-  .tile {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: var(--space-3);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-    transition: border-color 0.15s ease, background 0.15s ease;
-  }
-
-  .tile:hover {
-    border-color: var(--primary);
-  }
-
-  .tile:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
-
-  .value {
-    font-size: 22px;
-    font-weight: 600;
-  }
-
-  .value.warn {
-    color: var(--warning-text);
-  }
-
-  .label {
-    font-size: 12px;
+  .contacts dd.dim {
     color: var(--muted);
   }
 
   .hero {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
+    justify-content: flex-start;
+    gap: var(--space-3) var(--space-4);
     flex-wrap: wrap;
     padding: var(--space-4);
     background: var(--surface);
@@ -2034,12 +3036,16 @@
     box-shadow: var(--shadow-sm);
   }
 
+  .hero h1 {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
   .hero-status {
     display: flex;
     align-items: center;
     flex-wrap: wrap;
     gap: var(--space-2);
-    margin-left: auto;
   }
 
   .avatar {
@@ -2057,19 +3063,6 @@
     letter-spacing: 0.02em;
   }
 
-  .summary {
-    display: grid;
-    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-    gap: var(--space-4);
-    align-items: start;
-  }
-
-  .summary-col {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-4);
-  }
-
   .card-head {
     display: flex;
     align-items: center;
@@ -2080,6 +3073,62 @@
 
   .card-head h2 {
     margin: 0;
+  }
+
+  .card-head-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .help-btn,
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+  }
+
+  .help-btn:hover,
+  .icon-btn:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+  }
+
+  .icon-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .help-btn.active {
+    border-color: var(--primary-border);
+    background: var(--primary-bg);
+    color: var(--primary);
+  }
+
+  .block-help {
+    margin: 0 0 var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--primary-border);
+    border-radius: var(--radius-sm);
+    background: var(--primary-bg);
+    font-size: 13px;
+  }
+
+  .block-help p {
+    margin: 0;
+  }
+
+  .block-help p + p {
+    margin-top: var(--space-2);
   }
 
   .link-btn {
@@ -2096,52 +3145,21 @@
     text-decoration: underline;
   }
 
-  .mini-list {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .mini-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border-secondary);
-    color: inherit;
-    text-decoration: none;
-    font-size: 14px;
-  }
-
-  .mini-row:last-child {
-    border-bottom: none;
-  }
-
-  a.mini-row:hover .mini-title {
-    color: var(--primary);
-  }
-
-  .mini-main {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  .mini-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .mini-sub {
     font-size: 12px;
     color: var(--muted);
   }
 
-  .mini-qty {
-    font-weight: 600;
-    font-variant-numeric: tabular-nums;
+  .manager-row {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .manager-row .manager-box {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .manager-box {
@@ -2160,6 +3178,13 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
+  }
+
+  .price-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
   }
 
   .price-toggle {
@@ -2202,8 +3227,8 @@
 
   .account {
     display: grid;
-    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-    gap: var(--space-4);
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+    gap: var(--space-5);
     align-items: start;
   }
 
@@ -2213,23 +3238,52 @@
     flex-direction: column;
     gap: var(--space-4);
     min-width: 0;
+    position: sticky;
+    top: var(--space-4);
+    align-self: start;
   }
 
   .account-events {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 0 var(--space-2) 0 0;
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    max-height: min(360px, 50vh);
+    overflow-y: auto;
   }
 
   .account-events li {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 2px;
     padding-left: var(--space-3);
-    border-left: 2px solid var(--border-secondary);
+    border-left: 1px solid var(--border-secondary);
+  }
+
+  .account-events li::before {
+    content: '';
+    position: absolute;
+    top: 5px;
+    left: -4px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--border);
+  }
+
+  .account-events li.success::before {
+    background: var(--success);
+  }
+
+  .account-events li.danger::before {
+    background: var(--danger);
+  }
+
+  .account-events li.warning::before {
+    background: var(--warning);
   }
 
   .account-events .event {
@@ -2246,10 +3300,6 @@
     font-size: 13px;
   }
 
-  .summary .tiles {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .account-actions {
     display: flex;
     flex-wrap: wrap;
@@ -2257,35 +3307,134 @@
     margin-top: var(--space-3);
   }
 
-  .access-choice {
-    display: inline-flex;
-    padding: 2px;
-    border: 1px solid var(--border);
+  .security-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .security-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+  }
+
+  .security-row:first-child {
+    padding-top: 0;
+  }
+
+  .security-row:last-child {
+    padding-bottom: 0;
+  }
+
+  .security-row + .security-row {
+    border-top: 1px solid var(--border-secondary);
+  }
+
+  .security-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  .security-label {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .security-value {
+    padding: 3px 10px;
     border-radius: var(--radius-sm);
     background: var(--bg);
+    font-size: 14px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+  }
+
+  .security-note {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .contact-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .contact-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 34px;
+    padding: var(--space-2) 0;
+    font-size: 14px;
+  }
+
+  .contact-row + .contact-row {
+    border-top: 1px solid var(--border-secondary);
+  }
+
+  .contact-label {
+    flex: 0 0 110px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .contact-value {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .access-choice {
+    display: flex;
+    gap: var(--space-2);
   }
 
   .access-option {
-    padding: 6px 14px;
-    border: none;
-    border-radius: calc(var(--radius-sm) - 1px);
-    background: transparent;
+    display: inline-flex;
+    flex: 1 1 0;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
     font: inherit;
     font-size: 14px;
-    color: var(--text-description);
+    color: var(--text);
     cursor: pointer;
-    transition: background 0.12s ease, color 0.12s ease;
+    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
   }
 
-  .access-option:hover {
-    color: var(--text);
+  .access-option:hover:not(:disabled):not(.active) {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+  }
+
+  .access-option:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   .access-option.active {
-    background: var(--surface);
-    color: var(--text);
     font-weight: 600;
-    box-shadow: var(--shadow-sm);
+  }
+
+  .access-option.active.success {
+    border-color: var(--success-border);
+    background: var(--success-bg);
+    color: var(--success-text);
+  }
+
+  .access-option.active.danger {
+    border-color: var(--error-border);
+    background: var(--danger-bg);
+    color: var(--error-text);
   }
 
   .copy-row {
@@ -2296,10 +3445,12 @@
   }
 
   .copy-row code {
-    padding: 2px 8px;
+    padding: 3px 10px;
     border-radius: var(--radius-sm);
     background: var(--bg);
-    font-size: 13px;
+    font-size: 14px;
+    font-weight: 500;
+    overflow-wrap: anywhere;
   }
 
   .copy-btn {
@@ -2319,16 +3470,21 @@
   }
 
   .tab-count {
-    display: inline-block;
-    min-width: 18px;
-    margin-left: 6px;
-    padding: 0 5px;
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--primary) 12%, var(--surface));
-    color: var(--primary);
-    font-size: 11px;
-    line-height: 17px;
-    text-align: center;
+    background: var(--primary);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
   }
 
   .tab-count.muted {
@@ -2352,9 +3508,14 @@
   }
 
   @media (max-width: 900px) {
-    .summary,
-    .account {
+    .account,
+    .requests-layout {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .account-side,
+    .requests-side {
+      position: static;
     }
   }
 
@@ -2375,20 +3536,6 @@
     }
   }
 
-  .timeline {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .timeline li {
-    border-left: 2px solid var(--border);
-    padding-left: var(--space-3);
-  }
-
   .event {
     font-weight: 500;
     font-size: 14px;
@@ -2402,6 +3549,312 @@
   .comment {
     margin-top: 2px;
     font-size: 13px;
+  }
+
+  .requests-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+    gap: var(--space-5);
+    align-items: start;
+  }
+
+  .requests-main,
+  .requests-side {
+    min-width: 0;
+  }
+
+  .requests-side {
+    position: sticky;
+    top: var(--space-4);
+    align-self: start;
+  }
+
+  .toolbar-btn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+  }
+
+  .toolbar-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .toolbar-btn.active {
+    border-color: var(--primary);
+    background: var(--primary-bg);
+    color: var(--primary);
+  }
+
+  .filter-badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+  }
+
+  .filter-group-label {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .filter-chip {
+    padding: 5px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface);
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .filter-chip:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .filter-chip.on {
+    border-color: var(--primary);
+    background: var(--primary-bg);
+    color: var(--primary);
+  }
+
+  .filter-period {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+  }
+
+  .filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .filter-field input {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font: inherit;
+    color: var(--text);
+  }
+
+  .sort-hint {
+    margin: 0 0 var(--space-3);
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .request-history {
+    display: flex;
+    flex-direction: column;
+    max-height: min(520px, 60vh);
+    overflow-y: auto;
+    padding-right: var(--space-2);
+  }
+
+  .history-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--border-secondary);
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .history-row:first-child {
+    padding-top: 0;
+  }
+
+  .history-row:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .history-row:hover .history-number {
+    color: var(--primary);
+  }
+
+  .history-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .history-number {
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .history-date {
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .history-subject {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+
+  .history-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .history-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .history-controls {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--border-secondary);
+    background: var(--surface);
+  }
+
+  .history-controls .search {
+    display: flex;
+    flex: 1 1 240px;
+    min-width: 0;
+  }
+
+  .history-controls select,
+  .history-controls input[type='date'] {
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font: inherit;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .history-modal-list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .history-entry {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--border-secondary);
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .history-entry:first-child {
+    padding-top: 0;
+  }
+
+  .history-entry:last-child {
+    padding-bottom: 0;
+    border-bottom: none;
+  }
+
+  .history-entry:hover .history-entry-title {
+    color: var(--primary);
+  }
+
+  .history-entry-top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .history-kind {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .history-kind.request {
+    background: var(--primary-bg);
+    color: var(--primary);
+  }
+
+  .history-entry-title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+    font-size: 14px;
+  }
+
+  .history-entry-comment {
+    font-size: 13px;
+  }
+
+  .history-entry-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .requests {
@@ -2451,6 +3904,14 @@
   .empty {
     color: var(--muted);
     margin: 0;
+  }
+
+  .empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-2);
+    padding: var(--space-4) 0;
   }
 
   .center {
