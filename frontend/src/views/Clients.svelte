@@ -6,13 +6,12 @@
   import type { ClientItem, PendingClient } from '../lib/api/types';
   import { auth } from '../lib/stores/auth.svelte';
   import Button from '../lib/components/ui/Button.svelte';
-  import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Pagination from '../lib/components/ui/Pagination.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
-  import { clearFilters, countActive, loadFilters, saveFilters } from '../lib/filters';
+  import { countActive, loadFilters, saveFilters } from '../lib/filters';
   import { formatDate } from '../lib/format';
   import { addHistory } from '../lib/search-history';
   import { router } from '../lib/router.svelte';
@@ -22,7 +21,8 @@
     manager: '',
     from: '',
     to: '',
-    sort: 'name_asc'
+    sort: 'name_asc',
+    view: 'list'
   };
 
   const filterCountDefaults = {
@@ -31,6 +31,12 @@
     from: filterDefaults.from,
     to: filterDefaults.to
   };
+
+  const sortRows = [
+    { field: 'name', label: 'Название' },
+    { field: 'created', label: 'Дата регистрации' },
+    { field: 'requests', label: 'Заявки' }
+  ];
 
   let clients = $state<ClientItem[]>([]);
   let total = $state(0);
@@ -44,20 +50,18 @@
   const initialFilters = loadFilters('clients', filterDefaults);
   let filters = $state({ ...initialFilters });
   let draft = $state({ ...initialFilters });
+  let viewMode = $state<'list' | 'tiles'>(initialFilters.view === 'tiles' ? 'tiles' : 'list');
   let sortOpen = $state(false);
+  let viewOpen = $state(false);
   let helpOpen = $state(false);
-  let sortDraft = $state(filterDefaults.sort);
+  let sortDraft = $state<string[]>(['name_asc']);
+  let viewDraft = $state<'list' | 'tiles'>('list');
+  let dragSortField = $state<string | null>(null);
+  let dragSortOver = $state<string | null>(null);
 
   const canConfirm = $derived(auth.can('clients.confirm'));
-
-  const sortOptions = [
-    { code: 'name_asc', title: 'По имени (А → Я)' },
-    { code: 'name_desc', title: 'По имени (Я → А)' },
-    { code: 'created_desc', title: 'Сначала новые' },
-    { code: 'created_asc', title: 'Сначала старые' },
-    { code: 'requests_desc', title: 'Больше заявок' },
-    { code: 'requests_asc', title: 'Меньше заявок' }
-  ];
+  const filtersActive = $derived(countActive(filters, filterCountDefaults) > 0);
+  const sortActive = $derived(filters.sort !== filterDefaults.sort);
 
   onMount(() => {
     void load();
@@ -110,31 +114,157 @@
     applySearch();
   }
 
-  function applyFilterDraft(): void {
-    filters = { ...draft };
-    saveFilters('clients', filters);
+  function saveClientFilters(): void {
+    saveFilters('clients', {
+      state: filters.state,
+      manager: filters.manager,
+      from: filters.from,
+      to: filters.to,
+      sort: filters.sort,
+      view: viewMode
+    });
+  }
+
+  function resetFilterDraft(): void {
+    draft = { ...filterDefaults, view: viewDraft };
+  }
+
+  function openView(): void {
+    viewDraft = viewMode;
+    draft = { ...filters };
+    viewOpen = true;
+  }
+
+  function applyView(): void {
+    viewOpen = false;
+
+    const nextDraft = { ...draft };
+    const filtersChanged =
+      nextDraft.state !== filters.state ||
+      nextDraft.manager !== filters.manager ||
+      nextDraft.from !== filters.from ||
+      nextDraft.to !== filters.to;
+    const viewChanged = viewDraft !== viewMode;
+
+    if (!filtersChanged && !viewChanged) {
+      return;
+    }
+
+    if (filtersChanged) {
+      filters = {
+        ...filters,
+        state: nextDraft.state,
+        manager: nextDraft.manager,
+        from: nextDraft.from,
+        to: nextDraft.to
+      };
+    }
+
+    viewMode = viewDraft;
+    saveClientFilters();
     page = 1;
     void load();
   }
 
-  function resetFilters(): void {
-    draft = { ...filterDefaults };
-    filters = { ...filterDefaults };
-    clearFilters('clients');
-    page = 1;
-    void load();
+  function parseSort(value: string): string[] {
+    const parts = value
+      .split(',')
+      .map((part) => part.trim())
+      .filter((part) => part !== '');
+
+    return parts.length > 0 ? parts : ['name_asc'];
+  }
+
+  function sortOrderIndex(field: string): number {
+    return sortDraft.findIndex((value) => value.startsWith(`${field}_`)) + 1;
+  }
+
+  function moveSortDraft(fromField: string, toField: string): void {
+    const fromIndex = sortDraft.findIndex((value) => value.startsWith(`${fromField}_`));
+    const toIndex = sortDraft.findIndex((value) => value.startsWith(`${toField}_`));
+
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+      return;
+    }
+
+    const next = [...sortDraft];
+    const [moved] = next.splice(fromIndex, 1);
+    const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
+    next.splice(insertAt, 0, moved);
+    sortDraft = next;
+  }
+
+  function startSortDrag(event: DragEvent, field: string): void {
+    dragSortField = field;
+
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', field);
+    }
+  }
+
+  function overSortRow(event: DragEvent, field: string): void {
+    if (dragSortField === null || sortOrderIndex(field) === 0) {
+      return;
+    }
+
+    event.preventDefault();
+    dragSortOver = field;
+  }
+
+  function dropSortRow(event: DragEvent, field: string): void {
+    event.preventDefault();
+
+    if (dragSortField !== null && sortOrderIndex(field) > 0) {
+      moveSortDraft(dragSortField, field);
+    }
+
+    dragSortField = null;
+    dragSortOver = null;
+  }
+
+  function endSortDrag(): void {
+    dragSortField = null;
+    dragSortOver = null;
+  }
+
+  function toggleSortDir(field: string, dir: 'asc' | 'desc'): void {
+    const value = `${field}_${dir}`;
+    const other = `${field}_${dir === 'asc' ? 'desc' : 'asc'}`;
+    const otherIndex = sortDraft.indexOf(other);
+
+    if (sortDraft.includes(value)) {
+      sortDraft = sortDraft.filter((item) => item !== value);
+      return;
+    }
+
+    if (otherIndex >= 0) {
+      const next = [...sortDraft];
+      next[otherIndex] = value;
+      sortDraft = next;
+      return;
+    }
+
+    sortDraft = [...sortDraft, value];
   }
 
   function openSort(): void {
-    sortDraft = filters.sort;
+    sortDraft = parseSort(filters.sort);
     sortOpen = true;
   }
 
   function applySort(): void {
-    filters = { ...filters, sort: sortDraft };
-    saveFilters('clients', filters);
-    page = 1;
     sortOpen = false;
+
+    const next = sortDraft.length > 0 ? sortDraft.join(',') : 'name_asc';
+
+    if (next === filters.sort) {
+      return;
+    }
+
+    filters = { ...filters, sort: next };
+    saveClientFilters();
+    page = 1;
     void load();
   }
 </script>
@@ -168,7 +298,7 @@
       <button
         type="button"
         class="sort-button"
-        class:active={filters.sort !== filterDefaults.sort}
+        class:active={sortActive}
         title="Сортировка"
         aria-label="Сортировка"
         onclick={openSort}
@@ -176,41 +306,19 @@
         <Icon name="sort" size={16} />
       </button>
 
-      <FiltersModal
-        icon
-        count={countActive(filters, filterCountDefaults)}
-        onopen={() => (draft = { ...filters })}
-        onapply={applyFilterDraft}
-        onreset={resetFilters}
+      <button
+        type="button"
+        class="sort-button"
+        class:active={viewMode === 'tiles' || filtersActive}
+        title="Вид и фильтры"
+        aria-label="Вид и фильтры"
+        onclick={openView}
       >
-        <label class="filter-field">
-          <span>Состояние</span>
-          <select bind:value={draft.state}>
-            <option value="">Все состояния</option>
-            <option value="active">Активные</option>
-            <option value="pending">Ожидают подтверждения</option>
-            <option value="blocked">Заблокированные</option>
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span>Менеджер</span>
-          <select bind:value={draft.manager}>
-            <option value="">Все менеджеры</option>
-            <option value="mine">Мои клиенты</option>
-            <option value="none">Без менеджера</option>
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span>Регистрация с</span>
-          <input type="date" bind:value={draft.from} max={draft.to} />
-        </label>
-        <label class="filter-field">
-          <span>Регистрация по</span>
-          <input type="date" bind:value={draft.to} min={draft.from} />
-        </label>
-      </FiltersModal>
+        <Icon name="view" size={16} />
+        {#if filtersActive}
+          <span class="icon-badge" aria-hidden="true"></span>
+        {/if}
+      </button>
 
       <span class="toolbar-divider" aria-hidden="true"></span>
 
@@ -227,17 +335,128 @@
   </div>
 
   <Modal open={sortOpen} title="Сортировка" onclose={() => (sortOpen = false)}>
-    <div class="sort-options">
-      {#each sortOptions as option (option.code)}
-        <label class="radio">
-          <input type="radio" name="client-sort" value={option.code} bind:group={sortDraft} />
-          <span>{option.title}</span>
-        </label>
+    <p class="sort-hint">
+      Можно задать несколько условий — они применяются сверху вниз. Нажмите стрелку, чтобы
+      добавить условие, и повторно — чтобы убрать.
+    </p>
+    <div class="sort-list" role="list">
+      {#each sortRows as column (column.field)}
+        {@const active = sortOrderIndex(column.field) > 0}
+        <div
+          class="sort-row"
+          class:active
+          class:drag-over={dragSortOver === column.field && dragSortField !== column.field}
+          role="listitem"
+          ondragover={(event) => overSortRow(event, column.field)}
+          ondragleave={() => {
+            if (dragSortOver === column.field) {
+              dragSortOver = null;
+            }
+          }}
+          ondrop={(event) => dropSortRow(event, column.field)}
+        >
+          <span
+            class="sort-drag"
+            class:off={!active}
+            draggable={active}
+            title={active ? 'Перетащите, чтобы изменить порядок' : undefined}
+            aria-hidden="true"
+            ondragstart={(event) => startSortDrag(event, column.field)}
+            ondragend={endSortDrag}
+          >
+            <Icon name="holder" size={14} />
+          </span>
+          {#if active}
+            <span class="sort-order">{sortOrderIndex(column.field)}</span>
+          {/if}
+          <span class="sort-row-label">{column.label}</span>
+          <button
+            type="button"
+            class="dir-btn"
+            class:on={sortDraft.includes(`${column.field}_asc`)}
+            title="По возрастанию"
+            aria-label={`${column.label}: по возрастанию`}
+            onclick={() => toggleSortDir(column.field, 'asc')}
+          >
+            <Icon name="arrow-up" size={16} />
+          </button>
+          <button
+            type="button"
+            class="dir-btn"
+            class:on={sortDraft.includes(`${column.field}_desc`)}
+            title="По убыванию"
+            aria-label={`${column.label}: по убыванию`}
+            onclick={() => toggleSortDir(column.field, 'desc')}
+          >
+            <Icon name="arrow-down" size={16} />
+          </button>
+        </div>
       {/each}
     </div>
     <div class="modal-actions">
-      <Button variant="ghost" onclick={() => (sortOpen = false)}>Отмена</Button>
-      <Button onclick={applySort}>Применить</Button>
+      <Button variant="ghost" onclick={() => (sortDraft = ['name_asc'])}>Сбросить</Button>
+      <div class="modal-buttons">
+        <Button variant="ghost" onclick={() => (sortOpen = false)}>Отмена</Button>
+        <Button onclick={applySort}>Применить</Button>
+      </div>
+    </div>
+  </Modal>
+
+  <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
+    <div class="view-columns">
+      <div class="view-column">
+        <p class="sort-hint">Вид</p>
+        <div class="sort-options">
+          <label class="sort-option">
+            <input type="radio" name="client-view" value="list" bind:group={viewDraft} />
+            <span>Строкой-таблица</span>
+          </label>
+          <label class="sort-option">
+            <input type="radio" name="client-view" value="tiles" bind:group={viewDraft} />
+            <span>Плитки</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="view-column">
+        <p class="sort-hint">Фильтры</p>
+        <div class="view-filters">
+          <label class="filter-field">
+            <span>Состояние</span>
+            <select bind:value={draft.state}>
+              <option value="">Все состояния</option>
+              <option value="active">Активные</option>
+              <option value="pending">Ожидают подтверждения</option>
+              <option value="blocked">Заблокированные</option>
+            </select>
+          </label>
+
+          <label class="filter-field">
+            <span>Менеджер</span>
+            <select bind:value={draft.manager}>
+              <option value="">Все менеджеры</option>
+              <option value="mine">Мои клиенты</option>
+              <option value="none">Без менеджера</option>
+            </select>
+          </label>
+
+          <label class="filter-field">
+            <span>Регистрация с</span>
+            <input type="date" bind:value={draft.from} max={draft.to} />
+          </label>
+          <label class="filter-field">
+            <span>Регистрация по</span>
+            <input type="date" bind:value={draft.to} min={draft.from} />
+          </label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <Button variant="ghost" onclick={resetFilterDraft}>Сбросить фильтры</Button>
+      <div class="modal-buttons">
+        <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+        <Button onclick={applyView}>Применить</Button>
+      </div>
     </div>
   </Modal>
 
@@ -257,8 +476,9 @@
         </li>
       </ul>
       <p>
-        Поиск идёт по имени, компании, ИНН и телефону. Кнопка с воронкой — фильтры по состоянию,
-        менеджеру и дате регистрации; кнопка со стрелками — сортировка.
+        Поиск идёт по имени, компании, ИНН и телефону. Кнопка со стрелками — последовательная
+        сортировка (несколько условий сверху вниз); кнопка «Вид и фильтры» — строкой-таблица или
+        плитки и фильтры по состоянию, менеджеру и дате регистрации.
       </p>
     </div>
   </Modal>
@@ -302,12 +522,13 @@
   {:else if clients.length === 0}
     <div class="empty">Клиенты не найдены</div>
   {:else}
-    <div class="list">
+    <div class="list" class:tiles={viewMode === 'tiles'}>
       {#each clients as client (client.id)}
         <!-- svelte-ignore a11y_click_events_have_key_events -->
         <!-- svelte-ignore a11y_no_static_element_interactions -->
         <div
           class="card"
+          class:tile={viewMode === 'tiles'}
           class:pending={client.reg_state === 'pending'}
           class:blocked={!client.active}
           onclick={() => router.navigate(`/clients/${client.id}`)}
@@ -539,26 +760,174 @@
     background: var(--border-secondary);
   }
 
+  .icon-badge {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--primary);
+  }
+
+  .sort-hint {
+    margin: 0 0 var(--space-2);
+    font-size: 13px;
+    color: var(--text-description);
+  }
+
+  .sort-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .sort-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+  }
+
+  .sort-row.drag-over {
+    border-color: var(--primary);
+    box-shadow: inset 0 2px 0 var(--primary);
+  }
+
+  .sort-drag {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 18px;
+    height: 24px;
+    color: var(--text-description);
+    cursor: grab;
+  }
+
+  .sort-drag.off {
+    visibility: hidden;
+    cursor: default;
+  }
+
+  .sort-order {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .sort-row-label {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .sort-row:not(.active) .sort-row-label {
+    color: var(--muted);
+    font-weight: 400;
+  }
+
+  .sort-row .dir-btn {
+    margin-left: auto;
+  }
+
+  .dir-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .dir-btn:hover {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+  }
+
+  .dir-btn.on {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-bg);
+  }
+
+  .view-columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+
+  .view-column {
+    min-width: 0;
+  }
+
   .sort-options {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
+    gap: var(--space-2);
   }
 
-  .radio {
+  .sort-option {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-2);
     font-size: 14px;
-    color: var(--text);
     cursor: pointer;
+  }
+
+  .view-filters {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
   }
 
   .modal-actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
     gap: var(--space-2);
     margin-top: var(--space-4);
+  }
+
+  .modal-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
+
+  .list.tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  }
+
+  .list.tiles .card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  @media (max-width: 640px) {
+    .view-columns {
+      grid-template-columns: 1fr;
+    }
   }
 
   .help-list {

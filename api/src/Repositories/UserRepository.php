@@ -333,27 +333,20 @@ final class UserRepository
     {
         [$whereSql, $params] = $this->clientsWhere($query, $filters);
 
-        $order = match ((string) ($filters['sort'] ?? 'name_asc')) {
-            'name_desc' => 'u.FULL_NAME DESC',
-            'created_desc' => 'u.TIME_ADD DESC, u.FULL_NAME ASC',
-            'created_asc' => 'u.TIME_ADD ASC, u.FULL_NAME ASC',
-            'requests_desc' => 'requests_total DESC, u.FULL_NAME ASC',
-            'requests_asc' => 'requests_total ASC, u.FULL_NAME ASC',
-            default => 'u.FULL_NAME ASC',
-        };
+        $order = implode(', ', $this->clientOrderTerms((string) ($filters['sort'] ?? 'name_asc')));
 
         $sql = 'SELECT u.ID AS id, u.SID AS sid, u.LOGIN AS login, u.FULL_NAME AS name,
-                       u.EMAIL AS email, u.PHONE AS phone, u.COMPANY AS company, u.INN AS inn,
-                       u.DOLGNOST AS position, u.LEVEL AS level, u.ACTIVE AS active, u.reg_state AS reg_state,
-                       u.TIME_ADD AS registered_at,
-                       cm.manager_id AS manager_id, mu.FULL_NAME AS manager_name,
-                       (SELECT COUNT(*) FROM requests r WHERE r.client_id = u.ID) AS requests_total
-                FROM users u
-                LEFT JOIN client_managers cm ON cm.client_id = u.ID
-                LEFT JOIN users mu ON mu.ID = cm.manager_id
-                WHERE ' . $whereSql . '
-                ORDER BY ' . $order . '
-                LIMIT ' . max(1, min(100, $limit)) . ' OFFSET ' . max(0, $offset);
+                        u.EMAIL AS email, u.PHONE AS phone, u.COMPANY AS company, u.INN AS inn,
+                        u.DOLGNOST AS position, u.LEVEL AS level, u.ACTIVE AS active, u.reg_state AS reg_state,
+                        u.TIME_ADD AS registered_at,
+                        cm.manager_id AS manager_id, mu.FULL_NAME AS manager_name,
+                        (SELECT COUNT(*) FROM requests r WHERE r.client_id = u.ID) AS requests_total
+                 FROM users u
+                 LEFT JOIN client_managers cm ON cm.client_id = u.ID
+                 LEFT JOIN users mu ON mu.ID = cm.manager_id
+                 WHERE ' . $whereSql . '
+                 ORDER BY ' . $order . '
+                 LIMIT ' . max(1, min(100, $limit)) . ' OFFSET ' . max(0, $offset);
 
         $stmt = Database::pdo()->prepare($sql);
         $stmt->execute($params);
@@ -373,6 +366,47 @@ final class UserRepository
         $stmt->execute($params);
 
         return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * @return array<int, string>
+     */
+    private function clientOrderTerms(string $sort): array
+    {
+        $map = [
+            'name_asc' => 'u.FULL_NAME ASC',
+            'name_desc' => 'u.FULL_NAME DESC',
+            'created_desc' => 'u.TIME_ADD DESC',
+            'created_asc' => 'u.TIME_ADD ASC',
+            'requests_desc' => 'requests_total DESC',
+            'requests_asc' => 'requests_total ASC',
+        ];
+
+        $terms = [];
+        $hasName = false;
+
+        foreach (explode(',', $sort) as $criterion) {
+            $criterion = trim($criterion);
+            $term = $map[$criterion] ?? null;
+
+            if ($term === null || in_array($term, $terms, true)) {
+                continue;
+            }
+
+            $terms[] = $term;
+
+            if (str_starts_with($term, 'u.FULL_NAME')) {
+                $hasName = true;
+            }
+        }
+
+        if (!$hasName) {
+            $terms[] = 'u.FULL_NAME ASC';
+        }
+
+        $terms[] = 'u.ID ASC';
+
+        return $terms;
     }
 
     private function clientsWhere(string $query, array $filters = []): array

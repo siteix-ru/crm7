@@ -254,7 +254,7 @@ final class ClientController extends ApiController
         $state = trim($request->queryParam('state'));
         $from = trim($request->queryParam('from'));
         $to = trim($request->queryParam('to'));
-        $sort = trim($request->queryParam('sort'));
+        $sort = $this->clientSort(trim($request->queryParam('sort')));
         $managerFilter = trim($request->queryParam('manager'));
 
         $filters = [
@@ -263,9 +263,7 @@ final class ClientController extends ApiController
             'to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) === 1 ? $to : '',
             'manager' => in_array($managerFilter, ['mine', 'none'], true) ? $managerFilter : '',
             'manager_id' => (int) $user['ID'],
-            'sort' => in_array($sort, ['name_asc', 'name_desc', 'created_desc', 'created_asc', 'requests_desc', 'requests_asc'], true)
-                ? $sort
-                : 'name_asc',
+            'sort' => $sort,
         ];
 
         $clients = $this->users->listClients($query, $perPage, ($page - 1) * $perPage, $filters);
@@ -314,5 +312,28 @@ final class ClientController extends ApiController
             'page' => $page,
             'per_page' => $perPage,
         ]);
+    }
+
+    /**
+     * Последовательная сортировка: «name_desc,created_desc,...» (только допустимые условия, без дублей).
+     */
+    private function clientSort(string $sort): string
+    {
+        $allowed = ['name_asc', 'name_desc', 'created_desc', 'created_asc', 'requests_desc', 'requests_asc'];
+        $parts = [];
+        $seen = [];
+
+        foreach (explode(',', $sort) as $criterion) {
+            $criterion = trim($criterion);
+
+            if ($criterion === '' || !in_array($criterion, $allowed, true) || isset($seen[$criterion])) {
+                continue;
+            }
+
+            $seen[$criterion] = true;
+            $parts[] = $criterion;
+        }
+
+        return $parts === [] ? 'name_asc' : implode(',', $parts);
     }
 }
