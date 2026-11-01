@@ -123,7 +123,7 @@ final class ItemTypeService
     private function requireSettings(array $capabilities): void
     {
         if (!in_array('settings.manage', $capabilities, true)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для настройки типов позиций');
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для настройки типов номенклатуры');
         }
     }
 }

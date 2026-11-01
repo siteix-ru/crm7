@@ -110,7 +110,7 @@
   class:clickable={onopen !== undefined}
   role={onopen !== undefined ? 'button' : 'group'}
   tabindex={onopen !== undefined ? 0 : undefined}
-  aria-label={onopen !== undefined ? 'Подробнее о позиции' : 'Фото товара'}
+  aria-label={onopen !== undefined ? 'Подробнее о номенклатуре' : 'Фото товара'}
   style="--photo-ratio: {photoAspect}; --photo-factor: {photoFactor}; --photo-fit: {photoFit};"
   onclick={open}
   onkeydown={onKeydown}

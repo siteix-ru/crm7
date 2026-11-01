@@ -35,7 +35,7 @@ final class Modules
             [
                 'code' => 'cart',
                 'title' => 'Корзина',
-                'description' => 'Добавление позиций и оформление заявки',
+                'description' => 'Добавление номенклатуры и оформление заявки',
                 'setting' => 'module.cart',
                 'capabilities' => ['requests.create'],
                 'access' => ['requests.create'],

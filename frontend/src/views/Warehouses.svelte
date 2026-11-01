@@ -580,7 +580,7 @@
                   <span class="value">{item.address ?? '—'}</span>
                 </div>
                 <div class="stat col-positions">
-                  <span class="stat-label">Позиций</span>
+                  <span class="stat-label">Номенклатуры</span>
                   <span class="value">{item.positions}</span>
                 </div>
                 <div class="stat col-active">

@@ -152,7 +152,7 @@
       </div>
       <div class="stat">
         <span class="stat-value">{summary.items.total}</span>
-        <span class="stat-label">позиций в заявках</span>
+        <span class="stat-label">номенклатуры в заявках</span>
       </div>
       <div class="stat">
         <span class="stat-value">{summary.requests.closed}</span>
@@ -166,13 +166,13 @@
 
     <div class="card">
       <div class="card-head">
-        <h2>График: {detail === 'items' ? 'позиции' : 'заявки'}</h2>
+        <h2>График: {detail === 'items' ? 'номенклатура' : 'заявки'}</h2>
         <div class="toggle">
           <button type="button" class:active={detail === 'requests'} onclick={() => (detail = 'requests')}>
             Заявки
           </button>
           <button type="button" class:active={detail === 'items'} onclick={() => (detail = 'items')}>
-            Позиции
+            Номенклатура
           </button>
         </div>
       </div>
@@ -182,7 +182,7 @@
       <div class="chart-total">
         Период: {formatDate(summary.period.from)} — {formatDate(summary.period.to)} ·
         {#if detail === 'items'}
-          позиций: {summary.items.total} ({summary.items.quantity.toLocaleString('ru-RU', { maximumFractionDigits: 3 })} ед.)
+          номенклатуры: {summary.items.total} ({summary.items.quantity.toLocaleString('ru-RU', { maximumFractionDigits: 3 })} ед.)
         {:else}
           заявок: {summary.requests.total}
         {/if}

@@ -93,8 +93,8 @@ final class RequestService
                 ['code' => 'client_desc', 'title' => 'По клиенту: Я–А'],
                 ['code' => 'manager_asc', 'title' => 'По менеджеру: А–Я'],
                 ['code' => 'manager_desc', 'title' => 'По менеджеру: Я–А'],
-                ['code' => 'positions_asc', 'title' => 'По позициям: возрастание'],
-                ['code' => 'positions_desc', 'title' => 'По позициям: убывание'],
+                ['code' => 'positions_asc', 'title' => 'По номенклатуре: возрастание'],
+                ['code' => 'positions_desc', 'title' => 'По номенклатуре: убывание'],
                 ['code' => 'due_asc', 'title' => 'По сроку: раньше'],
                 ['code' => 'due_desc', 'title' => 'По сроку: позже'],
                 ['code' => 'priority_desc', 'title' => 'По приоритету'],
@@ -118,7 +118,7 @@ final class RequestService
         );
 
         if ($this->stocks->inactiveLevelIds($levelIds) !== []) {
-            throw new HttpException(422, 'item_inactive', 'Позиция деактивирована и недоступна для заявок');
+            throw new HttpException(422, 'item_inactive', 'Номенклатура деактивирована и недоступна для заявок');
         }
 
         return $items;
@@ -128,7 +128,7 @@ final class RequestService
     {
         $lines = array_map(fn (array $item): string => $this->itemLine($item), $items);
 
-        return "Позиции со склада:\n" . implode("\n", $lines);
+        return "Номенклатура со склада:\n" . implode("\n", $lines);
     }
 
     private function itemLine(array $item): string
@@ -146,18 +146,7 @@ final class RequestService
 
     private function itemsCountText(int $count): string
     {
-        $mod100 = $count % 100;
-        $mod10 = $count % 10;
-
-        if ($mod100 >= 11 && $mod100 <= 14) {
-            return $count . ' позиций';
-        }
-
-        return match ($mod10) {
-            1 => $count . ' позиция',
-            2, 3, 4 => $count . ' позиции',
-            default => $count . ' позиций',
-        };
+        return $count . ' ед. номенклатуры';
     }
 
     private function defaultSubject(array $items): string
@@ -181,7 +170,7 @@ final class RequestService
         }
 
         if (count($items) > $limit) {
-            $lines[] = '— и ещё ' . (count($items) - $limit) . ' поз.';
+            $lines[] = '— и ещё ' . (count($items) - $limit) . ' ед. номенклатуры';
         }
 
         return implode("\n", $lines);
@@ -258,14 +247,14 @@ final class RequestService
             }
 
             if (count($changed) > self::ITEMS_BRIEF_LIMIT) {
-                $lines[] = '— и ещё ' . (count($changed) - self::ITEMS_BRIEF_LIMIT) . ' поз.';
+                $lines[] = '— и ещё ' . (count($changed) - self::ITEMS_BRIEF_LIMIT) . ' ед. номенклатуры';
             }
 
             $parts[] = "Изменено:\n" . implode("\n", $lines);
         }
 
         $parts[] = $after === []
-            ? 'Осталось: позиций нет'
+            ? 'Осталось: номенклатуры нет'
             : 'Осталось ' . $this->itemsCountText(count($after)) . ":\n" . $this->itemsBrief($after);
 
         return $this->limitText(implode("\n\n", $parts));
@@ -332,7 +321,7 @@ final class RequestService
                 'Тема',
                 'Клиент',
                 'Менеджер',
-                'Позиций',
+                'Номенклатуры',
                 'Создана',
                 'Срок',
                 'Просрочена',
@@ -750,7 +739,7 @@ final class RequestService
                 'request.items',
                 'Заявка ' . (string) $request['number'] . ': изменён состав',
                 $items === []
-                    ? 'Позиции убраны из заявки'
+                    ? 'Номенклатура убрана из заявки'
                     : 'В заявке ' . $this->itemsCountText(count($items)) . '. Подробности — в истории заявки',
                 ['request_number' => (string) $request['number']]
             );

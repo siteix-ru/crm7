@@ -171,7 +171,7 @@
       } else {
         levels = [];
         total = 0;
-        error = 'Не удалось загрузить позиции';
+        error = 'Не удалось загрузить номенклатуру';
       }
 
       if (countsResult.status === 'fulfilled') {
@@ -181,7 +181,7 @@
       }
     } catch {
       if (seq === loadSeq) {
-        error = 'Не удалось загрузить позиции';
+        error = 'Не удалось загрузить номенклатуру';
       }
     } finally {
       if (seq === loadSeq) {
@@ -354,7 +354,7 @@
         {#if groupsEnabled && groups.length > 0}
           <label class="picker-field picker-field-group">
             <span class="picker-field-label">Группа</span>
-            <select value={groupChoice} onchange={selectGroup} aria-label="Группа позиций">
+            <select value={groupChoice} onchange={selectGroup} aria-label="Группа номенклатуры">
               <option value="all">Все группы</option>
               {#if hasUngrouped}
                 <option value="none">Без группы</option>
@@ -395,7 +395,7 @@
         <p class="muted">
           {query !== ''
             ? `По запросу «${query}» ничего не найдено`
-            : 'Позиции не найдены'}
+            : 'Номенклатура не найдена'}
         </p>
         {#if query !== '' || groupChoice !== 'all'}
           <Button variant="ghost" onclick={resetFilters}>Сбросить поиск</Button>
@@ -491,9 +491,9 @@
     <div class="picker-footer">
       <span class="picker-footer-info">
         {#if limitReached}
-          Достигнут лимит {MAX_ITEMS} позиций
+          Достигнут лимит: {MAX_ITEMS}
         {:else}
-          В заявке будет {draft.length} поз.
+          Выбрано: {draft.length}
         {/if}
       </span>
       <div class="picker-footer-actions">

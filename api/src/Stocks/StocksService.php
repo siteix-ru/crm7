@@ -258,7 +258,7 @@ final class StocksService
         $level = $this->stocks->findLevel($itemId);
 
         if ($level === null) {
-            throw new HttpException(404, 'not_found', 'Позиция не найдена');
+            throw new HttpException(404, 'not_found', 'Номенклатура не найдена');
         }
 
         $warehouse = $this->stocks->findWarehouseBySid((string) $level['stock_sid']);
@@ -402,13 +402,13 @@ final class StocksService
     public function setActive(array $user, array $capabilities, int $itemId, bool $active): array
     {
         if (!$this->canDeactivate($capabilities)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для изменения активности позиции');
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для изменения активности номенклатуры');
         }
 
         $level = $this->stocks->findLevel($itemId);
 
         if ($level === null) {
-            throw new HttpException(404, 'not_found', 'Позиция не найдена');
+            throw new HttpException(404, 'not_found', 'Номенклатура не найдена');
         }
 
         $warehouse = $this->stocks->findWarehouseBySid((string) $level['stock_sid']);
@@ -425,7 +425,7 @@ final class StocksService
             $usage = $this->stocks->positionUsage($nameSid, (string) $level['name']);
 
             if ($usage['in_sets'] > 0) {
-                throw new HttpException(422, 'in_use_sets', 'Позиция входит в наборы — сначала уберите её из состава');
+                throw new HttpException(422, 'in_use_sets', 'Номенклатура входит в наборы — сначала уберите её из состава');
             }
         }
 
@@ -445,13 +445,13 @@ final class StocksService
     public function deleteItem(array $user, array $capabilities, int $itemId): array
     {
         if (!in_array('stocks.manage', $capabilities, true)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для удаления позиции');
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для удаления номенклатуры');
         }
 
         $level = $this->stocks->findLevel($itemId);
 
         if ($level === null) {
-            throw new HttpException(404, 'not_found', 'Позиция не найдена');
+            throw new HttpException(404, 'not_found', 'Номенклатура не найдена');
         }
 
         $warehouse = $this->stocks->findWarehouseBySid((string) $level['stock_sid']);
@@ -466,14 +466,14 @@ final class StocksService
         $usage = $this->stocks->positionUsage($nameSid, (string) $level['name']);
 
         if ($usage['in_sets'] > 0) {
-            throw new HttpException(422, 'in_use_sets', 'Позиция входит в наборы — сначала уберите её из состава');
+            throw new HttpException(422, 'in_use_sets', 'Номенклатура входит в наборы — сначала уберите её из состава');
         }
 
         if ($usage['in_requests'] > 0) {
             throw new HttpException(
                 422,
                 'in_use_requests',
-                'Позиция использовалась в заявках — удалить нельзя, можно деактивировать'
+                'Номенклатура использовалась в заявках — удалить нельзя, можно деактивировать'
             );
         }
 
@@ -552,7 +552,7 @@ final class StocksService
         $nameSid = $this->stocks->nameSidForLevel($levelId);
 
         if ($nameSid === null || $nameSid === '') {
-            throw new HttpException(404, 'not_found', 'Позиция не найдена');
+            throw new HttpException(404, 'not_found', 'Номенклатура не найдена');
         }
 
         if ($this->photos->countForName($nameSid) >= self::MAX_PHOTOS) {
@@ -879,7 +879,7 @@ final class StocksService
         $single = count($warehouses) === 1;
         $meta = [
             $single ? 'Склад: ' . (string) $warehouses[0]['NAME'] : 'Складов: ' . count($warehouses),
-            'Позиций: ' . $total,
+            'Номенклатуры: ' . $total,
             'Фильтр: ' . $this->filterLabel($filters),
             'Сортировка: ' . $this->sortLabel($filters['sort']),
             'Сформировано: ' . date('d.m.Y H:i'),
@@ -966,11 +966,11 @@ final class StocksService
         $item = $this->stocks->upsertNomenclature($name, $unit, $description);
 
         if ($item === null) {
-            throw new HttpException(500, 'server_error', 'Не удалось создать позицию');
+            throw new HttpException(500, 'server_error', 'Не удалось создать номенклатуру');
         }
 
         if ($this->stocks->levelExists((string) $warehouse['SID'], (string) $item['SID'])) {
-            throw new HttpException(422, 'duplicate_item', 'Позиция с таким названием уже есть на складе — отредактируйте её');
+            throw new HttpException(422, 'duplicate_item', 'Номенклатура с таким названием уже есть на складе — отредактируйте её');
         }
 
         $this->stocks->setNomenclatureGroup((string) $item['SID'], $groupId);
@@ -1030,7 +1030,7 @@ final class StocksService
         $level = $this->stocks->findLevel($itemId);
 
         if ($level === null) {
-            throw new HttpException(404, 'not_found', 'Позиция не найдена');
+            throw new HttpException(404, 'not_found', 'Номенклатура не найдена');
         }
 
         $warehouse = $this->stocks->findWarehouseBySid((string) $level['stock_sid']);
@@ -1058,7 +1058,7 @@ final class StocksService
             $existing = $this->stocks->nomenclatureByName($name);
 
             if ($existing !== null && (string) $existing['SID'] !== $nameSid) {
-                throw new HttpException(422, 'duplicate_item', 'Позиция с таким названием уже есть');
+                throw new HttpException(422, 'duplicate_item', 'Номенклатура с таким названием уже есть');
             }
         }
 
@@ -1260,11 +1260,11 @@ final class StocksService
         $type = trim((string) ($value ?? ''));
 
         if (!ItemTypes::isKnown($type)) {
-            throw new HttpException(422, 'validation_error', 'Неизвестный тип позиции');
+            throw new HttpException(422, 'validation_error', 'Неизвестный тип номенклатуры');
         }
 
         if ($type !== $current && !in_array($type, $this->itemTypes->enabledCodes(), true)) {
-            throw new HttpException(422, 'type_disabled', 'Тип позиции отключён администратором');
+            throw new HttpException(422, 'type_disabled', 'Тип номенклатуры отключён администратором');
         }
 
         return $type;
@@ -1303,7 +1303,7 @@ final class StocksService
             }
 
             if (($component['ACTIVE'] ?? 'Y') !== 'Y') {
-                throw new HttpException(422, 'item_inactive', 'Деактивированную позицию нельзя добавить в набор');
+                throw new HttpException(422, 'item_inactive', 'Деактивированную номенклатуру нельзя добавить в набор');
             }
 
             $quantity = (float) ($entry['quantity'] ?? 0);
@@ -1327,7 +1327,7 @@ final class StocksService
         $id = (int) $value;
 
         if ($this->groups->find($id) === null) {
-            throw new HttpException(422, 'validation_error', 'Неизвестная группа позиций');
+            throw new HttpException(422, 'validation_error', 'Неизвестная группа номенклатуры');
         }
 
         return $id;
@@ -1347,7 +1347,7 @@ final class StocksService
     private function requireEdit(array $capabilities): void
     {
         if (!in_array('stocks.edit', $capabilities, true)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для добавления и правки позиций');
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для добавления и правки номенклатуры');
         }
     }
 
@@ -1361,7 +1361,7 @@ final class StocksService
         $description = trim((string) ($input['description'] ?? ''));
 
         if ($name === '') {
-            throw new HttpException(422, 'validation_error', 'Укажите название позиции');
+            throw new HttpException(422, 'validation_error', 'Укажите название номенклатуры');
         }
 
         if (mb_strlen($name) > 255) {
@@ -1651,7 +1651,7 @@ final class StocksService
         $rows = $this->stocks->warehousesAdmin();
 
         $section = [
-            'headers' => ['Название', 'Адрес', 'Позиций', 'Доступ (пользователей)', 'Остатки на', 'Статус'],
+            'headers' => ['Название', 'Адрес', 'Номенклатуры', 'Доступ (пользователей)', 'Остатки на', 'Статус'],
             'rows' => array_map(static fn (array $row): array => [
                 (string) $row['name'],
                 $row['address'] !== null ? (string) $row['address'] : '',

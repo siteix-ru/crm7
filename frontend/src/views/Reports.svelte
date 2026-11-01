@@ -411,7 +411,7 @@
           <div class="table wh-table">
             <div class="tr th">
               <span>Склад</span>
-              <span>Позиций</span>
+              <span>Номенклатуры</span>
               <span>Остаток</span>
               <span>Заявок</span>
               <span>Клиентов</span>
@@ -433,10 +433,10 @@
           </div>
 
           {#if warehouseReport.top_items.length > 0}
-            <h3 class="wh-sub">Топ позиций по заявкам и сравнение складов</h3>
+            <h3 class="wh-sub">Топ номенклатуры по заявкам и сравнение складов</h3>
             <div class="table wh-top">
               <div class="tr th">
-                <span>Позиция</span>
+                <span>Номенклатура</span>
                 <span>Запрошено</span>
                 <span>Заявок</span>
                 <span>По складам</span>

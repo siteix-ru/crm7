@@ -47,7 +47,7 @@ final class MyReportService
         [$fromDate, $toDate] = $this->period($filters);
         $filters = $this->normalizeFilters($filters);
         $detail = ($filters['detail'] ?? '') === 'items' ? 'items' : 'requests';
-        $title = $detail === 'items' ? 'Позиции заявок' : 'Заявки';
+        $title = $detail === 'items' ? 'Номенклатура заявок' : 'Заявки';
 
         if ($detail === 'items') {
             $rows = array_map(static fn (array $row): array => [
@@ -61,7 +61,7 @@ final class MyReportService
                 self::PRIORITY_LABELS[(int) $row['priority']] ?? 'Обычный',
             ], $this->reports->exportItems($userId, $fromDate, $toDate, $filters));
 
-            $headers = ['Заявка', 'Создана', 'Склад', 'Позиция', 'Ед.', 'Количество', 'Статус', 'Приоритет'];
+            $headers = ['Заявка', 'Создана', 'Склад', 'Номенклатура', 'Ед.', 'Количество', 'Статус', 'Приоритет'];
         } else {
             $rows = array_map(static fn (array $row): array => [
                 (string) $row['number'],
@@ -73,7 +73,7 @@ final class MyReportService
                 (int) $row['is_overdue'] === 1 ? 'да' : 'нет',
             ], $this->reports->exportRequests($userId, $fromDate, $toDate, $filters));
 
-            $headers = ['Номер', 'Создана', 'Статус', 'Приоритет', 'Тема', 'Позиций', 'Просрочена'];
+            $headers = ['Номер', 'Создана', 'Статус', 'Приоритет', 'Тема', 'Номенклатуры', 'Просрочена'];
         }
 
         if ($rows === []) {
@@ -158,7 +158,7 @@ final class MyReportService
         }
 
         if ($filters['item'] !== '') {
-            $parts[] = 'позиция: ' . $filters['item'];
+            $parts[] = 'номенклатура: ' . $filters['item'];
         }
 
         return $parts !== [] ? implode(', ', $parts) : 'без фильтра';

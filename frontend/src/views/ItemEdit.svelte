@@ -377,14 +377,14 @@
 
   const deactivateBlockReason = $derived(
     deactivateBlocked === 'in_sets'
-      ? 'Позиция входит в состав наборов — сначала уберите её из состава.'
+      ? 'Номенклатура входит в состав наборов — сначала уберите её из состава.'
       : ''
   );
   const deleteBlockReason = $derived(
     deleteBlocked === 'in_sets'
-      ? 'Позиция входит в состав наборов — сначала уберите её из состава.'
+      ? 'Номенклатура входит в состав наборов — сначала уберите её из состава.'
       : deleteBlocked === 'in_requests'
-        ? 'Позиция использовалась в заявках — удалить нельзя, доступна деактивация.'
+        ? 'Номенклатура использовалась в заявках — удалить нельзя, доступна деактивация.'
         : ''
   );
 
@@ -468,7 +468,7 @@
 
       baseline = editSnapshot();
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить позицию';
+      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить номенклатуру';
     } finally {
       loading = false;
     }
@@ -599,9 +599,9 @@
     try {
       const result = active ? await deactivateStockItem(id) : await activateStockItem(id);
       active = result.active;
-      message = active ? 'Позиция активирована' : 'Позиция деактивирована';
+      message = active ? 'Номенклатура активирована' : 'Номенклатура деактивирована';
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось изменить статус позиции';
+      error = cause instanceof ApiError ? cause.message : 'Не удалось изменить статус номенклатуры';
     } finally {
       statusBusy = false;
     }
@@ -612,7 +612,7 @@
       return;
     }
 
-    if (!confirm(`Удалить позицию «${name || 'без названия'}»? Действие необратимо.`)) {
+    if (!confirm(`Удалить номенклатуру «${name || 'без названия'}»? Действие необратимо.`)) {
       return;
     }
 
@@ -624,7 +624,7 @@
       await deleteStockItem(id);
       router.navigate('/stocks');
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось удалить позицию';
+      error = cause instanceof ApiError ? cause.message : 'Не удалось удалить номенклатуру';
       statusBusy = false;
     }
   }
@@ -643,7 +643,7 @@
     const nextCompositionErrors: Record<string, string> = {};
 
     if (trimmedName === '') {
-      nameError = 'Укажите название позиции';
+      nameError = 'Укажите название номенклатуры';
     }
 
     const rawQuantity = currentLevel !== null ? levelEdits[currentLevel.warehouse_sid] : quantity;
@@ -692,7 +692,7 @@
     }
 
     if (isNew && warehouseId <= 0) {
-      error = 'Нет доступных складов для создания позиции';
+      error = 'Нет доступных складов для создания номенклатуры';
     }
 
     const levelsPayload: { warehouse_sid: string; quantity: number }[] = [];
@@ -790,7 +790,7 @@
           try {
             await uploadItemPhoto(newId, pending.file);
           } catch {
-            // фото можно добавить позже в карточке позиции
+            // фото можно добавить позже в карточке номенклатуры
           }
         }
 
@@ -816,7 +816,7 @@
 
       message = 'Изменения сохранены';
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось сохранить позицию';
+      error = cause instanceof ApiError ? cause.message : 'Не удалось сохранить номенклатуру';
     } finally {
       saving = false;
     }
@@ -836,7 +836,7 @@
     </button>
     <div class="head-text">
       <h1>
-        {isNew ? 'Новая позиция' : name || 'Редактирование позиции'}
+        {isNew ? 'Новая номенклатура' : name || 'Редактирование номенклатуры'}
         {#if !isNew && !active}
           <span class="status off">деактивирована</span>
         {/if}
@@ -952,7 +952,7 @@
         </div>
 
         {#if isNew}
-          <p class="hint">Фото можно добавить сейчас — они загрузятся после создания позиции.</p>
+          <p class="hint">Фото можно добавить сейчас — они загрузятся после создания номенклатуры.</p>
         {:else}
           <p class="hint">До {MAX_PHOTOS} фото. Форматы: jpg, png, webp. Размер до 5 МБ.</p>
         {/if}
@@ -976,7 +976,7 @@
           }
         }}
       >
-        <div class="tabs" role="tablist" aria-label="Разделы позиции">
+        <div class="tabs" role="tablist" aria-label="Разделы номенклатуры">
           {#each tabs as item (item.id)}
             <button
               type="button"
@@ -996,21 +996,21 @@
 
         {#if isNew}
           <p class="hint">
-            Позиция создаётся деактивированной. Остатки и цены задаются после сохранения.
+            Номенклатура создаётся деактивированной. Остатки и цены задаются после сохранения.
           </p>
         {/if}
 
         {#if !canEdit}
           <div class="alert">
             <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-            <span>Недостаточно прав для изменения позиции</span>
+            <span>Недостаточно прав для изменения номенклатуры</span>
           </div>
         {/if}
 
         {#if tab === 'main'}
         <div class="form" role="tabpanel" id="item-panel-main" aria-labelledby="item-tab-main">
           {#if itemTypes.length > 0}
-            <Select label="Тип позиции" bind:value={itemType} disabled={!canEdit}>
+            <Select label="Тип номенклатуры" bind:value={itemType} disabled={!canEdit}>
               {#if itemType && !itemTypes.some((type) => type.code === itemType)}
                 <option value={itemType}>{typeTitleOf(itemType)}</option>
               {/if}
@@ -1072,7 +1072,7 @@
               <span class="total-value">{stockQuantityText(totalQuantity, unit)}</span>
             </div>
 
-            <p class="hint">Позиция одна для всех складов — меняется только количество.</p>
+            <p class="hint">Номенклатура одна для всех складов — меняется только количество.</p>
 
             {#each levels as level (level.warehouse_sid)}
               <div class="level-row" class:current={level.current}>
@@ -1157,7 +1157,7 @@
         {:else}
           <div class="levels" role="tabpanel" id="item-panel-composition" aria-labelledby="item-tab-composition">
             {#if composition.length === 0}
-              <div class="empty">Состав пуст — добавьте позиции</div>
+              <div class="empty">Состав пуст — добавьте номенклатуру</div>
             {:else}
               {#each composition as row (row.item_sid)}
                 <div class="level-row">
@@ -1199,7 +1199,7 @@
 
             {#if canEdit}
               <div class="comp-add">
-                <Button variant="ghost" onclick={openPicker}>Добавить позицию</Button>
+                <Button variant="ghost" onclick={openPicker}>Добавить номенклатуру</Button>
               </div>
             {/if}
           </div>
@@ -1208,7 +1208,7 @@
         <div class="actions">
           <Button variant="ghost" disabled={!dirty || saving} onclick={goBack}>Отмена</Button>
           <Button type="submit" loading={saving} disabled={!canEdit || !dirty}>
-            {isNew ? 'Создать позицию' : 'Сохранить'}
+            {isNew ? 'Создать номенклатуру' : 'Сохранить'}
           </Button>
         </div>
       </form>
@@ -1242,7 +1242,7 @@
   </div>
 </Modal>
 
-<Modal open={pickerOpen} title="Добавить позицию в состав" wide onclose={() => (pickerOpen = false)}>
+<Modal open={pickerOpen} title="Добавить номенклатуру в состав" wide onclose={() => (pickerOpen = false)}>
   <div class="cand-toolbar">
     <form
       class="cand-search"

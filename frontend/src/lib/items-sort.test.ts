@@ -34,7 +34,7 @@ describe('items-sort helpers', () => {
     expect(source.map((item) => item.name)).toEqual(['Болт', 'Гайка', 'Шайба']);
   });
 
-  it('позиции без склада идут первыми при сортировке по складу', () => {
+  it('номенклатура без склада идёт первой при сортировке по складу', () => {
     const mixed: SortableItem[] = [
       { name: 'Гайка', quantity: 1, warehouse_name: 'Склад А' },
       { name: 'Винт', quantity: 1, warehouse_name: null }

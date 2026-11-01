@@ -1065,7 +1065,7 @@
 
           <div class="items-head-right">
             {#if detail.items.length > 1}
-              <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка позиций">
+              <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка номенклатуры">
                 {#each ITEMS_SORT_OPTIONS as option (option.value)}
                   <option value={option.value}>{option.label}</option>
                 {/each}
@@ -1084,7 +1084,7 @@
         </div>
 
         {#if detail.items.length === 0}
-          <p class="muted">Позиций пока нет</p>
+          <p class="muted">Номенклатуры пока нет</p>
         {:else}
           <div class="items-table">
             <div class="it-row it-head" class:prices={showPrices}>
@@ -1146,7 +1146,7 @@
                   <button
                     type="button"
                     class="it-del"
-                    title="Удалить позицию"
+                    title="Удалить номенклатуру"
                     aria-label={`Удалить: ${item.name}`}
                     onclick={() => removeItem(item)}
                   >
@@ -1503,9 +1503,9 @@
       </div>
     </Modal>
 
-    <Modal open={deleteOpen} title="Удаление позиции" onclose={() => void cancelDelete()}>
+    <Modal open={deleteOpen} title="Удаление номенклатуры" onclose={() => void cancelDelete()}>
       <div class="form">
-        <p class="muted">Удалить позицию «{deleteItemName}» из состава заявки?</p>
+        <p class="muted">Удалить номенклатуру «{deleteItemName}» из состава заявки?</p>
 
         <textarea
           bind:value={deleteComment}

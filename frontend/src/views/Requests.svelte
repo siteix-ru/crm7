@@ -104,7 +104,7 @@
     { field: 'subject', label: 'Тема' },
     { field: 'client', label: 'Клиент', staffOnly: true },
     { field: 'manager', label: 'Менеджер' },
-    { field: 'positions', label: 'Позиций' },
+    { field: 'positions', label: 'Номенклатуры' },
     { field: 'status', label: 'Статус' },
     { field: 'due', label: 'Срок' },
     { field: 'priority', label: 'Приоритет' },
@@ -768,7 +768,7 @@
                     <span class="search-badge">поиск менеджера</span>
                   {/if}
                 </span>
-                <span class="meta-item meta-count">позиций: {item.items_count}</span>
+                <span class="meta-item meta-count">номенклатуры: {item.items_count}</span>
               </div>
             </a>
           {/each}
@@ -779,7 +779,7 @@
           {@render headCell('col-subject', 'Тема', 'subject')}
           {#if isStaff}{@render headCell('col-client', 'Клиент', 'client')}{/if}
           {@render headCell('col-manager', 'Менеджер', 'manager')}
-          {@render headCell('col-count', 'Позиций', 'positions')}
+          {@render headCell('col-count', 'Номенклатуры', 'positions')}
           {@render headCell('col-status', 'Статус', 'status')}
           {@render headCell('col-overdue', 'Просрочка', 'due')}
           {@render headCell('col-date', 'Дата', 'created')}
@@ -804,7 +804,7 @@
                 {/if}
               </span>
               <span class="cell col-count">
-                <span class="cell-label">позиций: </span>{item.items_count}
+                <span class="cell-label">номенклатуры: </span>{item.items_count}
               </span>
               <span class="cell col-status">
                 <span class="status-text" style={`color: ${item.status.color}`}>{item.status.title}</span>
@@ -1088,7 +1088,7 @@
             >
               <span class="draft-name">{draft.subject || 'Без темы'}</span>
               <span class="draft-meta">
-                позиций: {draft.items_count} · обновлён {formatDateTime(draft.updated_at)}
+                номенклатуры: {draft.items_count} · обновлён {formatDateTime(draft.updated_at)}
               </span>
             </button>
             <button

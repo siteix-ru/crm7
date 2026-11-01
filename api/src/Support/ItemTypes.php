@@ -27,7 +27,7 @@ final class ItemTypes
             [
                 'code' => self::PRODUCT,
                 'title' => 'Товар',
-                'description' => 'Материальная позиция с остатками и ценами',
+                'description' => 'Материальная номенклатура с остатками и ценами',
             ],
             [
                 'code' => self::SERVICE,
@@ -37,7 +37,7 @@ final class ItemTypes
             [
                 'code' => self::SET,
                 'title' => 'Набор',
-                'description' => 'Состав из других позиций (товаров и услуг)',
+                'description' => 'Состав из другой номенклатуры (товаров и услуг)',
             ],
         ];
     }

@@ -210,7 +210,7 @@
           class="bell"
           class:has-new={cart.count > 0}
           class:current={path === '/cart'}
-          aria-label={cart.count > 0 ? `Корзина: ${cart.count} позиций` : 'Корзина'}
+          aria-label={cart.count > 0 ? `Корзина: ${cart.count}` : 'Корзина'}
           title="Корзина"
           onclick={() => router.navigate('/cart')}
         >

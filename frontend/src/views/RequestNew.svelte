@@ -341,7 +341,7 @@
           map[level.id] = level.quantity;
         }
       } catch {
-        // склад недоступен — позиции останутся непроверенными
+        // склад недоступен — номенклатура останется непроверенной
       }
     }
 
@@ -594,7 +594,7 @@
     }
 
     if (hasStockErrors) {
-      error = 'Есть позиции без достаточного остатка — удалите их из состава заявки';
+      error = 'Есть номенклатура без достаточного остатка — удалите её из состава заявки';
       return;
     }
 
@@ -928,7 +928,7 @@
             {#if itemRows.length > 0}
               <div class="items-head-actions">
                 {#if itemRows.length > 1}
-                  <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка позиций">
+                  <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка номенклатуры">
                     {#each ITEMS_SORT_OPTIONS as option (option.value)}
                       <option value={option.value}>{option.label}</option>
                     {/each}
@@ -941,7 +941,7 @@
                   onclick={() => (pickerOpen = true)}
                 >
                   <Icon name="plus" size={14} />
-                  Добавить позицию
+                  Добавить номенклатуру
                 </Button>
               </div>
             {/if}
@@ -949,13 +949,13 @@
 
           {#if itemRows.length === 0}
             <div class="items-empty">
-              <p class="muted">Позиций пока нет</p>
+              <p class="muted">Номенклатуры пока нет</p>
               <Button
                 disabled={!appSettings.salesEnabled}
                 onclick={() => (pickerOpen = true)}
               >
                 <Icon name="plus" size={14} />
-                Добавить позицию
+                Добавить номенклатуру
               </Button>
             </div>
           {:else}
@@ -1029,7 +1029,7 @@
           <div class="alert">
             <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
             <span>
-              Позиции, отмеченные красным, отсутствуют на складе. Удалите их из состава заявки или
+              Номенклатура, отмеченная красным, отсутствует на складе. Удалите её из состава заявки или
               обратитесь к администратору, чтобы разрешить работу с отрицательными остатками.
             </span>
           </div>

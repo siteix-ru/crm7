@@ -163,7 +163,7 @@
         priceTypes = (await listPriceTypes().catch(() => ({ items: [] }))).items;
       }
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить позицию';
+      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить номенклатуру';
     } finally {
       loading = false;
     }
@@ -183,7 +183,7 @@
     </button>
     <div class="head-text">
       <h1>
-        {item?.name ?? 'Позиция'}
+        {item?.name ?? 'Номенклатура'}
         {#if item && item.active === false}
           <span class="status off">деактивирована</span>
         {/if}
@@ -304,7 +304,7 @@
           <div class="form">
             {#if itemTypes.length > 0}
               <div class="field">
-                <span class="label">Тип позиции</span>
+                <span class="label">Тип номенклатуры</span>
                 <span class="value">{typeTitle || '—'}</span>
               </div>
             {/if}

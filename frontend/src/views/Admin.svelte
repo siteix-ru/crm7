@@ -506,7 +506,7 @@
     try {
       itemTypes = (await listItemTypes()).types;
     } catch (cause) {
-      typesError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить типы позиций';
+      typesError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить типы номенклатуры';
     } finally {
       typesLoading = false;
     }
@@ -528,7 +528,7 @@
       itemTypes = (await saveItemTypes(itemTypes)).types;
       typesNotice = 'Сохранено';
     } catch (cause) {
-      typesError = cause instanceof ApiError ? cause.message : 'Не удалось сохранить типы позиций';
+      typesError = cause instanceof ApiError ? cause.message : 'Не удалось сохранить типы номенклатуры';
     } finally {
       typesBusy = false;
     }
@@ -693,7 +693,7 @@
   <div class="tabs tab-scroll">
     {#if auth.can('settings.manage')}
       <button type="button" class:active={tab === 'modules'} onclick={() => void openTab('modules')}>Модули</button>
-      <button type="button" class:active={tab === 'types'} onclick={() => void openTab('types')}>Типы позиций</button>
+      <button type="button" class:active={tab === 'types'} onclick={() => void openTab('types')}>Типы номенклатуры</button>
     {/if}
     {#if canManageUsers}
       <button type="button" class:active={tab === 'users'} onclick={() => void openTab('users')}>Пользователи</button>
@@ -702,7 +702,7 @@
       <button type="button" class:active={tab === 'audit'} onclick={() => void openTab('audit')}>Журнал аудита</button>
     {/if}
     {#if canViewAudit || auth.can('settings.manage')}
-      <button type="button" class:active={tab === 'searches'} onclick={() => void openTab('searches')}>Поиски позиций</button>
+      <button type="button" class:active={tab === 'searches'} onclick={() => void openTab('searches')}>Поиски номенклатуры</button>
     {/if}
     <button type="button" class:active={tab === 'roles'} onclick={() => void openTab('roles')}>Роли</button>
     <button type="button" class:active={tab === 'refs'} onclick={() => void openTab('refs')}>Справочники</button>

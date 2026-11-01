@@ -153,7 +153,7 @@ class CartStore {
         ` (${item.warehouseName})`
     );
 
-    return 'Позиции со склада:\n' + lines.join('\n');
+    return 'Номенклатура со склада:\n' + lines.join('\n');
   }
 
   private persist(): void {

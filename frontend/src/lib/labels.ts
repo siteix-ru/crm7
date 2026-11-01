@@ -35,8 +35,8 @@ const AUDIT_LABELS: Record<string, string> = {
   'substitution.end': 'Завершение замещения',
   'stocks.import': 'Импорт остатков',
   'stocks.export': 'Экспорт остатков',
-  'stocks.item.create': 'Добавление позиции склада',
-  'stocks.item.update': 'Правка позиции склада',
+  'stocks.item.create': 'Добавление номенклатуры',
+  'stocks.item.update': 'Правка номенклатуры',
   'stocks.warehouse.rename': 'Переименование склада',
   'stocks.manage': 'Управление складом'
 };

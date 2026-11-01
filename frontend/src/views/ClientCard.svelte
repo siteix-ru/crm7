@@ -726,7 +726,7 @@
 
     {#if tab === 'interests'}
       <div class="card">
-        <h2>Целевой интерес к позициям</h2>
+        <h2>Целевой интерес к номенклатуре</h2>
       <p class="hint">Что клиент заказывал — для будущих целевых продаж (без отменённых заявок)</p>
 
       <div class="block-toolbar">
@@ -740,7 +740,7 @@
           <SearchInput
             bind:value={interestsInput}
             historyKey="client-interests"
-            placeholder="Поиск позиции"
+            placeholder="Поиск номенклатуры"
             onclear={applyInterestsSearch}
             onpick={applyInterestsSearch}
           />
@@ -762,11 +762,11 @@
       {#if interestsLoading && interests.length === 0}
         <div class="center"><Spinner size={22} /></div>
       {:else if interests.length === 0}
-        <p class="empty">{interestsQuery ? 'Ничего не найдено' : 'Позиций пока нет'}</p>
+        <p class="empty">{interestsQuery ? 'Ничего не найдено' : 'Номенклатуры пока нет'}</p>
       {:else}
         <div class="interests">
           <div class="tr th">
-            <span>Позиция</span>
+            <span>Номенклатура</span>
             <span>Склад</span>
             <span class="num">Заказов</span>
             <span class="num">Количество</span>

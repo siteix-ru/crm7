@@ -272,7 +272,7 @@ final class ReportsService
         $sections = [
             [
                 'title' => 'Склады',
-                'headers' => ['Склад', 'Позиций', 'Нулевых', 'Остаток', 'Заявок', 'Клиентов', 'Запрошено'],
+                'headers' => ['Склад', 'Номенклатуры', 'Нулевых', 'Остаток', 'Заявок', 'Клиентов', 'Запрошено'],
                 'rows' => array_map(static fn (array $row): array => [
                     (string) $row['warehouse_name'],
                     (string) $row['positions'],
@@ -287,8 +287,8 @@ final class ReportsService
 
         if ($report['top_items'] !== []) {
             $sections[] = [
-                'title' => 'Топ позиций по заявкам',
-                'headers' => ['Позиция', 'Запрошено', 'Заявок', 'По складам'],
+                'title' => 'Топ номенклатуры по заявкам',
+                'headers' => ['Номенклатура', 'Запрошено', 'Заявок', 'По складам'],
                 'rows' => array_map(static fn (array $row): array => [
                     (string) $row['name'],
                     self::numberText((float) $row['total_quantity']),

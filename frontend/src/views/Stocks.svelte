@@ -895,7 +895,7 @@
 
       message =
         `Импорт: загружено ${result.rows_imported} строк` +
-        (result.rows_created > 0 ? `, новых позиций ${result.rows_created}` : '') +
+        (result.rows_created > 0 ? `, номенклатуры: ${result.rows_created}` : '') +
         (result.warehouses_created > 0 ? `, новых складов ${result.warehouses_created}` : '') +
         (result.rows_zeroed > 0 ? `, обнулено ${result.rows_zeroed}` : '') +
         (result.rows_skipped > 0 ? `, пропущено ${result.rows_skipped}` : '') +
@@ -983,7 +983,7 @@
         <SearchInput
           bind:value={searchInput}
           historyKey="stocks"
-          placeholder="Поиск позиции"
+          placeholder="Поиск номенклатуры"
           onclear={() => void search()}
           onpick={() => void search()}
         />
@@ -1061,8 +1061,8 @@
           <button
             type="button"
             class="sort-button"
-            title="Добавить позицию"
-            aria-label="Добавить позицию"
+            title="Добавить номенклатуру"
+            aria-label="Добавить номенклатуру"
             onclick={() => router.navigate('/stocks/items/new')}
           >
             <Icon name="plus" size={16} />
@@ -1172,7 +1172,7 @@
           <p class="import-hint">
             Файл Excel (xls/xlsx) в формате 1С: строки «Склад …» и далее «товар; ед.; остаток на складе».
             CSV: те же три колонки либо «склад; товар; ед.; остаток на складе». Импорт заменяет остатки целиком:
-            позиции, которых нет в файле, обнуляются и скрываются, пока в настройках системы не разрешены
+            номенклатура, которой нет в файле, обнуляется и скрывается, пока в настройках системы не разрешены
             нулевые остатки. Новые склады из файла добавляются автоматически.
           </p>
           <div class="import-field">
@@ -1302,7 +1302,7 @@
       </div>
     </Modal>
 
-    <Modal open={groupOpen} title="Группы позиций" onclose={() => (groupOpen = false)}>
+    <Modal open={groupOpen} title="Группы номенклатуры" onclose={() => (groupOpen = false)}>
       <div class="sort-options">
         <div class="options-head">
           <button type="button" class="link-btn" onclick={selectAllGroups}>Отметить все</button>
@@ -1349,7 +1349,7 @@
               {hasFilters ? (counts[warehouse.id] ?? 0) : warehouse.positions}
             </span>
             {#if cartCount(warehouse.id) > 0}
-              <span class="picked" title="Позиций в корзине заявки">в заявке: {cartCount(warehouse.id)}</span>
+              <span class="picked" title="Номенклатуры в корзине заявки">в заявке: {cartCount(warehouse.id)}</span>
             {/if}
           </label>
         {/each}
@@ -1377,7 +1377,7 @@
         </div>
 
         <div class="view-column">
-          <p class="sort-hint">Фото в позициях</p>
+          <p class="sort-hint">Фото в номенклатуре</p>
           <div class="sort-options">
             <label class="sort-option">
               <input type="radio" name="stock-photos" value={true} bind:group={photoDraft} />
@@ -1475,7 +1475,7 @@
             </li>
             {#if canEdit}
               <li>
-                <b>Карандаш</b> — в карточке позиции открывает страницу редактирования: там можно
+                <b>Карандаш</b> — в карточке номенклатуры открывает страницу редактирования: там можно
                 изменить параметры и управлять фото (до 10 штук, jpg/png/webp, до 5 МБ).
               </li>
             {/if}
@@ -1546,12 +1546,12 @@
           <div class="help-block">
             <h3>Для администратора</h3>
             <ul>
-              <li><b>Плюс</b> — добавить новую позицию номенклатуры.</li>
+              <li><b>Плюс</b> — добавить новую номенклатуру.</li>
               <li>
                 <b>Название склада</b> меняется в разделе «Склады»: карточка склада →
                 «Редактировать».
               </li>
-              <li><b>Карандаш</b> в карточке позиции — открыть редактирование позиции.</li>
+              <li><b>Карандаш</b> в карточке номенклатуры — открыть редактирование номенклатуры.</li>
             </ul>
           </div>
         {/if}
@@ -1570,7 +1570,7 @@
     {#if loadingLevels}
       <div class="center"><Spinner size={26} /></div>
     {:else if selectedIds.length === 0}
-      <div class="empty">Нет выбранных складов — нет позиций</div>
+      <div class="empty">Нет выбранных складов — нет номенклатуры</div>
     {:else if levels.length === 0}
       <div class="empty">Ничего не найдено</div>
     {:else}
@@ -1629,7 +1629,7 @@
             class:inactive={level.active === false}
             role="button"
             tabindex="0"
-            aria-label={`Открыть позицию: ${level.name}`}
+            aria-label={`Открыть номенклатуру: ${level.name}`}
             onclick={() => openItem(level)}
             onkeydown={(event) => {
               if (event.target !== event.currentTarget) {
@@ -1659,7 +1659,7 @@
                 type="button"
                 class="name"
                 class:has-desc={level.description !== ''}
-                title="Подробнее о позиции"
+                title="Подробнее о номенклатуре"
                 onclick={(event) => {
                   event.stopPropagation();
                 openItem(level);

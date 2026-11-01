@@ -113,7 +113,7 @@
       return;
     }
 
-    if (!confirm(`Удалить группу «${group.title}»? Позиции останутся без группы.`)) {
+    if (!confirm(`Удалить группу «${group.title}»? Номенклатура останется без группы.`)) {
       return;
     }
 
@@ -237,7 +237,7 @@
             <span>{itemsError}</span>
           </div>
         {:else if items.length === 0}
-          <div class="empty">В группе пока нет позиций. Назначьте группу в карточке позиции.</div>
+          <div class="empty">В группе пока нет номенклатуры. Назначьте группу в карточке номенклатуры.</div>
         {:else}
           <div class="table-wrap">
             <table>
