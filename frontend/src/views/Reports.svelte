@@ -10,7 +10,7 @@
   import { clearFilters, countActive, loadFilters, saveFilters } from '../lib/filters';
   import Button from '../lib/components/ui/Button.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
-  import Pagination from '../lib/components/ui/Pagination.svelte';
+  import Pager from '../lib/components/ui/Pager.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import StatusBadge from '../lib/components/StatusBadge.svelte';
   import { formatMinutes } from '../lib/format';
@@ -27,7 +27,7 @@
     { code: 'dynamics', title: 'Динамика' }
   ];
 
-  const perPageOptions = [20, 50, 100];
+  const perPageOptions = [10, 20, 50, 100];
 
   const filterDefaults = {
     from: defaultPeriod().from,
@@ -60,6 +60,10 @@
   let dynamicsPerPage = $state(20);
 
   function slice<T>(items: T[], page: number, perPage: number): T[] {
+    if (perPage <= 0) {
+      return items;
+    }
+
     return items.slice((page - 1) * perPage, page * perPage);
   }
 
@@ -338,7 +342,7 @@
             {/each}
           </div>
 
-          <Pagination
+          <Pager
             page={managersPage}
             perPage={managersPerPage}
             total={summary.by_manager.length}
@@ -382,7 +386,7 @@
             {/each}
           </div>
 
-          <Pagination
+          <Pager
             page={clientsPage}
             perPage={clientsPerPage}
             total={summary.by_client.length}
@@ -489,7 +493,7 @@
                   {/each}
                 </div>
 
-                <Pagination
+                <Pager
                   page={queriesPage}
                   perPage={queriesPerPage}
                   total={leads.top_queries.length}
@@ -537,7 +541,7 @@
                   {/each}
                 </div>
 
-                <Pagination
+                <Pager
                   page={leadClientsPage}
                   perPage={leadClientsPerPage}
                   total={leads.clients.length}
@@ -572,7 +576,7 @@
             {/each}
           </div>
 
-          <Pagination
+          <Pager
             page={dynamicsPage}
             perPage={dynamicsPerPage}
             total={summary.dynamics.length}

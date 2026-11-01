@@ -334,6 +334,9 @@ final class UserRepository
         [$whereSql, $params] = $this->clientsWhere($query, $filters);
 
         $order = implode(', ', $this->clientOrderTerms((string) ($filters['sort'] ?? 'name_asc')));
+        $limitSql = $limit > 0
+            ? ' LIMIT ' . max(1, min(100, $limit)) . ' OFFSET ' . max(0, $offset)
+            : '';
 
         $sql = 'SELECT u.ID AS id, u.SID AS sid, u.LOGIN AS login, u.FULL_NAME AS name,
                         u.EMAIL AS email, u.PHONE AS phone, u.COMPANY AS company, u.INN AS inn,
@@ -345,8 +348,7 @@ final class UserRepository
                  LEFT JOIN client_managers cm ON cm.client_id = u.ID
                  LEFT JOIN users mu ON mu.ID = cm.manager_id
                  WHERE ' . $whereSql . '
-                 ORDER BY ' . $order . '
-                 LIMIT ' . max(1, min(100, $limit)) . ' OFFSET ' . max(0, $offset);
+                 ORDER BY ' . $order . $limitSql;
 
         $stmt = Database::pdo()->prepare($sql);
         $stmt->execute($params);

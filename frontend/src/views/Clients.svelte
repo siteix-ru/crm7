@@ -8,7 +8,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
-  import Pagination from '../lib/components/ui/Pagination.svelte';
+  import Pager from '../lib/components/ui/Pager.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { countActive, loadFilters, saveFilters } from '../lib/filters';
@@ -107,6 +107,34 @@
     perPage = value;
     page = 1;
     void load();
+  }
+
+  function openClient(client: ClientItem): void {
+    router.navigate(`/clients/${client.id}`);
+  }
+
+  function onClientKey(event: KeyboardEvent, client: ClientItem): void {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      openClient(client);
+    }
+  }
+
+  function clientInitials(name: string): string {
+    const parts = name.trim().split(/\s+/).filter(Boolean);
+
+    if (parts.length === 0) {
+      return '?';
+    }
+
+    const first = parts[0][0] ?? '';
+    const second = parts.length > 1 ? parts[1][0] ?? '' : '';
+
+    return (first + second).toUpperCase();
   }
 
   function applySearch(): void {
@@ -550,24 +578,62 @@
   {:else if clients.length === 0}
     <div class="empty">Клиенты не найдены</div>
   {:else}
-    <div class="list" class:tiles={viewMode === 'tiles'}>
-      {#each clients as client (client.id)}
-        <!-- svelte-ignore a11y_click_events_have_key_events -->
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="card"
-          class:tile={viewMode === 'tiles'}
-          class:pending={client.reg_state === 'pending'}
-          class:blocked={!client.active}
-          onclick={() => router.navigate(`/clients/${client.id}`)}
-        >
-          <div class="info">
-            <div class="name-row">
+    {#if viewMode === 'list'}
+      <div class="client-table">
+        <div class="ct-row ct-head">
+          <span>Клиент</span>
+          <span class="ct-company">Компания</span>
+          <span class="ct-contacts">Контакты</span>
+          <span class="ct-manager">Менеджер</span>
+          <span class="num">Заявки</span>
+          <span class="ct-date">Регистрация</span>
+          <span>Статус</span>
+        </div>
+
+        {#each clients as client (client.id)}
+          <div
+            class="ct-row"
+            class:pending={client.reg_state === 'pending'}
+            class:blocked={!client.active}
+            role="button"
+            tabindex="0"
+            aria-label={`Открыть клиента: ${client.name}`}
+            onclick={() => openClient(client)}
+            onkeydown={(event) => onClientKey(event, client)}
+          >
+            <div class="ct-name">
               <a
                 class="name link"
                 href={`#/clients/${client.id}`}
+                title={client.name}
                 onclick={(event) => event.stopPropagation()}>{client.name}</a
               >
+              {#if client.inn}<span class="ct-sub">ИНН {client.inn}</span>{/if}
+            </div>
+
+            <span class="ct-company ellipsis" title={client.company || undefined}>
+              {client.company || '—'}
+            </span>
+
+            <div class="ct-contacts">
+              {#if client.phone}<span title={client.phone}>{client.phone}</span>{/if}
+              {#if client.email}
+                <span class="ellipsis" title={client.email}>{client.email}</span>
+              {/if}
+              {#if !client.phone && !client.email}<span class="ct-muted">—</span>{/if}
+            </div>
+
+            <span class="ct-manager ellipsis" title={client.manager?.name}>
+              {client.manager?.name ?? '—'}
+            </span>
+
+            <span class="num">{client.requests_total}</span>
+
+            <span class="ct-date ct-muted">
+              {client.registered_at ? formatDate(client.registered_at) : '—'}
+            </span>
+
+            <div class="ct-state">
               {#if client.reg_state === 'pending'}
                 <span class="state">ожидает подтверждения</span>
               {/if}
@@ -577,34 +643,93 @@
               {#if client.transfer_to_me}
                 <span class="state transfer-chip">→ вам передают</span>
               {/if}
-            </div>
-            <div class="meta">
-              {#if client.company}<span>{client.company}</span>{/if}
-              {#if client.inn}<span>ИНН {client.inn}</span>{/if}
-              {#if client.phone}<span>{client.phone}</span>{/if}
-              {#if client.email}<span>{client.email}</span>{/if}
-            </div>
-            <div class="manager">
-              {#if client.manager}
-                менеджер: {client.manager.name}
-              {:else}
-                без менеджера
+              {#if client.reg_state !== 'pending' && client.active && !client.transfer_to_me}
+                <span class="ct-muted">—</span>
               {/if}
-              · заявок: {client.requests_total}
-              {#if client.registered_at}· зарегистрирован: {formatDate(client.registered_at)}{/if}
             </div>
           </div>
-        </div>
-      {/each}
-    </div>
+        {/each}
+      </div>
+    {:else}
+      <div class="tiles-grid">
+        {#each clients as client (client.id)}
+          <div
+            class="tile"
+            class:pending={client.reg_state === 'pending'}
+            class:blocked={!client.active}
+            role="button"
+            tabindex="0"
+            aria-label={`Открыть клиента: ${client.name}`}
+            onclick={() => openClient(client)}
+            onkeydown={(event) => onClientKey(event, client)}
+          >
+            <div class="tile-head">
+              <span class="avatar" aria-hidden="true">{clientInitials(client.name)}</span>
+              <div class="tile-title">
+                <a
+                  class="name link ellipsis"
+                  href={`#/clients/${client.id}`}
+                  title={client.name}
+                  onclick={(event) => event.stopPropagation()}>{client.name}</a
+                >
+                <span class="tile-company ellipsis" title={client.company || undefined}>
+                  {client.company || 'Без компании'}
+                </span>
+              </div>
+            </div>
 
-    <Pagination
-      page={page}
-      perPage={perPage}
-      total={total}
+            {#if client.reg_state === 'pending' || !client.active || client.transfer_to_me}
+              <div class="tile-chips">
+                {#if client.reg_state === 'pending'}
+                  <span class="state">ожидает подтверждения</span>
+                {/if}
+                {#if !client.active}
+                  <span class="state blocked-chip">заблокирован</span>
+                {/if}
+                {#if client.transfer_to_me}
+                  <span class="state transfer-chip">→ вам передают</span>
+                {/if}
+              </div>
+            {/if}
+
+            <div class="tile-rows">
+              {#if client.inn}
+                <div class="tile-row"><span>ИНН</span><span>{client.inn}</span></div>
+              {/if}
+              {#if client.phone}
+                <div class="tile-row"><span>Телефон</span><span>{client.phone}</span></div>
+              {/if}
+              {#if client.email}
+                <div class="tile-row">
+                  <span>Email</span>
+                  <span class="ellipsis" title={client.email}>{client.email}</span>
+                </div>
+              {/if}
+            </div>
+
+            <div class="tile-foot">
+              <div class="tile-foot-info">
+                <span class="tile-manager ellipsis">
+                  {client.manager ? `менеджер: ${client.manager.name}` : 'без менеджера'}
+                </span>
+                {#if client.registered_at}
+                  <span class="tile-date">с {formatDate(client.registered_at)}</span>
+                {/if}
+              </div>
+              <span class="tile-badge" title={`Заявок: ${client.requests_total}`}>
+                {client.requests_total}
+              </span>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    <Pager
+      {page}
+      {perPage}
+      {total}
       loading={loading}
-      perPageOptions={[20, 50, 100]}
-      always
       onchange={goToPage}
       onperpage={changePerPage}
     />
@@ -651,22 +776,9 @@
     text-align: center;
   }
 
-  .pending-card,
-  .card.pending {
+  .pending-card {
     border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
     background: color-mix(in srgb, var(--primary) 6%, var(--surface));
-  }
-
-  .card.blocked {
-    border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
-    background: color-mix(in srgb, var(--danger) 6%, var(--surface));
-  }
-
-  .name-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex-wrap: wrap;
   }
 
   .state.blocked-chip {
@@ -982,17 +1094,311 @@
     margin-top: var(--space-4);
   }
 
-  .list.tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  .ellipsis {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .list.tiles .card {
+  .client-table {
+    display: flex;
     flex-direction: column;
-    align-items: stretch;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    overflow: hidden;
   }
 
+  .ct-row {
+    display: grid;
+    grid-template-columns:
+      minmax(170px, 1.6fr) minmax(120px, 1.1fr) minmax(150px, 1.3fr)
+      minmax(110px, 1fr) 64px 104px minmax(120px, 150px);
+    align-items: center;
+    gap: var(--space-3);
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.12s ease;
+  }
 
+  .ct-row:last-child {
+    border-bottom: none;
+  }
+
+  .ct-row:hover {
+    background: var(--fill-tertiary);
+  }
+
+  .ct-row.pending {
+    background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  }
+
+  .ct-row.blocked {
+    background: color-mix(in srgb, var(--danger) 5%, var(--surface));
+  }
+
+  .ct-head {
+    padding-top: 9px;
+    padding-bottom: 9px;
+    border-bottom-width: 2px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 12px;
+    cursor: default;
+  }
+
+  .ct-head:hover {
+    background: var(--bg);
+  }
+
+  .ct-head .num {
+    text-align: right;
+  }
+
+  .ct-name {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .ct-name .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ct-sub {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+
+  .ct-contacts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .ct-contacts span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .ct-manager {
+    font-size: 13px;
+    color: var(--text);
+    min-width: 0;
+  }
+
+  .ct-date {
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .ct-state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .ct-muted {
+    color: var(--muted);
+  }
+
+  .ct-row .num {
+    text-align: right;
+    font-weight: 600;
+  }
+
+  .tiles-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: var(--space-3);
+  }
+
+  .tile {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+    padding: var(--space-4);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-sm);
+    cursor: pointer;
+    transition: background 0.12s ease, border-color 0.12s ease;
+  }
+
+  .tile:hover {
+    background: var(--fill-tertiary);
+    border-color: var(--primary);
+  }
+
+  .tile.pending {
+    border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+    background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  }
+
+  .tile.blocked {
+    border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+    background: color-mix(in srgb, var(--danger) 5%, var(--surface));
+  }
+
+  .tile-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+  }
+
+  .avatar {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--primary) 12%, var(--surface));
+    color: var(--primary);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .tile-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .tile-title .name {
+    font-size: 15px;
+  }
+
+  .tile-company {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .tile-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .tile-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-height: 20px;
+  }
+
+  .tile-row {
+    display: grid;
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: var(--space-2);
+    font-size: 13px;
+  }
+
+  .tile-row > span:first-child {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .tile-row > span:last-child {
+    min-width: 0;
+    white-space: nowrap;
+  }
+
+  .tile-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-top: auto;
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-secondary);
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .tile-foot-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .tile-manager {
+    min-width: 0;
+  }
+
+  .tile-badge {
+    flex: 0 0 auto;
+    min-width: 24px;
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .tile-date {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  @media (max-width: 1200px) {
+    .ct-row {
+      grid-template-columns:
+        minmax(160px, 1.6fr) minmax(150px, 1.3fr) minmax(110px, 1fr)
+        64px 104px minmax(110px, 140px);
+    }
+
+    .ct-row .ct-company {
+      display: none;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .ct-row {
+      grid-template-columns: minmax(150px, 1.6fr) minmax(110px, 1fr) 64px minmax(110px, 140px);
+    }
+
+    .ct-row .ct-contacts,
+    .ct-row .ct-date {
+      display: none;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .ct-row {
+      grid-template-columns: minmax(130px, 1fr) 56px minmax(100px, 130px);
+      gap: var(--space-2);
+      padding: 10px 12px;
+    }
+
+    .ct-row .ct-manager {
+      display: none;
+    }
+
+    .ct-head .num {
+      text-align: right;
+    }
+  }
 
   .help-list {
     display: flex;

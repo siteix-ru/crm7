@@ -61,15 +61,15 @@ final class AuditRepository
         }
 
         $whereSql = $where !== [] ? ' WHERE ' . implode(' AND ', $where) : '';
-        $offset = max(0, ($page - 1) * $perPage);
+        $offset = $perPage > 0 ? max(0, ($page - 1) * $perPage) : 0;
 
         $stmt = Database::pdo()->prepare(
             'SELECT a.ID AS id, a.user_id, a.action, a.entity, a.entity_id, a.data_json, a.ip, a.created_at,
                     u.FULL_NAME AS user_name
              FROM audit_log a
              LEFT JOIN users u ON u.ID = a.user_id' . $whereSql . '
-             ORDER BY a.ID DESC
-             LIMIT ' . max(1, min(200, $perPage)) . ' OFFSET ' . $offset
+             ORDER BY a.ID DESC' . ($perPage > 0 ? '
+             LIMIT ' . max(1, min(200, $perPage)) . ' OFFSET ' . $offset : '')
         );
         $stmt->execute($params);
 

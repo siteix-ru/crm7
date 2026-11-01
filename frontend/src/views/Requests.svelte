@@ -19,12 +19,12 @@
   import Button from '../lib/components/ui/Button.svelte';
   import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import Pager from '../lib/components/ui/Pager.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { loadFilters, saveFilters } from '../lib/filters';
   import { formatDateTime } from '../lib/format';
-  import { buildPageItems } from '../lib/pagination';
   import { clampPeriod, defaultPeriod, todayIso } from '../lib/period';
 
   const filterDefaults = {
@@ -52,7 +52,7 @@
     { value: 'no', label: 'Без просрочки' }
   ];
 
-  const perPageOptions = [20, 50, 100];
+  const perPageOptions = [10, 20, 50, 100];
 
   let statuses = $state<RequestStatus[]>([]);
   let items = $state<RequestItem[]>([]);
@@ -63,8 +63,11 @@
   let filters = $state({ ...initialFilters });
   let draft = $state({ ...initialFilters });
   let page = $state(typeof initialFilters.page === 'number' && initialFilters.page > 0 ? initialFilters.page : 1);
-  let perPage = $state(perPageOptions.includes(Number(initialFilters.per_page)) ? Number(initialFilters.per_page) : 20);
-  let jumpPage = $state<number | null>(null);
+  let perPage = $state(
+    perPageOptions.includes(Number(initialFilters.per_page)) || Number(initialFilters.per_page) === 0
+      ? Number(initialFilters.per_page)
+      : 20
+  );
   let search = $state(String(initialFilters.q ?? ''));
   let searchInput = $state(String(initialFilters.q ?? ''));
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -139,10 +142,6 @@
       (filters.from !== filterDefaults.from || filters.to !== filterDefaults.to ? 1 : 0)
   );
   const searchActive = $derived(search.trim() !== '');
-  const pages = $derived(Math.max(1, Math.ceil(total / perPage)));
-  const rangeFrom = $derived(total === 0 ? 0 : Math.min((page - 1) * perPage + 1, total));
-  const rangeTo = $derived(Math.min(page * perPage, total));
-  const pageItems = $derived(buildPageItems(page, pages));
 
   onMount(() => {
     void listStatuses()
@@ -472,7 +471,7 @@
       return;
     }
 
-    const next = Math.min(Math.max(1, Math.trunc(target)), pages);
+    const next = Math.max(1, Math.trunc(target));
 
     if (next === page) {
       return;
@@ -480,17 +479,6 @@
 
     page = next;
     await load(false);
-  }
-
-  async function submitJump(event: Event): Promise<void> {
-    event.preventDefault();
-
-    if (typeof jumpPage !== 'number' || !Number.isFinite(jumpPage)) {
-      return;
-    }
-
-    await goToPage(jumpPage);
-    jumpPage = null;
   }
 
   function changePerPage(): void {
@@ -819,79 +807,18 @@
       {/if}
     </div>
 
-    {#snippet pagerPrev()}
-      <button
-        type="button"
-        class="page-btn"
-        disabled={page <= 1}
-        aria-label="Предыдущая страница"
-        onclick={() => void goToPage(page - 1)}
-      >
-        <Icon name="arrow-left" size={14} />
-      </button>
-    {/snippet}
-    {#snippet pagerNext()}
-      <button
-        type="button"
-        class="page-btn"
-        disabled={page >= pages}
-        aria-label="Следующая страница"
-        onclick={() => void goToPage(page + 1)}
-      >
-        <Icon name="arrow-right" size={14} />
-      </button>
-    {/snippet}
-
-    <div class="pager">
-      <label class="per-page">
-        <span>Показывать</span>
-        <select bind:value={perPage} onchange={changePerPage}>
-          {#each perPageOptions as option (option)}
-            <option value={option}>{option}</option>
-          {/each}
-        </select>
-      </label>
-
-      {#if pages > 1}
-        <div class="pager-main">
-          <span class="pager-total">{rangeFrom}–{rangeTo} из {total}</span>
-
-          <div class="pager-pages" aria-label="Постраничная навигация">
-            {@render pagerPrev()}
-
-            {#each pageItems as item, index (`${item}-${index}`)}
-              {#if item === '...'}
-                <span class="page-ellipsis" aria-hidden="true">…</span>
-              {:else}
-                <button
-                  type="button"
-                  class="page-btn"
-                  class:active={item === page}
-                  aria-current={item === page ? 'page' : undefined}
-                  aria-label={`Страница ${item}`}
-                  onclick={() => void goToPage(Number(item))}
-                >
-                  {item}
-                </button>
-              {/if}
-            {/each}
-
-            {@render pagerNext()}
-          </div>
-
-          <div class="pager-simple" aria-label="Постраничная навигация">
-            {@render pagerPrev()}
-            <span class="pager-simple-count">{page} / {pages}</span>
-            {@render pagerNext()}
-          </div>
-
-          <form class="pager-jump" onsubmit={submitJump}>
-            <span>Перейти</span>
-            <input type="number" min="1" max={pages} bind:value={jumpPage} aria-label="Номер страницы" />
-          </form>
-        </div>
-      {/if}
-    </div>
+    <Pager
+      {page}
+      {perPage}
+      {total}
+      loading={loading}
+      perPageOptions={perPageOptions}
+      onchange={(next) => void goToPage(next)}
+      onperpage={(value) => {
+        perPage = value;
+        changePerPage();
+      }}
+    />
   {/if}
 
   <Modal open={sortOpen} title="Сортировка" onclose={() => (sortOpen = false)}>
@@ -2102,128 +2029,5 @@
     cursor: pointer;
   }
 
-  .pager {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    font-size: 14px;
-    color: var(--text);
-  }
 
-  .per-page {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .per-page select {
-    padding: 4px 11px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 14px;
-  }
-
-  .pager-main {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-left: auto;
-  }
-
-  .pager-total {
-    color: var(--text);
-    white-space: nowrap;
-  }
-
-  .pager-pages {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
-
-  .page-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 32px;
-    height: 32px;
-    padding: 0 6px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: 14px;
-    line-height: 1;
-    cursor: pointer;
-  }
-
-  .page-btn:hover:not(:disabled) {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .page-btn.active {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .page-btn:disabled {
-    color: rgba(0, 0, 0, 0.25);
-    cursor: not-allowed;
-  }
-
-  .page-ellipsis {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 32px;
-    height: 32px;
-    color: var(--text-description);
-  }
-
-  .pager-jump {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    white-space: nowrap;
-  }
-
-  .pager-jump input {
-    width: 56px;
-    height: 32px;
-    padding: 0 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 13px;
-  }
-
-  .pager-simple {
-    display: none;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .pager-simple-count {
-    color: var(--text);
-  }
-
-  @media (max-width: 575.98px) {
-    .pager-pages,
-    .pager-jump,
-    .pager-total {
-      display: none;
-    }
-
-    .pager-simple {
-      display: inline-flex;
-    }
-  }
 </style>

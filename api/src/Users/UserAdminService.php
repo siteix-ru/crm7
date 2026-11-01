@@ -68,8 +68,8 @@ final class UserAdminService
              FROM users u
              LEFT JOIN price_types pt ON pt.ID = u.price_type_id
              WHERE ' . $whereSql . '
-             ORDER BY u.LEVEL DESC, u.FULL_NAME ASC
-             LIMIT ' . max(1, min(100, $perPage)) . ' OFFSET ' . $offset
+             ORDER BY u.LEVEL DESC, u.FULL_NAME ASC' . ($perPage > 0 ? '
+             LIMIT ' . max(1, min(100, $perPage)) . ' OFFSET ' . $offset : '')
         );
         $stmt->execute($params);
         $rows = $stmt->fetchAll() ?: [];

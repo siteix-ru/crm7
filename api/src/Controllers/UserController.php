@@ -56,7 +56,7 @@ final class UserController extends ApiController
             'q' => trim($request->queryParam('q')),
             'level' => (int) $request->queryParam('level', '0'),
             'state' => trim($request->queryParam('state')),
-        ], max(1, (int) $request->queryParam('page', '1')), max(10, min(100, (int) $request->queryParam('per_page', '50')))));
+        ], max(1, (int) $request->queryParam('page', '1')), (int) $request->queryParam('per_page', '50') <= 0 ? 0 : max(10, min(100, (int) $request->queryParam('per_page', '50')))));
     }
 
     public function create(Request $request): Response

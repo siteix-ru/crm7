@@ -5,7 +5,7 @@
   import type { NotificationItem } from '../lib/api/types';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
-  import Pagination from '../lib/components/ui/Pagination.svelte';
+  import Pager from '../lib/components/ui/Pager.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { formatDateTime, formatRelative } from '../lib/format';
 
@@ -177,15 +177,14 @@
       {/each}
     </div>
 
-    <Pagination
-    page={page}
-    perPage={perPage}
-    total={total}
-    loading={loading}
-    perPageOptions={[20, 50, 100]}
-    onchange={goToPage}
-    onperpage={changePerPage}
-  />
+    <Pager
+      {page}
+      {perPage}
+      {total}
+      loading={loading}
+      onchange={goToPage}
+      onperpage={changePerPage}
+    />
   {/if}
 </section>
 

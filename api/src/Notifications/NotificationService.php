@@ -117,7 +117,7 @@ final class NotificationService
 
     public function list(int $userId, bool $unreadOnly, int $limit, int $page = 1): array
     {
-        $limit = max(1, min(100, $limit));
+        $limit = $limit <= 0 ? 0 : max(1, min(200, $limit));
         $page = max(1, $page);
 
         $items = array_map(static fn (array $row): array => [

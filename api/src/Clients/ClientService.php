@@ -322,7 +322,8 @@ final class ClientService
         $query = trim((string) ($filters['q'] ?? ''));
         $sort = (string) ($filters['sort'] ?? 'qty_desc');
         $page = max(1, (int) ($filters['page'] ?? 1));
-        $perPage = max(10, min(100, (int) ($filters['per_page'] ?? 20)));
+        $perPage = (int) ($filters['per_page'] ?? 20);
+        $perPage = $perPage <= 0 ? 0 : max(10, min(100, $perPage));
 
         $items = array_map(static fn (array $row): array => [
             'name' => (string) $row['name'],

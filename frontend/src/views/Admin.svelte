@@ -39,6 +39,7 @@
   import { clampDates, todayIso } from '../lib/period';
   import Button from '../lib/components/ui/Button.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
+  import Pager from '../lib/components/ui/Pager.svelte';
   import PriceTypesPicker from '../lib/components/ui/PriceTypesPicker.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
@@ -63,8 +64,9 @@
   >('users');
 
   let users = $state<AdminUser[]>([]);
-  let usersTotal = $state(0);
-  let usersPage = $state(1);
+let usersTotal = $state(0);
+let usersPage = $state(1);
+let usersPerPage = $state(20);
   let userQuery = $state('');
   const initialUserFilters = loadFilters('admin-users', userFilterDefaults);
   let userFilters = $state({ ...initialUserFilters });
@@ -89,8 +91,9 @@
   let editForm = $state({ name: '', phone: '', company: '', inn: '', position: '', level: 5, price_type_id: 0 });
 
   let audit = $state<AuditEntry[]>([]);
-  let auditTotal = $state(0);
-  let auditPage = $state(1);
+let auditTotal = $state(0);
+let auditPage = $state(1);
+let auditPerPage = $state(20);
   let auditAction = $state('');
   const initialAuditFilters = loadFilters('admin-audit', auditFilterDefaults);
   let auditFilters = $state({ ...initialAuditFilters });
@@ -169,7 +172,7 @@
         level: userFilters.level,
         state: userFilters.state,
         page: usersPage,
-        per_page: 50
+        per_page: usersPerPage
       });
 
       users = data.items;
@@ -358,7 +361,7 @@
       from: auditFilters.from,
       to: auditFilters.to,
         page: auditPage,
-        per_page: 50
+        per_page: auditPerPage
       });
 
       audit = data.items;
@@ -996,19 +999,21 @@
         {/each}
       </div>
 
-      <div class="pager">
-        <Button variant="ghost" disabled={usersPage <= 1} onclick={() => { usersPage -= 1; void loadUsers(); }}>
-          Назад
-        </Button>
-        <span>Стр. {usersPage} · всего {usersTotal}</span>
-        <Button
-          variant="ghost"
-          disabled={usersPage * 50 >= usersTotal}
-          onclick={() => { usersPage += 1; void loadUsers(); }}
-        >
-          Вперёд
-        </Button>
-      </div>
+      <Pager
+        page={usersPage}
+        perPage={usersPerPage}
+        total={usersTotal}
+        loading={usersLoading}
+        onchange={(next) => {
+          usersPage = next;
+          void loadUsers();
+        }}
+        onperpage={(next) => {
+          usersPerPage = next;
+          usersPage = 1;
+          void loadUsers();
+        }}
+      />
     {/if}
   {/if}
 
@@ -1078,19 +1083,21 @@
         {/each}
       </div>
 
-      <div class="pager">
-        <Button variant="ghost" disabled={auditPage <= 1} onclick={() => { auditPage -= 1; void loadAudit(); }}>
-          Назад
-        </Button>
-        <span>Стр. {auditPage} · всего {auditTotal}</span>
-        <Button
-          variant="ghost"
-          disabled={auditPage * 50 >= auditTotal}
-          onclick={() => { auditPage += 1; void loadAudit(); }}
-        >
-          Вперёд
-        </Button>
-      </div>
+      <Pager
+        page={auditPage}
+        perPage={auditPerPage}
+        total={auditTotal}
+        loading={auditLoading}
+        onchange={(next) => {
+          auditPage = next;
+          void loadAudit();
+        }}
+        onperpage={(next) => {
+          auditPerPage = next;
+          auditPage = 1;
+          void loadAudit();
+        }}
+      />
     {/if}
   {/if}
 
@@ -1788,15 +1795,6 @@
 
   .cap-check code {
     font-size: 11px;
-    color: var(--muted);
-  }
-
-  .pager {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-3);
-    font-size: 13px;
     color: var(--muted);
   }
 

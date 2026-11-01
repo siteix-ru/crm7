@@ -26,6 +26,7 @@
   import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import Pager from '../lib/components/ui/Pager.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import PhotoGallery from '../lib/components/stocks/PhotoGallery.svelte';
@@ -37,7 +38,6 @@
   import { router } from '../lib/router.svelte';
   import { config } from '../lib/config';
   import { formatDate, formatDateTime, formatPrice, stockQuantityText } from '../lib/format';
-  import { buildPageItems } from '../lib/pagination';
 
   function todayLocal(): string {
     const now = new Date();
@@ -75,7 +75,7 @@
   let searchInput = $state(String(initialStockFilters.query));
   let page = $state<number>(typeof initialStockFilters.page === 'number' ? initialStockFilters.page : 1);
   let total = $state(0);
-  let jumpPage = $state<number | null>(null);
+
   let loading = $state(true);
   let loadingLevels = $state(false);
   let error = $state('');
@@ -137,11 +137,17 @@
   const canDeactivate = $derived(auth.can('stocks.deactivate'));
   let statusActiveDraft = $state(true);
   let statusInactiveDraft = $state(true);
+  const PAGE_SIZES = [10, 20, 50, 100];
   const initialView: 'list' | 'tiles' = initialStockFilters.view === 'tiles' ? 'tiles' : 'list';
-  const initialPerPageList =
-    typeof initialStockFilters.per_page_list === 'number' ? initialStockFilters.per_page_list : 20;
-  const initialPerPageTiles =
-    typeof initialStockFilters.per_page_tiles === 'number' ? initialStockFilters.per_page_tiles : 12;
+
+  function normalizePageSize(value: unknown, fallback: number): number {
+    const size = Number(value);
+
+    return PAGE_SIZES.includes(size) || size === 0 ? size : fallback;
+  }
+
+  const initialPerPageList = normalizePageSize(initialStockFilters.per_page_list, 20);
+  const initialPerPageTiles = normalizePageSize(initialStockFilters.per_page_tiles, 20);
   let viewMode = $state<'list' | 'tiles'>(initialView);
   let perPageList = $state<number>(initialPerPageList);
   let perPageTiles = $state<number>(initialPerPageTiles);
@@ -165,11 +171,6 @@
   let loadSeq = 0;
 
   const canCreate = $derived(auth.can('requests.create') && appSettings.cartEnabled);
-  const pages = $derived(perPage <= 0 ? 1 : Math.max(1, Math.ceil(total / perPage)));
-  const rangeFrom = $derived(perPage <= 0 ? (total === 0 ? 0 : 1) : Math.min((page - 1) * perPage + 1, total));
-  const rangeTo = $derived(perPage <= 0 ? total : Math.min(page * perPage, total));
-  const pageItems = $derived(buildPageItems(page, pages));
-  const perPageOptions = $derived(viewMode === 'tiles' ? [12, 24, 48, 96] : [10, 20, 50, 100]);
   const pricesEnabled = $derived(appSettings.pricesEnabled);
   const groupsEnabled = $derived(appSettings.groupsEnabled);
   const sortRows = $derived.by(() => {
@@ -813,7 +814,7 @@
       return;
     }
 
-    const next = Math.min(Math.max(1, Math.trunc(target)), pages);
+    const next = Math.max(1, Math.trunc(target));
 
     if (next === page) {
       return;
@@ -822,17 +823,6 @@
     page = next;
     saveStockFilters();
     await loadLevels();
-  }
-
-  async function submitJump(event: Event): Promise<void> {
-    event.preventDefault();
-
-    if (typeof jumpPage !== 'number' || !Number.isFinite(jumpPage)) {
-      return;
-    }
-
-    await goToPage(jumpPage);
-    jumpPage = null;
   }
 
   function changePerPage(): void {
@@ -1752,80 +1742,18 @@
       </div>
       </div>
 
-      {#snippet pagerPrev()}
-        <button
-          type="button"
-          class="page-btn"
-          disabled={page <= 1}
-          aria-label="Предыдущая страница"
-          onclick={() => void goToPage(page - 1)}
-        >
-          <Icon name="arrow-left" size={14} />
-        </button>
-      {/snippet}
-      {#snippet pagerNext()}
-        <button
-          type="button"
-          class="page-btn"
-          disabled={page >= pages}
-          aria-label="Следующая страница"
-          onclick={() => void goToPage(page + 1)}
-        >
-          <Icon name="arrow-right" size={14} />
-        </button>
-      {/snippet}
-
-      <div class="pager">
-        <label class="per-page">
-          <span>Показывать</span>
-          <select bind:value={perPage} onchange={changePerPage}>
-            {#each perPageOptions as option (option)}
-              <option value={option}>{option}</option>
-            {/each}
-            <option value={0}>Все</option>
-          </select>
-        </label>
-
-        {#if pages > 1}
-          <div class="pager-main">
-            <span class="pager-total">{rangeFrom}–{rangeTo} из {total}</span>
-
-            <div class="pager-pages" aria-label="Постраничная навигация">
-              {@render pagerPrev()}
-
-              {#each pageItems as item, index (`${item}-${index}`)}
-                {#if item === '...'}
-                  <span class="page-ellipsis" aria-hidden="true">…</span>
-                {:else}
-                  <button
-                    type="button"
-                    class="page-btn"
-                    class:active={item === page}
-                    aria-current={item === page ? 'page' : undefined}
-                    aria-label={`Страница ${item}`}
-                    onclick={() => void goToPage(Number(item))}
-                  >
-                    {item}
-                  </button>
-                {/if}
-              {/each}
-
-              {@render pagerNext()}
-            </div>
-
-            <div class="pager-simple" aria-label="Постраничная навигация">
-              {@render pagerPrev()}
-              <span class="pager-simple-count">{page} / {pages}</span>
-              {@render pagerNext()}
-            </div>
-
-            <form class="pager-jump" onsubmit={submitJump}>
-              <span>Перейти</span>
-              <input type="number" min="1" max={pages} bind:value={jumpPage} aria-label="Номер страницы" />
-            </form>
-          </div>
-        {/if}
-      </div>
+      <Pager
+        {page}
+        {perPage}
+        {total}
+        loading={loading}
+        perPageOptions={PAGE_SIZES}
+        onchange={(next) => void goToPage(next)}
+        onperpage={(value) => {
+          perPage = value;
+          changePerPage();
+        }}
+      />
     {/if}
   {/if}
 
@@ -2943,131 +2871,6 @@
 
   .step:hover {
     color: var(--primary);
-  }
-
-  .pager {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    font-size: 14px;
-    color: var(--text);
-  }
-
-  .per-page {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .per-page select {
-    padding: 4px 11px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 14px;
-  }
-
-  .pager-main {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-left: auto;
-  }
-
-  .pager-total {
-    color: var(--text);
-    white-space: nowrap;
-  }
-
-  .pager-pages {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
-
-  .page-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 32px;
-    height: 32px;
-    padding: 0 6px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    font: inherit;
-    font-size: 14px;
-    line-height: 1;
-    cursor: pointer;
-  }
-
-  .page-btn:hover:not(:disabled) {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .page-btn.active {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .page-btn:disabled {
-    color: rgba(0, 0, 0, 0.25);
-    cursor: not-allowed;
-  }
-
-  .page-ellipsis {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 32px;
-    height: 32px;
-    color: var(--text-description);
-  }
-
-  .pager-jump {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-1);
-    white-space: nowrap;
-  }
-
-  .pager-jump input {
-    width: 56px;
-    height: 32px;
-    padding: 0 8px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 13px;
-  }
-
-  .pager-simple {
-    display: none;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .pager-simple-count {
-    color: var(--text);
-  }
-
-  @media (max-width: 575.98px) {
-    .pager-pages,
-    .pager-jump,
-    .pager-total {
-      display: none;
-    }
-
-    .pager-simple {
-      display: inline-flex;
-    }
   }
 
   .history {

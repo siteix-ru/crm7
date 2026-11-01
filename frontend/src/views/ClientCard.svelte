@@ -31,7 +31,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
-  import Pagination from '../lib/components/ui/Pagination.svelte';
+  import Pager from '../lib/components/ui/Pager.svelte';
   import PriceTypesPicker from '../lib/components/ui/PriceTypesPicker.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
@@ -784,13 +784,11 @@
         </div>
 
         <div class="pager-wrap">
-          <Pagination
+          <Pager
             page={interestsPage}
             perPage={interestsPerPage}
             total={interestsTotal}
             loading={interestsLoading}
-            perPageOptions={[20, 50, 100]}
-            always
             onchange={changeInterestsPage}
             onperpage={changeInterestsPerPage}
           />
@@ -819,12 +817,10 @@
           </ol>
 
           <div class="pager-wrap">
-            <Pagination
+            <Pager
               page={historyPage}
               perPage={historyPerPage}
               total={timeline.length}
-              perPageOptions={[20, 50, 100]}
-              always
               onchange={changeHistoryPage}
               onperpage={changeHistoryPerPage}
             />
@@ -900,13 +896,11 @@
         </div>
 
         <div class="pager-wrap">
-          <Pagination
+          <Pager
             page={requestsPage}
             perPage={requestsPerPage}
             total={requestsTotal}
             loading={requestsLoading}
-            perPageOptions={[20, 50, 100]}
-            always
             onchange={changeRequestsPage}
             onperpage={changeRequestsPerPage}
           />

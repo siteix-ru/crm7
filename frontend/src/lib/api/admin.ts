@@ -147,7 +147,7 @@ export function listUsers(params: {
   if (params.level) search.set('level', String(params.level));
   if (params.state) search.set('state', params.state);
   if (params.page) search.set('page', String(params.page));
-  if (params.per_page) search.set('per_page', String(params.per_page));
+    if (params.per_page !== undefined) search.set('per_page', String(params.per_page));
 
   const suffix = search.toString() !== '' ? `?${search.toString()}` : '';
 
@@ -285,7 +285,7 @@ export function listAudit(params: {
   if (params.from) search.set('from', params.from);
   if (params.to) search.set('to', params.to);
   if (params.page) search.set('page', String(params.page));
-  if (params.per_page) search.set('per_page', String(params.per_page));
+    if (params.per_page !== undefined) search.set('per_page', String(params.per_page));
 
   const suffix = search.toString() !== '' ? `?${search.toString()}` : '';
 

@@ -32,7 +32,7 @@ final class AuditController extends ApiController
             'entity' => trim($request->queryParam('entity')),
             'from' => trim($request->queryParam('from')),
             'to' => trim($request->queryParam('to')),
-        ], max(1, (int) $request->queryParam('page', '1')), max(10, min(100, (int) $request->queryParam('per_page', '50')))));
+        ], max(1, (int) $request->queryParam('page', '1')), (int) $request->queryParam('per_page', '50') <= 0 ? 0 : max(10, min(100, (int) $request->queryParam('per_page', '50')))));
     }
 
     public function actions(Request $request): Response

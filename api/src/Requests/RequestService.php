@@ -274,7 +274,8 @@ final class RequestService
     public function list(array $user, array $capabilities, array $filters): array
     {
         $page = max(1, (int) ($filters['page'] ?? 1));
-        $perPage = min(100, max(5, (int) ($filters['per_page'] ?? 20)));
+        $perPage = (int) ($filters['per_page'] ?? 20);
+        $perPage = $perPage <= 0 ? 0 : min(500, max(5, $perPage));
 
         $result = $this->requests->list(
             $this->listFilters($filters, $user),

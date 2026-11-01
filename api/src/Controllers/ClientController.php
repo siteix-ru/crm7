@@ -249,7 +249,8 @@ final class ClientController extends ApiController
 
         $query = trim($request->queryParam('q'));
         $page = max(1, (int) $request->queryParam('page', '1'));
-        $perPage = max(10, min(100, (int) $request->queryParam('per_page', '20')));
+        $perPage = (int) $request->queryParam('per_page', '20');
+        $perPage = $perPage <= 0 ? 0 : max(10, min(100, $perPage));
 
         $state = trim($request->queryParam('state'));
         $from = trim($request->queryParam('from'));

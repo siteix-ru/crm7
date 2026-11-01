@@ -302,9 +302,10 @@ final class RequestRepository
         $countStmt->execute($params);
         $total = (int) $countStmt->fetchColumn();
 
-        $offset = max(0, ($page - 1) * $perPage);
+        $offset = $perPage > 0 ? max(0, ($page - 1) * $perPage) : 0;
+        $limitSql = $perPage > 0 ? ' LIMIT ' . $perPage . ' OFFSET ' . $offset : '';
 
-        $sql = self::DETAIL_SELECT . $whereSql . $this->sortSql((string) ($filters['sort'] ?? '')) . ' LIMIT ' . $perPage . ' OFFSET ' . $offset;
+        $sql = self::DETAIL_SELECT . $whereSql . $this->sortSql((string) ($filters['sort'] ?? '')) . $limitSql;
 
         $stmt = Database::pdo()->prepare($sql);
         $stmt->execute($params);
@@ -330,7 +331,7 @@ final class RequestRepository
 
     public function clientInterests(int $clientId, string $query = '', string $sort = 'qty_desc', int $limit = 20, int $offset = 0): array
     {
-        $limit = max(1, min(100, $limit));
+        $limit = $limit <= 0 ? 0 : max(1, min(100, $limit));
         [$where, $params] = $this->interestsWhere($clientId, $query);
 
         $order = match ($sort) {
@@ -356,7 +357,7 @@ final class RequestRepository
              WHERE " . $where . "
              GROUP BY ri.name, ri.unit
              ORDER BY " . $order . "
-             LIMIT " . $limit . ' OFFSET ' . max(0, $offset)
+             " . ($limit > 0 ? 'LIMIT ' . $limit . ' OFFSET ' . max(0, $offset) : '')
         );
         $stmt->execute($params);
 

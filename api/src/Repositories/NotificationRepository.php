@@ -65,7 +65,11 @@ final class NotificationRepository
             $sql .= ' AND read_at IS NULL';
         }
 
-        $sql .= ' ORDER BY created_at DESC, ID DESC LIMIT ' . max(1, min(200, $limit)) . ' OFFSET ' . max(0, $offset);
+        if ($limit > 0) {
+            $sql .= ' ORDER BY created_at DESC, ID DESC LIMIT ' . max(1, min(200, $limit)) . ' OFFSET ' . max(0, $offset);
+        } else {
+            $sql .= ' ORDER BY created_at DESC, ID DESC';
+        }
 
         $stmt = Database::pdo()->prepare($sql);
         $stmt->execute([$userId]);
