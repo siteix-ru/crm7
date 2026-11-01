@@ -256,6 +256,8 @@ $router->post('/clients/{id}/reject', [$clients, 'reject']);
 $router->post('/clients/{id}/block', [$clients, 'block']);
 $router->post('/clients/{id}/unblock', [$clients, 'unblock']);
 $router->patch('/clients/{id}', [$clients, 'update']);
+$router->post('/clients/{id}/reset-password', [$clients, 'resetPassword']);
+$router->post('/clients/{id}/reset-password-email', [$clients, 'sendPasswordReset']);
 $router->post('/clients/{id}/claim', [$clients, 'claim']);
 $router->post('/clients/{id}/assign', [$clients, 'assign']);
 $router->post('/clients/{id}/transfer', [$clients, 'transfer']);

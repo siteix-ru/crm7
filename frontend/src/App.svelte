@@ -88,7 +88,7 @@
   <div class="boot">
     <Spinner size={28} />
   </div>
-{:else if !auth.isAuthenticated}
+{:else if !auth.isAuthenticated || route === '/reset'}
   {#if legalMatch}
     <Legal code={legalMatch.code} />
   {:else if route === '/forgot'}

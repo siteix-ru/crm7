@@ -18,6 +18,7 @@ const AUDIT_LABELS: Record<string, string> = {
   'client.block': 'Блокировка клиента',
   'client.unblock': 'Разблокировка клиента',
   'client.update': 'Правка клиента',
+  'client.password_reset': 'Сброс пароля клиента',
   'client.claim': 'Клиент взят менеджером',
   'client.assign': 'Назначение менеджера клиенту',
   'client.transfer': 'Передача клиента',

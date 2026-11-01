@@ -93,6 +93,35 @@ export function updateClientContacts(id: number, payload: ClientContactsPayload)
   });
 }
 
+export interface ClientPasswordResult {
+  id: number;
+  login: string;
+  password: string;
+  channel: 'show';
+}
+
+export interface ClientPasswordLinkResult {
+  id: number;
+  email: string;
+  channel: 'email';
+}
+
+export function resetClientPassword(id: number): Promise<ClientPasswordResult> {
+  return apiRequest<ClientPasswordResult>(`/clients/${id}/reset-password`, {
+    method: 'POST',
+    auth: true,
+    body: {}
+  });
+}
+
+export function sendClientPasswordLink(id: number): Promise<ClientPasswordLinkResult> {
+  return apiRequest<ClientPasswordLinkResult>(`/clients/${id}/reset-password-email`, {
+    method: 'POST',
+    auth: true,
+    body: {}
+  });
+}
+
 export function claimClient(id: number): Promise<{ id: number }> {
   return apiRequest<{ id: number }>(`/clients/${id}/claim`, {
     method: 'POST',

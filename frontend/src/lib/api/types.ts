@@ -779,7 +779,14 @@ export interface ClientCard {
   };
   manager: ClientManagerInfo | null;
   transfer: ClientTransferInfo | null;
-  can: { manage: boolean; assign: boolean; claim: boolean; accept: boolean; cancel: boolean };
+  can: {
+    manage: boolean;
+    reset_password: boolean;
+    assign: boolean;
+    claim: boolean;
+    accept: boolean;
+    cancel: boolean;
+  };
   stats: {
     total: number;
     open: number;

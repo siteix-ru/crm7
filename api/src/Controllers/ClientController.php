@@ -139,6 +139,30 @@ final class ClientController extends ApiController
         return Response::ok($result);
     }
 
+    public function resetPassword(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $clientId = (int) ($params['id'] ?? 0);
+
+        $result = $this->service->resetPassword($user, $capabilities, $clientId);
+
+        $this->audit($request, $user, 'client.password_reset', 'user', $clientId, ['channel' => 'show']);
+
+        return Response::ok($result);
+    }
+
+    public function sendPasswordReset(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $clientId = (int) ($params['id'] ?? 0);
+
+        $result = $this->service->sendPasswordResetLink($user, $capabilities, $clientId);
+
+        $this->audit($request, $user, 'client.password_reset', 'user', $clientId, ['channel' => 'email']);
+
+        return Response::ok($result);
+    }
+
     public function claim(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);

@@ -4,11 +4,16 @@ declare(strict_types=1);
 
 namespace App\Clients;
 
+use App\Core\Config;
+use App\Core\Database;
 use App\Http\HttpException;
+use App\Mail\MailService;
 use App\Notifications\NotificationService;
 use App\Prices\PriceService;
 use App\Support\Validator;
 use App\Repositories\RequestRepository;
+use App\Repositories\ResetRepository;
+use App\Repositories\TokenRepository;
 use App\Repositories\UserHistoryRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\ViewLogRepository;
@@ -22,7 +27,10 @@ final class ClientService
         private readonly ClientManagerService $managers = new ClientManagerService(),
         private readonly NotificationService $notifications = new NotificationService(),
         private readonly ViewLogRepository $views = new ViewLogRepository(),
-        private readonly PriceService $prices = new PriceService()
+        private readonly PriceService $prices = new PriceService(),
+        private readonly TokenRepository $tokens = new TokenRepository(),
+        private readonly ResetRepository $resets = new ResetRepository(),
+        private readonly MailService $mail = new MailService()
     ) {
     }
 
@@ -398,15 +406,126 @@ final class ClientService
         return $transfer;
     }
 
+    /**
+     * Сброс пароля клиента из карточки: новый пароль возвращается один раз.
+     */
+    public function resetPassword(array $actor, array $capabilities, int $clientId): array
+    {
+        $client = $this->assertClient($clientId);
+        $this->assertCanManageAccount($actor, $capabilities, $clientId);
+
+        if (Config::demoMode()) {
+            throw new HttpException(403, 'demo_mode', 'Действие недоступно в демо-режиме');
+        }
+
+        if ((string) ($client['reg_state'] ?? 'active') !== 'active') {
+            throw new HttpException(422, 'not_activated', 'Сначала подтвердите регистрацию клиента');
+        }
+
+        $password = bin2hex(random_bytes(5)) . 'Aa1';
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+
+        try {
+            $this->users->updatePassword($clientId, password_hash($password, PASSWORD_DEFAULT));
+            $this->tokens->revokeAllForUser($clientId);
+            $this->resets->invalidateForUser($clientId);
+            $this->history->add($clientId, 'password_reset', (int) $actor['ID'], 'Пароль сброшен из карточки клиента');
+            $pdo->commit();
+        } catch (\Throwable $exception) {
+            $pdo->rollBack();
+            throw $exception;
+        }
+
+        return [
+            'id' => $clientId,
+            'login' => (string) ($client['LOGIN'] ?? ''),
+            'password' => $password,
+            'channel' => 'show',
+        ];
+    }
+
+    /**
+     * Отправка клиенту ссылки на смену пароля (одноразовый токен, 60 минут).
+     */
+    public function sendPasswordResetLink(array $actor, array $capabilities, int $clientId): array
+    {
+        $client = $this->assertClient($clientId);
+        $this->assertCanManageAccount($actor, $capabilities, $clientId);
+
+        if (Config::demoMode()) {
+            throw new HttpException(403, 'demo_mode', 'Действие недоступно в демо-режиме');
+        }
+
+        $email = trim((string) ($client['EMAIL'] ?? ''));
+
+        if ($email === '' || !Validator::email($email)) {
+            throw new HttpException(422, 'no_email', 'У клиента не указан e-mail');
+        }
+
+        $state = (string) ($client['reg_state'] ?? 'active');
+
+        if ($state !== 'active' || ($client['ACTIVE'] ?? 'N') !== 'Y') {
+            throw new HttpException(422, 'not_activated', 'Учётная запись клиента ещё не активирована');
+        }
+
+        $mailConfig = $this->mail->config();
+
+        if (!$mailConfig['enabled']) {
+            throw new HttpException(422, 'mail_disabled', 'Почта не настроена — используйте сброс с показом пароля');
+        }
+
+        $token = bin2hex(random_bytes(32));
+
+        $this->resets->invalidateForUser($clientId);
+        $this->resets->create($clientId, hash('sha256', $token), 60);
+
+        $appUrl = rtrim((string) Config::get('APP_URL', 'http://localhost:5173'), '/');
+        $link = $appUrl . '/#/reset?token=' . $token;
+
+        $this->mail->enqueue(
+            $email,
+            'Восстановление пароля',
+            "Здравствуйте!\n\nСсылка для установки нового пароля (действует 60 минут):\n$link\n\n"
+            . "Если вы не запрашивали сброс пароля, просто проигнорируйте это письмо."
+        );
+
+        return [
+            'id' => $clientId,
+            'email' => $email,
+            'channel' => 'email',
+        ];
+    }
+
+    private function canManageAccount(array $actor, array $capabilities, int $clientId): bool
+    {
+        if ((int) $actor['LEVEL'] < 10) {
+            return false;
+        }
+
+        return $this->managers->canManage($actor, $capabilities, $clientId)
+            || in_array('clients.assign', $capabilities, true);
+    }
+
+    private function assertCanManageAccount(array $actor, array $capabilities, int $clientId): void
+    {
+        if (!$this->canManageAccount($actor, $capabilities, $clientId)) {
+            throw new HttpException(403, 'forbidden', 'Нет доступа к управлению учётной записью');
+        }
+    }
+
     private function permissions(array $actor, array $capabilities, int $clientId, array $client): array
     {
         $managerRow = $this->managers->managerFor($clientId);
         $transferRow = $this->managers->currentForClient($clientId);
         $isStaff = (int) $actor['LEVEL'] >= 10;
         $canAssign = in_array('clients.assign', $capabilities, true);
+        $canManage = $this->managers->canManage($actor, $capabilities, $clientId);
 
         return [
-            'manage' => $this->managers->canManage($actor, $capabilities, $clientId),
+            'manage' => $canManage,
+            'reset_password' => $this->canManageAccount($actor, $capabilities, $clientId)
+                && !Config::demoMode(),
             'assign' => $canAssign,
             'claim' => $isStaff
                 && $managerRow === null
