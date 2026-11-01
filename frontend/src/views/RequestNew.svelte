@@ -925,24 +925,26 @@
               Состав заявки{#if itemRows.length > 0} — {itemRows.length}{/if}
             </span>
 
-            <div class="items-head-actions">
-              {#if itemRows.length > 1}
-                <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка позиций">
-                  {#each ITEMS_SORT_OPTIONS as option (option.value)}
-                    <option value={option.value}>{option.label}</option>
-                  {/each}
-                </select>
-              {/if}
+            {#if itemRows.length > 0}
+              <div class="items-head-actions">
+                {#if itemRows.length > 1}
+                  <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка позиций">
+                    {#each ITEMS_SORT_OPTIONS as option (option.value)}
+                      <option value={option.value}>{option.label}</option>
+                    {/each}
+                  </select>
+                {/if}
 
-              <Button
-                variant="ghost"
-                disabled={!appSettings.salesEnabled}
-                onclick={() => (pickerOpen = true)}
-              >
-                <Icon name="plus" size={14} />
-                Добавить позицию
-              </Button>
-            </div>
+                <Button
+                  variant="ghost"
+                  disabled={!appSettings.salesEnabled}
+                  onclick={() => (pickerOpen = true)}
+                >
+                  <Icon name="plus" size={14} />
+                  Добавить позицию
+                </Button>
+              </div>
+            {/if}
           </div>
 
           {#if itemRows.length === 0}
