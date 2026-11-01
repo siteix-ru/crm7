@@ -29,7 +29,6 @@ export interface UserProfile {
   phone: string;
   company: string;
   position: string;
-  price_type_id: number | null;
 }
 
 export interface LoginResponse {
@@ -421,8 +420,6 @@ export interface AdminUser {
   reg_state: string;
   created_at: string;
   last_seen_at: string | null;
-  price_type_id: number | null;
-  price_type_title: string | null;
   price_types: AssignedPriceType[];
 }
 
@@ -438,7 +435,6 @@ export interface PriceType {
 export interface AssignedPriceType {
   id: number;
   title: string;
-  is_default: boolean;
 }
 
 export interface ItemGroup {
@@ -589,7 +585,6 @@ export interface NomenclatureItem {
 export interface PriceListItem {
   id: number;
   title: string;
-  is_default: boolean;
   price: number | null;
 }
 
@@ -774,7 +769,6 @@ export interface ClientCard {
     reg_state: string;
     registered_at: string;
     last_seen_at: string | null;
-    price_type_id: number | null;
     price_types: AssignedPriceType[];
   };
   manager: ClientManagerInfo | null;

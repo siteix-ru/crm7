@@ -558,27 +558,16 @@
     let ids = assigned.map((item) => item.id);
     ids = isOn ? ids.filter((id) => id !== type.id) : [...ids, type.id];
 
-    let defaultId = card.client.price_type_id;
-
-    if (defaultId !== null && !ids.includes(defaultId)) {
-      defaultId = null;
-    }
-
-    if (defaultId === null && ids.length > 0) {
-      defaultId = ids[0];
-    }
-
     priceBusy = true;
     actionError = '';
     actionNotice = '';
 
     try {
-      const result = await setUserPriceTypes(card.client.id, ids, defaultId);
+      const result = await setUserPriceTypes(card.client.id, ids);
       card = {
         ...card,
         client: {
           ...card.client,
-          price_type_id: result.price_type_id,
           price_types: result.price_types
         }
       };
@@ -992,9 +981,7 @@
                   <dt>Типы цен</dt>
                   <dd>
                     {#if card.client.price_types.length > 0}
-                      {card.client.price_types
-                        .map((type) => (type.is_default ? `${type.title} (по умолч.)` : type.title))
-                        .join(', ')}
+                      {card.client.price_types.map((type) => type.title).join(', ')}
                     {:else}
                       —
                     {/if}
@@ -1294,15 +1281,15 @@
                   onclick={() => void togglePriceType(type)}
                 >
                   {type.title}
-                  {#if on && type.id === card.client.price_type_id}
-                    <span class="price-default">по умолчанию</span>
-                  {/if}
                 </button>
               {/each}
             </div>
             {#if !canAssignPrices}
               <p class="hint">Недостаточно прав для изменения типов цен.</p>
             {/if}
+            <p class="hint">
+              При оформлении заявки применяется минимальная цена среди включённых типов.
+            </p>
           {/if}
         </div>
 
@@ -2205,12 +2192,6 @@
   .price-toggle:disabled {
     opacity: 0.65;
     cursor: not-allowed;
-  }
-
-  .price-default {
-    font-size: 11px;
-    font-weight: 400;
-    color: var(--muted);
   }
 
   .price-loading {

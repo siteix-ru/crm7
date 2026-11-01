@@ -21,11 +21,9 @@
   } from '../lib/api/admin';
   import type { AssignedPriceType, ItemType } from '../lib/api/types';
   import { listLegalDocuments, saveLegalDocument, type LegalDocument } from '../lib/api/legal';
-  import { listPriceTypes } from '../lib/api/prices';
   import type {
     AdminUser,
     AuditEntry,
-    PriceType,
     RoleCapability,
     RoleInfo,
     SearchLogEntry,
@@ -76,7 +74,6 @@ let usersPerPage = $state(20);
   let editing = $state<AdminUser | null>(null);
   let pricePicker = $state<AdminUser | null>(null);
   let showCreate = $state(false);
-  let priceTypes = $state<PriceType[]>([]);
   let form = $state({
     name: '',
     email: '',
@@ -85,10 +82,9 @@ let usersPerPage = $state(20);
     inn: '',
     position: '',
     level: 5,
-    password: '',
-    price_type_id: 0
+    password: ''
   });
-  let editForm = $state({ name: '', phone: '', company: '', inn: '', position: '', level: 5, price_type_id: 0 });
+  let editForm = $state({ name: '', phone: '', company: '', inn: '', position: '', level: 5 });
 
   let audit = $state<AuditEntry[]>([]);
 let auditTotal = $state(0);
@@ -144,7 +140,6 @@ let auditPerPage = $state(20);
   onMount(() => {
     if (canManageUsers) {
       void loadUsers();
-      void loadPriceTypes();
     } else if (canViewAudit) {
       tab = 'audit';
       void loadAudit();
@@ -153,14 +148,6 @@ let auditPerPage = $state(20);
       void loadModules();
     }
   });
-
-  async function loadPriceTypes(): Promise<void> {
-    try {
-      priceTypes = (await listPriceTypes()).items;
-    } catch {
-      priceTypes = [];
-    }
-  }
 
   async function loadUsers(): Promise<void> {
     usersLoading = true;
@@ -246,7 +233,7 @@ let auditPerPage = $state(20);
         ? `Создан ${result.login}. Пароль: ${result.password} (показывается один раз)`
         : `Создан ${result.login}`;
 
-      form = { name: '', email: '', phone: '', company: '', inn: '', position: '', level: 5, password: '', price_type_id: 0 };
+      form = { name: '', email: '', phone: '', company: '', inn: '', position: '', level: 5, password: '' };
       showCreate = false;
       await loadUsers();
     } catch (cause) {
@@ -264,8 +251,7 @@ let auditPerPage = $state(20);
       company: user.company,
       inn: user.inn,
       position: user.position,
-      level: user.level,
-      price_type_id: user.price_type_id ?? 0
+      level: user.level
     };
   }
 
@@ -291,22 +277,12 @@ let auditPerPage = $state(20);
   }
 
   function onPriceTypesSaved(userId: number, assigned: AssignedPriceType[]): void {
-    const defaultType = assigned.find((type) => type.is_default) ?? null;
-
     users = users.map((user) =>
-      user.id === userId
-        ? {
-            ...user,
-            price_types: assigned,
-            price_type_id: defaultType?.id ?? null,
-            price_type_title: defaultType?.title ?? null
-          }
-        : user
+      user.id === userId ? { ...user, price_types: assigned } : user
     );
 
     if (editing !== null && editing.id === userId) {
-      editing = { ...editing, price_types: assigned, price_type_id: defaultType?.id ?? null };
-      editForm = { ...editForm, price_type_id: defaultType?.id ?? 0 };
+      editing = { ...editing, price_types: assigned };
     }
   }
 
@@ -890,17 +866,6 @@ let auditPerPage = $state(20);
               <option value={90}>Сисадмин</option>
             </select>
           </label>
-          {#if pricesEnabled}
-            <label>
-              <span>Тип профиля (цены)</span>
-              <select bind:value={form.price_type_id}>
-                <option value={0}>Не задан — цены по умолчанию</option>
-                {#each priceTypes as type (type.id)}
-                  <option value={type.id}>{type.title}</option>
-                {/each}
-              </select>
-            </label>
-          {/if}
           <label>
             <span>Пароль (пусто — сгенерировать)</span>
             <input bind:value={form.password} />
@@ -930,17 +895,6 @@ let auditPerPage = $state(20);
               <option value={90}>Сисадмин</option>
             </select>
           </label>
-          {#if pricesEnabled}
-            <label>
-              <span>Тип цен по умолчанию</span>
-              <select bind:value={editForm.price_type_id}>
-                <option value={0}>Не задан — цены по умолчанию</option>
-                {#each priceTypes as type (type.id)}
-                  <option value={type.id}>{type.title}</option>
-                {/each}
-              </select>
-            </label>
-          {/if}
         </div>
         <div class="actions">
           {#if pricesEnabled}
@@ -969,16 +923,8 @@ let auditPerPage = $state(20);
                 {#if user.company}<span>{user.company}</span>{/if}
                 {#if user.inn}<span>ИНН {user.inn}</span>{/if}
                 {#if user.phone}<span>{user.phone}</span>{/if}
-                {#if pricesEnabled}
-                  {#if user.price_types.length > 0}
-                    <span>
-                      цены: {user.price_types
-                        .map((type) => (type.is_default ? `${type.title} (по умолч.)` : type.title))
-                        .join(', ')}
-                    </span>
-                  {:else if user.price_type_title}
-                    <span>цены: {user.price_type_title}</span>
-                  {/if}
+                {#if pricesEnabled && user.price_types.length > 0}
+                  <span>цены: {user.price_types.map((type) => type.title).join(', ')}</span>
                 {/if}
                 {#if user.last_seen_at}<span>был(а) {formatDateTime(user.last_seen_at)}</span>{/if}
               </div>

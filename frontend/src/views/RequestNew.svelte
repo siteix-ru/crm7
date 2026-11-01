@@ -1020,7 +1020,7 @@
 
         {#if pricesEnabled && itemRows.length > 0}
           <div class="price-total">
-            <span class="muted">Цены: {priceType?.title ?? '—'}</span>
+            <span class="muted">Цены: {priceType?.title ?? 'по минимальной цене'}</span>
             <strong>Итого: {formatPrice(priceTotal)}</strong>
           </div>
         {/if}

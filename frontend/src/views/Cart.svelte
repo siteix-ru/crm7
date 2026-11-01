@@ -152,7 +152,7 @@
         {#if pricesEnabled}
           <div class="totals">
             <span class="muted">
-              Цены: {priceType?.title ?? (refreshing ? 'обновление…' : '—')}
+              Цены: {priceType?.title ?? (refreshing ? 'обновление…' : 'по минимальной цене')}
               {#if cart.missingPriceCount > 0}
                 · у {cart.missingPriceCount} поз. цена не задана
               {/if}

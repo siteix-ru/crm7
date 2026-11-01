@@ -63,10 +63,8 @@ final class UserAdminService
         $stmt = Database::pdo()->prepare(
             'SELECT u.ID AS id, u.LOGIN AS login, u.FULL_NAME AS name, u.EMAIL AS email, u.PHONE AS phone,
                     u.COMPANY AS company, u.INN AS inn, u.DOLGNOST AS position, u.LEVEL AS level,
-                    u.ACTIVE AS active, u.reg_state, u.TIME_ADD AS created_at, u.TIME_ACTIVE AS last_seen_at,
-                    u.price_type_id AS price_type_id, pt.TITLE AS price_type_title
+                    u.ACTIVE AS active, u.reg_state, u.TIME_ADD AS created_at, u.TIME_ACTIVE AS last_seen_at
              FROM users u
-             LEFT JOIN price_types pt ON pt.ID = u.price_type_id
              WHERE ' . $whereSql . '
              ORDER BY u.LEVEL DESC, u.FULL_NAME ASC' . ($perPage > 0 ? '
              LIMIT ' . max(1, min(100, $perPage)) . ' OFFSET ' . $offset : '')
@@ -95,8 +93,6 @@ final class UserAdminService
                 'reg_state' => (string) ($row['reg_state'] ?? 'active'),
                 'created_at' => (string) ($row['created_at'] ?? ''),
                 'last_seen_at' => $row['last_seen_at'] !== null ? (string) $row['last_seen_at'] : null,
-                'price_type_id' => $row['price_type_id'] !== null ? (int) $row['price_type_id'] : null,
-                'price_type_title' => $row['price_type_title'] !== null ? (string) $row['price_type_title'] : null,
                 'price_types' => $assignedMap[$id] ?? [],
             ];
         }, $rows);
@@ -120,11 +116,6 @@ final class UserAdminService
         $level = (int) ($input['level'] ?? 5);
         $password = (string) ($input['password'] ?? '');
         $priceTypeIds = $this->normalizePriceTypeIds($input['price_type_ids'] ?? null);
-        $priceTypeId = $this->normalizePriceTypeId($input['price_type_id'] ?? ($priceTypeIds[0] ?? null));
-
-        if ($priceTypeIds === [] && $priceTypeId !== null) {
-            $priceTypeIds = [$priceTypeId];
-        }
 
         if (mb_strlen($name) < 3) {
             throw new HttpException(422, 'validation_error', 'Укажите ФИО');
@@ -169,8 +160,8 @@ final class UserAdminService
 
         $pdo = Database::pdo();
         $stmt = $pdo->prepare(
-            "INSERT INTO users (ACTIVE, LOGIN, PASSWORD, LEVEL, FULL_NAME, STATUS, COMPANY, INN, PHONE, EMAIL, DOLGNOST, reg_state, price_type_id)
-             VALUES ('Y', ?, ?, ?, ?, 'Y', ?, ?, ?, ?, ?, 'active', ?)"
+            "INSERT INTO users (ACTIVE, LOGIN, PASSWORD, LEVEL, FULL_NAME, STATUS, COMPANY, INN, PHONE, EMAIL, DOLGNOST, reg_state)
+             VALUES ('Y', ?, ?, ?, ?, 'Y', ?, ?, ?, ?, ?, 'active')"
         );
         $stmt->execute([
             $email,
@@ -182,13 +173,12 @@ final class UserAdminService
             $phone !== '' ? $phone : null,
             $email,
             $position !== '' ? $position : null,
-            $priceTypeId,
         ]);
 
         $userId = (int) $pdo->lastInsertId();
 
         if ($priceTypeIds !== []) {
-            $this->priceService->setAssignedTypes($userId, $priceTypeIds, $priceTypeId);
+            $this->priceService->setAssignedTypes($userId, $priceTypeIds);
         }
 
         $this->history->add($userId, 'created', (int) $actor['ID'], 'Создан администратором');
@@ -197,8 +187,7 @@ final class UserAdminService
             'id' => $userId,
             'login' => $email,
             'password' => $generated ? $password : null,
-            'price_type_id' => $priceTypeId,
-            'price_types' => $this->priceService->assignedTypesForUser(['ID' => $userId, 'price_type_id' => $priceTypeId]),
+            'price_types' => $this->priceService->assignedTypesForUser(['ID' => $userId]),
         ];
     }
 
@@ -219,18 +208,9 @@ final class UserAdminService
         $position = trim((string) ($input['position'] ?? (string) ($user['DOLGNOST'] ?? '')));
         $level = isset($input['level']) ? (int) $input['level'] : (int) $user['LEVEL'];
         $hasTypes = array_key_exists('price_type_ids', $input);
-        $hasDefault = array_key_exists('price_type_id', $input) || array_key_exists('default_price_type_id', $input);
         $priceTypeIds = $hasTypes
             ? $this->normalizePriceTypeIds($input['price_type_ids'])
             : $this->prices->assignedTypeIds($userId);
-        $defaultInput = $input['price_type_id'] ?? $input['default_price_type_id'] ?? null;
-        $priceTypeId = $hasDefault
-            ? $this->normalizePriceTypeId($defaultInput)
-            : ($user['price_type_id'] !== null ? (int) $user['price_type_id'] : null);
-
-        if ($priceTypeIds === [] && $priceTypeId !== null) {
-            $priceTypeIds = [$priceTypeId];
-        }
 
         if (mb_strlen($name) < 3) {
             throw new HttpException(422, 'validation_error', 'Укажите ФИО');
@@ -267,7 +247,7 @@ final class UserAdminService
         }
 
         $stmt = Database::pdo()->prepare(
-            'UPDATE users SET FULL_NAME = ?, PHONE = ?, COMPANY = ?, INN = ?, DOLGNOST = ?, LEVEL = ?, price_type_id = ? WHERE ID = ?'
+            'UPDATE users SET FULL_NAME = ?, PHONE = ?, COMPANY = ?, INN = ?, DOLGNOST = ?, LEVEL = ? WHERE ID = ?'
         );
         $stmt->execute([
             $name,
@@ -276,12 +256,11 @@ final class UserAdminService
             $inn !== '' ? $inn : null,
             $position !== '' ? $position : null,
             $level,
-            $priceTypeId,
             $userId,
         ]);
 
-        if ($hasTypes || $hasDefault) {
-            $this->priceService->setAssignedTypes($userId, $priceTypeIds, $priceTypeId);
+        if ($hasTypes) {
+            $this->priceService->setAssignedTypes($userId, $priceTypeIds);
         }
 
         $this->history->add($userId, 'updated', (int) $actor['ID'], 'Изменён администратором');
@@ -289,8 +268,7 @@ final class UserAdminService
         return [
             'id' => $userId,
             'level' => $level,
-            'price_type_id' => $priceTypeId,
-            'price_types' => $this->priceService->assignedTypesForUser(['ID' => $userId, 'price_type_id' => $priceTypeId]),
+            'price_types' => $this->priceService->assignedTypesForUser(['ID' => $userId]),
         ];
     }
 
@@ -307,22 +285,12 @@ final class UserAdminService
         }
 
         $typeIds = $this->normalizePriceTypeIds($input['price_type_ids'] ?? []);
-        $defaultId = $this->normalizePriceTypeId($input['default_price_type_id'] ?? ($input['price_type_id'] ?? null));
-        $assigned = $this->priceService->setAssignedTypes($userId, $typeIds, $defaultId);
-        $resolvedDefault = null;
-
-        foreach ($assigned as $type) {
-            if ($type['is_default']) {
-                $resolvedDefault = (int) $type['id'];
-                break;
-            }
-        }
+        $assigned = $this->priceService->setAssignedTypes($userId, $typeIds);
 
         $this->history->add($userId, 'price_types', (int) $actor['ID'], 'Обновлены закреплённые типы цен');
 
         return [
             'id' => $userId,
-            'price_type_id' => $resolvedDefault,
             'price_types' => $assigned,
         ];
     }

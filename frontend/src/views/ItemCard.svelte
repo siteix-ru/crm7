@@ -125,7 +125,7 @@
     }
 
     if (target.price !== null && target.price !== undefined) {
-      return [{ id: 0, title: 'Цена', is_default: true, price: target.price }];
+      return [{ id: 0, title: 'Цена', price: target.price }];
     }
 
     return [];

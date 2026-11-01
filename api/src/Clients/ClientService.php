@@ -303,7 +303,6 @@ final class ClientService
                 'reg_state' => (string) ($client['reg_state'] ?? 'active'),
                 'registered_at' => (string) ($client['TIME_ADD'] ?? ''),
                 'last_seen_at' => $client['TIME_ACTIVE'] !== null ? (string) $client['TIME_ACTIVE'] : null,
-                'price_type_id' => $client['price_type_id'] !== null ? (int) $client['price_type_id'] : null,
                 'price_types' => $this->prices->assignedTypesForUser($client),
             ],
             'manager' => $this->managerInfo($clientId),

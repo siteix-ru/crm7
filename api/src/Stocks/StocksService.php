@@ -130,16 +130,17 @@ final class StocksService
         $perPage = $perPage <= 0 ? 0 : max(10, min(100, $perPage));
         $filters = $this->applyActiveFilter($capabilities, self::normalizeFilters($filters));
 
-        $priceTypeId = $this->priceTypeFor($user, $clientId);
+        $priceContext = $this->priceContext($user, $clientId);
+        $typeIds = $priceContext['type_ids'];
+        $assignedTypes = $priceContext['types'];
+        $assignedTypeIds = array_map(static fn (array $type): int => (int) $type['id'], $assignedTypes);
 
-        $rows = $this->stocks->levels($sids, $filters, $page, $perPage, $priceTypeId);
+        $rows = $this->stocks->levels($sids, $filters, $page, $perPage, $typeIds);
         $total = $this->stocks->levelsCount($sids, $filters);
 
         $priceMap = [];
         $allPrices = [];
         $typePrices = [];
-        $assignedTypes = $this->prices->enabled() ? $this->prices->assignedTypesForUser($user) : [];
-        $assignedTypeIds = array_map(static fn (array $type): int => (int) $type['id'], $assignedTypes);
 
         if ($rows !== []) {
             $sidsByStock = [];
@@ -156,8 +157,8 @@ final class StocksService
             foreach ($sidsByStock as $stockSid => $nameSet) {
                 $nameSids = array_keys($nameSet);
 
-                if ($priceTypeId !== null) {
-                    $priceMap[$stockSid] = $this->prices->pricesForStockItems($stockSid, $nameSids, $priceTypeId);
+                if ($typeIds !== []) {
+                    [$priceMap[$stockSid]] = $this->prices->lowestPricesForStockItems($stockSid, $nameSids, $typeIds);
                 }
 
                 if ($assignedTypeIds !== []) {
@@ -177,8 +178,6 @@ final class StocksService
         } elseif (!$this->views->recentExists('stocks', $primaryId, (int) $user['ID'], 'list', 30)) {
             $this->views->add('stocks', $primaryId, (int) $user['ID'], 'list', (string) $warehouses[0]['NAME']);
         }
-
-        $type = $priceTypeId !== null ? $this->prices->findType($priceTypeId) : null;
 
         $nameSids = [];
 
@@ -212,7 +211,6 @@ final class StocksService
                         return [
                             'id' => $typeId,
                             'title' => (string) $type['title'],
-                            'is_default' => (bool) $type['is_default'],
                             'price' => $value !== null ? (float) $value : null,
                         ];
                     }, $assignedTypes),
@@ -237,7 +235,7 @@ final class StocksService
             'can_deactivate' => $this->canDeactivate($capabilities),
             'prices' => [
                 'enabled' => $this->prices->enabled(),
-                'type' => $type !== null ? ['id' => (int) $type['id'], 'title' => (string) $type['title']] : null,
+                'type' => null,
             ],
             'groups' => [
                 'enabled' => $this->groups->enabled(),
@@ -273,27 +271,27 @@ final class StocksService
         $nameSid = (string) $level['name_sid'];
         $canEdit = in_array('stocks.edit', $capabilities, true);
 
-        $priceTypeId = $this->priceTypeFor($user, 0);
+        $priceContext = $this->priceContext($user, 0);
+        $typeIds = $priceContext['type_ids'];
+        $assignedTypes = $priceContext['types'];
         $price = null;
 
-        if ($priceTypeId !== null) {
-            $map = $this->prices->pricesForStockItems($stockSid, [$nameSid], $priceTypeId);
-            $price = isset($map[$nameSid]) ? (float) $map[$nameSid] : null;
+        if ($typeIds !== []) {
+            [$prices] = $this->prices->lowestPricesForStockItems($stockSid, [$nameSid], $typeIds);
+            $price = $prices[$nameSid] ?? null;
         }
 
-        $assignedTypes = $this->prices->enabled() ? $this->prices->assignedTypesForUser($user) : [];
         $assignedTypeIds = array_map(static fn (array $type): int => (int) $type['id'], $assignedTypes);
         $typePrices = $assignedTypeIds !== []
             ? $this->prices->pricesForStockItemsByTypes($stockSid, [$nameSid], $assignedTypeIds)
             : [];
-        $priceList = array_map(static function (array $type) use ($typePrices, $stockSid, $nameSid): array {
+        $priceList = array_map(static function (array $type) use ($typePrices, $nameSid): array {
             $typeId = (int) $type['id'];
-            $value = $typePrices[$stockSid][$nameSid][$typeId] ?? null;
+            $value = $typePrices[$nameSid][$typeId] ?? null;
 
             return [
                 'id' => $typeId,
                 'title' => (string) $type['title'],
-                'is_default' => (bool) $type['is_default'],
                 'price' => $value !== null ? (float) $value : null,
             ];
         }, $assignedTypes);
@@ -698,14 +696,12 @@ final class StocksService
     }
 
     /**
-     * Тип цен для пользователя: для сотрудника можно запросить тип выбранного клиента.
+     * Контекст цен: для сотрудника можно запросить цены выбранного клиента.
+     *
+     * @return array{user: array, type_ids: int[], types: array<int, array{id:int,title:string}>}
      */
-    private function priceTypeFor(array $user, int $clientId): ?int
+    private function priceContext(array $user, int $clientId): array
     {
-        if (!$this->prices->enabled()) {
-            return null;
-        }
-
         $target = $user;
 
         if ($clientId > 0 && $clientId !== (int) $user['ID'] && (int) $user['LEVEL'] >= 10) {
@@ -716,7 +712,15 @@ final class StocksService
             }
         }
 
-        return $this->prices->effectiveTypeIdForUser($target);
+        if (!$this->prices->enabled()) {
+            return ['user' => $target, 'type_ids' => [], 'types' => []];
+        }
+
+        return [
+            'user' => $target,
+            'type_ids' => $this->prices->availableTypeIdsForUser($target),
+            'types' => $this->prices->assignedTypesForUser($target),
+        ];
     }
 
     public static function normalizeFilters(array $input): array
@@ -832,7 +836,8 @@ final class StocksService
         }
 
         $sids = array_map(static fn (array $row): string => (string) $row['SID'], $warehouses);
-        $rows = $this->stocks->levelsAllMulti($sids, $filters, $this->priceTypeFor($user, 0));
+        $exportPrices = $this->priceContext($user, 0);
+        $rows = $this->stocks->levelsAllMulti($sids, $filters, $exportPrices['type_ids']);
         $total = count($rows);
 
         $showPrices = $this->prices->enabled();

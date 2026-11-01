@@ -313,7 +313,7 @@
     }
 
     if (level.price !== null || priceTypeTitle !== '') {
-      return [{ id: 0, title: priceTypeTitle, is_default: true, price: level.price ?? null }];
+      return [{ id: 0, title: priceTypeTitle, price: level.price ?? null }];
     }
 
     return [];
@@ -328,13 +328,7 @@
 
     const filtered = rows.filter((row) => priceTypeFilter.includes(row.id));
 
-    if (filtered.length > 0) {
-      return filtered;
-    }
-
-    const defaults = rows.filter((row) => row.is_default);
-
-    return defaults.length > 0 ? defaults : rows;
+    return filtered.length > 0 ? filtered : rows;
   }
 
   function togglePriceTypesDraft(id: number): void {

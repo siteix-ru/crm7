@@ -7,15 +7,14 @@ export function listPriceTypes(): Promise<{ items: PriceType[] }> {
 
 export function setUserPriceTypes(
   userId: number,
-  priceTypeIds: number[],
-  defaultPriceTypeId: number | null
-): Promise<{ id: number; price_type_id: number | null; price_types: AssignedPriceType[] }> {
-  return apiRequest<{ id: number; price_type_id: number | null; price_types: AssignedPriceType[] }>(
+  priceTypeIds: number[]
+): Promise<{ id: number; price_types: AssignedPriceType[] }> {
+  return apiRequest<{ id: number; price_types: AssignedPriceType[] }>(
     `/users/${userId}/price-types`,
     {
       method: 'PUT',
       auth: true,
-      body: { price_type_ids: priceTypeIds, default_price_type_id: defaultPriceTypeId }
+      body: { price_type_ids: priceTypeIds }
     }
   );
 }

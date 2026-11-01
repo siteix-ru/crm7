@@ -13,7 +13,7 @@ final class PriceRepository
     {
         $rows = Database::pdo()->query(
             'SELECT pt.ID AS id, pt.CODE AS code, pt.TITLE AS title, pt.SORT AS sort,
-                    (SELECT COUNT(*) FROM users u WHERE u.price_type_id = pt.ID) AS users_count,
+                    (SELECT COUNT(DISTINCT upt.user_id) FROM user_price_types upt WHERE upt.price_type_id = pt.ID) AS users_count,
                     (SELECT COUNT(*) FROM nomenclature_prices np WHERE np.price_type_id = pt.ID) AS prices_count
              FROM price_types pt
              ORDER BY pt.SORT ASC, pt.ID ASC'
@@ -52,7 +52,10 @@ final class PriceRepository
         return $row === false ? null : ['id' => (int) $row['id']];
     }
 
-    public function defaultTypeId(): ?int
+    /**
+     * Базовый тип цен (первый по порядку) — резервный вариант, если пользователю ничего не назначено.
+     */
+    public function baseTypeId(): ?int
     {
         $value = Database::pdo()->query('SELECT ID FROM price_types ORDER BY SORT ASC, ID ASC LIMIT 1')->fetchColumn();
 
@@ -60,9 +63,9 @@ final class PriceRepository
     }
 
     /**
-     * Закреплённые типы цен пользователя (по умолчанию — первым).
+     * Закреплённые типы цен пользователя.
      *
-     * @return array<int, array{id:int,title:string,is_default:bool}>
+     * @return array<int, array{id:int,title:string}>
      */
     public function assignedTypes(int $userId): array
     {
@@ -71,11 +74,11 @@ final class PriceRepository
         }
 
         $stmt = Database::pdo()->prepare(
-            'SELECT pt.ID AS id, pt.TITLE AS title, upt.is_default AS is_default
+            'SELECT pt.ID AS id, pt.TITLE AS title
              FROM user_price_types upt
              JOIN price_types pt ON pt.ID = upt.price_type_id
              WHERE upt.user_id = ?
-             ORDER BY upt.is_default DESC, upt.sort ASC, pt.SORT ASC, pt.ID ASC'
+             ORDER BY upt.sort ASC, pt.SORT ASC, pt.ID ASC'
         );
         $stmt->execute([$userId]);
 
@@ -84,7 +87,7 @@ final class PriceRepository
 
     /**
      * @param int[] $userIds
-     * @return array<int, array<int, array{id:int,title:string,is_default:bool}>>
+     * @return array<int, array<int, array{id:int,title:string}>>
      */
     public function assignedTypesForUsers(array $userIds): array
     {
@@ -99,11 +102,11 @@ final class PriceRepository
 
         $placeholders = implode(',', array_fill(0, count($userIds), '?'));
         $stmt = Database::pdo()->prepare(
-            'SELECT upt.user_id AS user_id, pt.ID AS id, pt.TITLE AS title, upt.is_default AS is_default
+            'SELECT upt.user_id AS user_id, pt.ID AS id, pt.TITLE AS title
              FROM user_price_types upt
              JOIN price_types pt ON pt.ID = upt.price_type_id
              WHERE upt.user_id IN (' . $placeholders . ')
-             ORDER BY upt.is_default DESC, upt.sort ASC, pt.SORT ASC, pt.ID ASC'
+             ORDER BY upt.sort ASC, pt.SORT ASC, pt.ID ASC'
         );
         $stmt->execute($userIds);
 
@@ -113,7 +116,6 @@ final class PriceRepository
             $map[(int) $row['user_id']][] = [
                 'id' => (int) $row['id'],
                 'title' => (string) $row['title'],
-                'is_default' => (int) $row['is_default'] === 1,
             ];
         }
 
@@ -133,7 +135,7 @@ final class PriceRepository
      *
      * @param int[] $typeIds
      */
-    public function replaceAssignedTypes(int $userId, array $typeIds, ?int $defaultId): void
+    public function replaceAssignedTypes(int $userId, array $typeIds): void
     {
         $pdo = Database::pdo();
         $pdo->beginTransaction();
@@ -142,13 +144,13 @@ final class PriceRepository
             $pdo->prepare('DELETE FROM user_price_types WHERE user_id = ?')->execute([$userId]);
 
             $insert = $pdo->prepare(
-                'INSERT INTO user_price_types (user_id, price_type_id, sort, is_default) VALUES (?, ?, ?, ?)'
+                'INSERT INTO user_price_types (user_id, price_type_id, sort) VALUES (?, ?, ?)'
             );
 
             $sort = 0;
 
             foreach ($typeIds as $typeId) {
-                $insert->execute([$userId, $typeId, $sort, $typeId === $defaultId ? 1 : 0]);
+                $insert->execute([$userId, $typeId, $sort]);
                 $sort += 10;
             }
 
@@ -160,21 +162,15 @@ final class PriceRepository
         }
     }
 
-    public function setUserDefaultType(int $userId, ?int $typeId): void
-    {
-        Database::pdo()->prepare('UPDATE users SET price_type_id = ? WHERE ID = ?')->execute([$typeId, $userId]);
-    }
-
     /**
      * @param array<int, array<string, mixed>> $rows
-     * @return array<int, array{id:int,title:string,is_default:bool}>
+     * @return array<int, array{id:int,title:string}>
      */
     private function mapAssignedRows(array $rows): array
     {
         return array_map(static fn (array $row): array => [
             'id' => (int) $row['id'],
             'title' => (string) $row['title'],
-            'is_default' => (int) $row['is_default'] === 1,
         ], $rows);
     }
 
@@ -482,6 +478,62 @@ final class PriceRepository
 
         foreach ($stmt->fetchAll() ?: [] as $row) {
             $map[(string) $row['stock_sid'] . '|' . (string) $row['name_sid']] = (float) $row['price'];
+        }
+
+        return $map;
+    }
+
+    /**
+     * Минимальные цены для пар «склад + позиция» среди доступных типов.
+     *
+     * @param array<int, array{0: string, 1: string}> $pairs
+     * @param int[] $typeIds
+     * @return array<string, array{price: float, type_id: int}> "stock_sid|name_sid" => цена и тип
+     */
+    public function pricesForPairsByTypes(array $pairs, array $typeIds): array
+    {
+        $pairs = array_values(array_filter(
+            $pairs,
+            static fn (array $pair): bool => $pair[0] !== '' && $pair[1] !== ''
+        ));
+        $typeIds = array_values(array_unique(array_filter(
+            array_map('intval', $typeIds),
+            static fn (int $id): bool => $id > 0
+        )));
+
+        if ($pairs === [] || $typeIds === []) {
+            return [];
+        }
+
+        $typePlaceholders = implode(',', array_fill(0, count($typeIds), '?'));
+        $conditions = [];
+        $params = $typeIds;
+
+        foreach ($pairs as [$stockSid, $nameSid]) {
+            $conditions[] = '(stock_sid = ? AND name_sid = ?)';
+            $params[] = $stockSid;
+            $params[] = $nameSid;
+        }
+
+        $stmt = Database::pdo()->prepare(
+            'SELECT stock_sid, name_sid, price, price_type_id FROM nomenclature_prices
+             WHERE price_type_id IN (' . $typePlaceholders . ')
+               AND (' . implode(' OR ', $conditions) . ')
+             ORDER BY price ASC, price_type_id ASC'
+        );
+        $stmt->execute($params);
+
+        $map = [];
+
+        foreach ($stmt->fetchAll() ?: [] as $row) {
+            $key = (string) $row['stock_sid'] . '|' . (string) $row['name_sid'];
+
+            if (!isset($map[$key])) {
+                $map[$key] = [
+                    'price' => (float) $row['price'],
+                    'type_id' => (int) $row['price_type_id'],
+                ];
+            }
         }
 
         return $map;

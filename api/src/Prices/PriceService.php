@@ -99,7 +99,7 @@ final class PriceService
             throw new HttpException(
                 422,
                 'price_type_in_use',
-                'Тип цен назначен пользователям (' . $used . '). Смените им тип профиля и повторите удаление'
+                'Тип цен закреплён за пользователями (' . $used . '). Снимите его у них и повторите удаление'
             );
         }
 
@@ -108,29 +108,35 @@ final class PriceService
     }
 
     /**
-     * Тип цен, по которому считаются цены для пользователя: его профиль или тип по умолчанию.
+     * Доступные пользователю типы цен: закреплённые; если ничего не закреплено — базовый тип.
+     *
+     * @return int[]
      */
-    public function effectiveTypeIdForUser(?array $user): ?int
+    public function availableTypeIdsForUser(?array $user): array
     {
         if (!$this->enabled()) {
-            return null;
+            return [];
         }
 
-        $typeId = $user !== null && isset($user['price_type_id']) && $user['price_type_id'] !== null
-            ? (int) $user['price_type_id']
-            : 0;
+        $userId = $user !== null ? (int) ($user['ID'] ?? 0) : 0;
 
-        if ($typeId > 0 && $this->prices->findType($typeId) !== null) {
-            return $typeId;
+        if ($userId > 0) {
+            $ids = $this->prices->assignedTypeIds($userId);
+
+            if ($ids !== []) {
+                return $ids;
+            }
         }
 
-        return $this->prices->defaultTypeId();
+        $baseId = $this->prices->baseTypeId();
+
+        return $baseId !== null ? [$baseId] : [];
     }
 
     /**
-     * Закреплённые типы цен пользователя; если ничего не закреплено — тип по умолчанию.
+     * Закреплённые типы цен пользователя (пусто, если ничего не закреплено).
      *
-     * @return array<int, array{id:int,title:string,is_default:bool}>
+     * @return array<int, array{id:int,title:string}>
      */
     public function assignedTypesForUser(?array $user): array
     {
@@ -140,27 +146,7 @@ final class PriceService
 
         $userId = (int) ($user['ID'] ?? 0);
 
-        if ($userId > 0) {
-            $assigned = $this->prices->assignedTypes($userId);
-
-            if ($assigned !== []) {
-                return $assigned;
-            }
-        }
-
-        $defaultId = $this->effectiveTypeIdForUser($user);
-
-        if ($defaultId === null) {
-            return [];
-        }
-
-        $type = $this->prices->findType($defaultId);
-
-        return $type !== null ? [[
-            'id' => (int) $type['id'],
-            'title' => (string) $type['title'],
-            'is_default' => true,
-        ]] : [];
+        return $userId > 0 ? $this->prices->assignedTypes($userId) : [];
     }
 
     /**
@@ -172,13 +158,12 @@ final class PriceService
     }
 
     /**
-     * Заменяет закреплённый набор типов цен пользователя и тип по умолчанию.
-     * Тип по умолчанию синхронизируется с users.price_type_id (расчёты заявок и заказов).
+     * Заменяет закреплённый набор типов цен пользователя.
      *
      * @param array<int, mixed> $typeIds
-     * @return array<int, array{id:int,title:string,is_default:bool}>
+     * @return array<int, array{id:int,title:string}>
      */
-    public function setAssignedTypes(int $userId, array $typeIds, ?int $defaultId): array
+    public function setAssignedTypes(int $userId, array $typeIds): array
     {
         $ids = [];
 
@@ -190,16 +175,9 @@ final class PriceService
             }
         }
 
-        if ($ids === []) {
-            $defaultId = null;
-        } elseif ($defaultId === null || !in_array($defaultId, $ids, true)) {
-            $defaultId = $ids[0];
-        }
+        $this->prices->replaceAssignedTypes($userId, $ids);
 
-        $this->prices->replaceAssignedTypes($userId, $ids, $defaultId);
-        $this->prices->setUserDefaultType($userId, $defaultId);
-
-        return $this->assignedTypesForUser(['ID' => $userId, 'price_type_id' => $defaultId]);
+        return $this->assignedTypesForUser(['ID' => $userId]);
     }
 
     /**
@@ -255,19 +233,25 @@ final class PriceService
     }
 
     /**
-     * Дополняет позиции заявки ценой (снапшот) и типом цен.
+     * Дополняет позиции заявки минимальной ценой среди доступных типов (снапшот).
      * Цена берётся по складу позиции: остаток → склад, либо склад заявки по названию.
      *
      * @param array<int, array<string, mixed>> $items
+     * @param int[] $typeIds
      * @return array<int, array<string, mixed>>
      */
-    public function attachPrices(array $items, ?int $typeId): array
+    public function attachPrices(array $items, array $typeIds): array
     {
         if ($items === []) {
             return [];
         }
 
-        if ($typeId === null) {
+        $typeIds = array_values(array_unique(array_filter(
+            array_map('intval', $typeIds),
+            static fn (int $id): bool => $id > 0
+        )));
+
+        if ($typeIds === []) {
             return array_map(static function (array $item): array {
                 $item['price'] = null;
                 $item['price_type_id'] = null;
@@ -308,17 +292,23 @@ final class PriceService
             $pairs[] = [$stockSid, $nameSid];
         }
 
-        $priceMap = $this->prices->pricesForPairs($pairs, $typeId);
+        $priceMap = $this->prices->pricesForPairsByTypes($pairs, $typeIds);
 
         $result = [];
 
         foreach ($items as $index => $item) {
             $price = null;
+            $typeId = null;
 
             if (isset($resolved[$index])) {
                 [$stockSid, $nameSid] = $resolved[$index];
                 $key = $stockSid . '|' . $nameSid;
-                $price = isset($priceMap[$key]) ? (float) $priceMap[$key] : null;
+                $match = $priceMap[$key] ?? null;
+
+                if ($match !== null) {
+                    $price = $match['price'];
+                    $typeId = $match['type_id'];
+                }
             }
 
             $item['price'] = $price;
@@ -335,7 +325,7 @@ final class PriceService
      * @param array<int, array<string, mixed>> $items
      * @return array{items: array<int, array<string, mixed>>, prices: array<string, mixed>}
      */
-    public function decorateItems(array $items, ?array $clientUser): array
+    public function decorateItems(array $items): array
     {
         if (!$this->enabled()) {
             $items = array_map(static function (array $item): array {
@@ -352,20 +342,17 @@ final class PriceService
             ];
         }
 
-        $typeId = null;
+        $typeIds = [];
 
         foreach ($items as $item) {
             if (($item['price_type_id'] ?? null) !== null) {
-                $typeId = (int) $item['price_type_id'];
-                break;
+                $typeIds[(int) $item['price_type_id']] = true;
             }
         }
 
-        if ($typeId === null) {
-            $typeId = $this->effectiveTypeIdForUser($clientUser);
-        }
-
-        $type = $typeId !== null ? $this->prices->findType($typeId) : null;
+        $type = count($typeIds) === 1
+            ? $this->prices->findType((int) array_key_first($typeIds))
+            : null;
         $total = 0.0;
 
         $items = array_map(static function (array $item) use (&$total): array {
@@ -450,6 +437,31 @@ final class PriceService
     public function pricesForStockItemsByTypes(string $stockSid, array $nameSids, array $typeIds): array
     {
         return $this->prices->pricesForStockItemsByTypes($stockSid, $nameSids, $typeIds);
+    }
+
+    /**
+     * Минимальные цены позиций склада среди доступных типов.
+     *
+     * @param array<int, string> $nameSids
+     * @param int[] $typeIds
+     * @return array{0: array<string, float>, 1: array<string, int>} цены и типы, давшие минимум
+     */
+    public function lowestPricesForStockItems(string $stockSid, array $nameSids, array $typeIds): array
+    {
+        $byTypes = $this->prices->pricesForStockItemsByTypes($stockSid, $nameSids, $typeIds);
+        $prices = [];
+        $types = [];
+
+        foreach ($byTypes as $nameSid => $typePrices) {
+            foreach ($typePrices as $typeId => $price) {
+                if (!isset($prices[$nameSid]) || $price < $prices[$nameSid]) {
+                    $prices[$nameSid] = (float) $price;
+                    $types[$nameSid] = (int) $typeId;
+                }
+            }
+        }
+
+        return [$prices, $types];
     }
 
     /**

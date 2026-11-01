@@ -48,7 +48,7 @@ final class StocksRepository
         return $stmt->fetch() ?: null;
     }
 
-    public function levels(array $stockSids, array $filters, int $page, int $perPage, ?int $priceTypeId = null): array
+    public function levels(array $stockSids, array $filters, int $page, int $perPage, array $priceTypeIds = []): array
     {
         if ($stockSids === []) {
             return [];
@@ -56,11 +56,17 @@ final class StocksRepository
 
         $sort = (string) ($filters['sort'] ?? '');
         $priceJoin = '';
+        $priceTypeIds = $this->intIds($priceTypeIds);
 
         if (str_contains($sort, 'price_')) {
-            if ($priceTypeId !== null) {
-                $priceJoin = 'LEFT JOIN nomenclature_prices np ON np.stock_sid = l.STOCK_SID
-                    AND np.name_sid = l.NAME_SID AND np.price_type_id = ' . (int) $priceTypeId;
+            if ($priceTypeIds !== []) {
+                $ids = implode(',', $priceTypeIds);
+                $priceJoin = 'LEFT JOIN (
+                        SELECT stock_sid, name_sid, MIN(price) AS price
+                        FROM nomenclature_prices
+                        WHERE price_type_id IN (' . $ids . ')
+                        GROUP BY stock_sid, name_sid
+                    ) np ON np.stock_sid = l.STOCK_SID AND np.name_sid = l.NAME_SID';
             } else {
                 $sort = $this->stripPriceSort($sort);
             }
@@ -117,7 +123,7 @@ final class StocksRepository
         return (int) $stmt->fetchColumn();
     }
 
-    public function levelsAllMulti(array $stockSids, array $filters, ?int $priceTypeId = null, int $limit = 50000): array
+    public function levelsAllMulti(array $stockSids, array $filters, array $priceTypeIds = [], int $limit = 50000): array
     {
         if ($stockSids === []) {
             return [];
@@ -126,10 +132,16 @@ final class StocksRepository
         $sort = (string) ($filters['sort'] ?? '');
         $priceJoin = '';
         $priceColumn = '';
+        $priceTypeIds = $this->intIds($priceTypeIds);
 
-        if ($priceTypeId !== null) {
-            $priceJoin = 'LEFT JOIN nomenclature_prices np ON np.stock_sid = l.STOCK_SID
-                AND np.name_sid = l.NAME_SID AND np.price_type_id = ' . (int) $priceTypeId;
+        if ($priceTypeIds !== []) {
+            $ids = implode(',', $priceTypeIds);
+            $priceJoin = 'LEFT JOIN (
+                    SELECT stock_sid, name_sid, MIN(price) AS price
+                    FROM nomenclature_prices
+                    WHERE price_type_id IN (' . $ids . ')
+                    GROUP BY stock_sid, name_sid
+                ) np ON np.stock_sid = l.STOCK_SID AND np.name_sid = l.NAME_SID';
             $priceColumn = ', np.price AS price';
         } elseif (str_contains($sort, 'price_')) {
             $sort = $this->stripPriceSort($sort);
@@ -287,6 +299,18 @@ final class StocksRepository
             'price_desc' => 'np.price IS NULL, np.price DESC',
             default => null,
         };
+    }
+
+    /**
+     * @param int[] $ids
+     * @return int[]
+     */
+    private function intIds(array $ids): array
+    {
+        return array_values(array_unique(array_filter(
+            array_map('intval', $ids),
+            static fn (int $id): bool => $id > 0
+        )));
     }
 
     private function stripPriceSort(string $sort): string

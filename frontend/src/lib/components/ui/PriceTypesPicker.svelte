@@ -20,7 +20,6 @@
 
   let types = $state<PriceType[]>([]);
   let selected = $state<number[]>([]);
-  let defaultId = $state<number | null>(null);
   let loading = $state(true);
   let saving = $state(false);
   let error = $state('');
@@ -35,7 +34,6 @@
     }
 
     selected = assigned.map((type) => type.id);
-    defaultId = assigned.find((type) => type.is_default)?.id ?? assigned[0]?.id ?? null;
   });
 
   async function loadTypes(): Promise<void> {
@@ -53,19 +51,9 @@
   }
 
   function toggle(id: number): void {
-    if (selected.includes(id)) {
-      selected = selected.filter((value) => value !== id);
-
-      if (defaultId === id) {
-        defaultId = selected[0] ?? null;
-      }
-    } else {
-      selected = [...selected, id];
-
-      if (defaultId === null) {
-        defaultId = id;
-      }
-    }
+    selected = selected.includes(id)
+      ? selected.filter((value) => value !== id)
+      : [...selected, id];
   }
 
   async function save(): Promise<void> {
@@ -73,7 +61,7 @@
     error = '';
 
     try {
-      const result = await setUserPriceTypes(userId, selected, defaultId);
+      const result = await setUserPriceTypes(userId, selected);
       onsaved?.(result.price_types);
       onclose();
     } catch (cause) {
@@ -94,8 +82,8 @@
     </div>
   {:else}
     <p class="hint">
-      Отметьте типы цен, закреплённые за пользователем. Один из них — по умолчанию: по нему
-      считаются корзина, заявки и заказы.
+      Отметьте типы цен, доступные пользователю. При оформлении заявки берётся минимальная цена
+      среди отмеченных типов.
     </p>
 
     <div class="list">
@@ -108,16 +96,6 @@
               onchange={() => toggle(type.id)}
             />
             <span class="title">{type.title}</span>
-          </label>
-          <label class="default" class:disabled={!selected.includes(type.id)}>
-            <input
-              type="radio"
-              name="default-price-type"
-              disabled={!selected.includes(type.id)}
-              checked={defaultId === type.id}
-              onchange={() => (defaultId = type.id)}
-            />
-            по умолчанию
           </label>
         </div>
       {/each}
@@ -178,20 +156,6 @@
   .title {
     font-weight: 500;
     color: var(--text);
-  }
-
-  .default {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 13px;
-    color: var(--muted);
-    cursor: pointer;
-  }
-
-  .default.disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
   }
 
   .error {

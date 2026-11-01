@@ -418,8 +418,7 @@ final class RequestService
         $chat = $this->chat->threadForClient($user, $capabilities, (int) $request['client_id'], $id);
 
         $decoratedItems = $this->prices->decorateItems(
-            $this->requests->itemsForRequests([$id])[$id] ?? [],
-            $this->users->findById((int) $request['client_id'])
+            $this->requests->itemsForRequests([$id])[$id] ?? []
         );
 
         return [
@@ -573,7 +572,7 @@ final class RequestService
 
             $items = $this->prices->attachPrices(
                 $items,
-                $this->prices->effectiveTypeIdForUser($this->users->findById($clientId))
+                $this->prices->availableTypeIdsForUser($this->users->findById($clientId))
             );
 
             $id = $this->requests->create([
@@ -658,7 +657,7 @@ final class RequestService
                 throw new HttpException(403, 'forbidden', 'Новых клиентов заводят только сотрудники');
             }
 
-            $target = ['ID' => 0, 'LEVEL' => 5, 'price_type_id' => null];
+            $target = ['ID' => 0, 'LEVEL' => 5];
         } elseif ($clientId > 0 && $clientId !== (int) $user['ID']) {
             if ((int) $user['LEVEL'] < 10) {
                 throw new HttpException(403, 'forbidden', 'Можно смотреть цены только для себя');
@@ -677,13 +676,12 @@ final class RequestService
             return ['enabled' => false, 'type' => null, 'items' => [], 'total' => null];
         }
 
-        $typeId = $this->prices->effectiveTypeIdForUser($target);
-        $type = $typeId !== null ? $this->prices->findType($typeId) : null;
-        $rows = $this->prices->previewRows($this->prices->attachPrices($items, $typeId));
+        $typeIds = $this->prices->availableTypeIdsForUser($target);
+        $rows = $this->prices->previewRows($this->prices->attachPrices($items, $typeIds));
 
         return [
             'enabled' => true,
-            'type' => $type !== null ? ['id' => (int) $type['id'], 'title' => (string) $type['title']] : null,
+            'type' => null,
             'items' => $rows,
             'total' => $this->prices->total($rows),
         ];
@@ -715,7 +713,7 @@ final class RequestService
 
             $items = $this->prices->attachPrices(
                 $items,
-                $this->prices->effectiveTypeIdForUser($this->users->findById((int) $request['client_id']))
+                $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']))
             );
 
             $before = $this->requests->itemsForRequests([$id])[$id] ?? [];
@@ -859,7 +857,7 @@ final class RequestService
 
                 $items = $this->prices->attachPrices(
                     $items,
-                    $this->prices->effectiveTypeIdForUser($this->users->findById((int) $request['client_id']))
+                    $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']))
                 );
 
                 $this->requests->replaceItems($id, $items);
