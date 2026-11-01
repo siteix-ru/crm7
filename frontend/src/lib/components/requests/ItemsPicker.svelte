@@ -402,7 +402,15 @@
         {/if}
       </div>
     {:else}
-      <div class="picker-list" role="list">
+      <div class="picker-table" class:no-price={!pricesEnabled} role="list">
+        <div class="picker-head">
+          <span>Название</span>
+          <span class="num">Остаток</span>
+          {#if pricesEnabled}
+            <span class="num">Цена</span>
+          {/if}
+          <span class="num">Корзина</span>
+        </div>
         {#each levels as level (level.id)}
           {@const picked = quantity(level)}
           {@const overStock = !appSettings.allowZeroStock && picked > level.quantity}
@@ -425,16 +433,17 @@
               }}
             >
               <span class="pr-title">{level.name}</span>
-              <span class="pr-sub">
-                {#if groupsEnabled && level.group_title && groupChoice === 'all'}
-                  <span class="pr-group">{level.group_title}</span>
-                {/if}
-                <span class="pr-stock">на складе: {stockQuantityText(level.quantity, level.unit)}</span>
-                {#if overStock}
-                  <span class="pr-warn">больше остатка</span>
-                {/if}
-              </span>
+              {#if groupsEnabled && level.group_title && groupChoice === 'all'}
+                <span class="pr-group">{level.group_title}</span>
+              {/if}
             </button>
+
+            <span class="pr-stock" class:warn={overStock}>
+              {stockQuantityText(level.quantity, level.unit)}
+              {#if overStock}
+                <span class="pr-warn">больше остатка</span>
+              {/if}
+            </span>
 
             {#if pricesEnabled}
               <span class="pr-price" class:missing={level.price === null}>
@@ -442,39 +451,41 @@
               </span>
             {/if}
 
-            {#if picked > 0}
-              <span class="pr-controls">
-                <button
-                  type="button"
-                  class="step"
-                  aria-label={`Уменьшить: ${level.name}`}
-                  onclick={() => change(level, -1)}
-                >
-                  −
-                </button>
-                <span class="pr-qty">
-                  {picked.toLocaleString('ru-RU', { maximumFractionDigits: 3 })}
+            <span class="pr-cart">
+              {#if picked > 0}
+                <span class="pr-controls">
+                  <button
+                    type="button"
+                    class="step"
+                    aria-label={`Уменьшить: ${level.name}`}
+                    onclick={() => change(level, -1)}
+                  >
+                    −
+                  </button>
+                  <span class="pr-qty">
+                    {picked.toLocaleString('ru-RU', { maximumFractionDigits: 3 })}
+                  </span>
+                  <button
+                    type="button"
+                    class="step"
+                    aria-label={`Увеличить: ${level.name}`}
+                    onclick={() => change(level, 1)}
+                  >
+                    +
+                  </button>
                 </span>
+              {:else}
                 <button
                   type="button"
-                  class="step"
-                  aria-label={`Увеличить: ${level.name}`}
+                  class="step add-step"
+                  aria-label={`Добавить в заявку: ${level.name}`}
+                  disabled={limitReached}
                   onclick={() => change(level, 1)}
                 >
                   +
                 </button>
-              </span>
-            {:else}
-              <button
-                type="button"
-                class="step add-step"
-                aria-label={`Добавить в заявку: ${level.name}`}
-                disabled={limitReached}
-                onclick={() => change(level, 1)}
-              >
-                +
-              </button>
-            {/if}
+              {/if}
+            </span>
           </div>
         {/each}
       </div>
@@ -527,8 +538,8 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-2);
-    margin: 0 calc(-1 * var(--space-1));
-    padding: var(--space-1) var(--space-1) var(--space-2);
+    margin: 0;
+    padding: var(--space-1) 0 var(--space-2);
     background: var(--surface);
     border-bottom: 1px solid var(--border-secondary);
   }
@@ -632,21 +643,44 @@
     text-align: center;
   }
 
-  .picker-list {
+  .picker-table {
     display: flex;
     flex-direction: column;
+    max-width: 100%;
   }
 
+  .picker-head,
   .picker-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 120px 110px 148px;
     align-items: center;
     gap: var(--space-3);
     padding: 8px 6px;
     border-bottom: 1px solid var(--border-secondary);
   }
 
+  .picker-table.no-price .picker-head,
+  .picker-table.no-price .picker-row {
+    grid-template-columns: minmax(0, 1fr) 120px 148px;
+  }
+
+  .picker-head {
+    padding-bottom: 6px;
+    border-bottom-width: 2px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .picker-head .num {
+    text-align: right;
+  }
+
   .picker-row:last-child {
     border-bottom: none;
+  }
+
+  .picker-row:hover {
+    background: var(--fill-tertiary);
   }
 
   .picker-row.picked {
@@ -688,28 +722,36 @@
     font-size: 14px;
   }
 
-  .pr-sub {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px 10px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-
   .pr-group {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 240px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .pr-stock {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .pr-stock.warn {
+    font-weight: 600;
+    color: var(--danger);
   }
 
   .pr-warn {
     color: var(--danger);
     font-weight: 500;
+    font-size: 12px;
   }
 
   .pr-price {
-    flex: 0 0 auto;
+    justify-self: end;
     font-size: 13px;
     font-weight: 600;
     white-space: nowrap;
@@ -720,9 +762,13 @@
     font-weight: 400;
   }
 
+  .pr-cart {
+    display: inline-flex;
+    justify-self: end;
+  }
+
   .pr-controls {
     display: inline-flex;
-    flex: 0 0 auto;
     align-items: center;
     gap: 4px;
   }
@@ -779,8 +825,8 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
-    margin: 0 calc(-1 * var(--space-1));
-    padding: var(--space-3) var(--space-1) var(--space-1);
+    margin: 0;
+    padding: var(--space-3) 0 var(--space-1);
     background: var(--surface);
     border-top: 1px solid var(--border-secondary);
   }
@@ -811,17 +857,15 @@
       min-width: 0;
     }
 
+    .picker-head,
     .picker-row {
-      flex-wrap: wrap;
+      grid-template-columns: minmax(0, 1fr) 80px 76px 108px;
       gap: var(--space-2);
     }
 
-    .pr-name {
-      flex: 1 1 100%;
-    }
-
-    .pr-price {
-      margin-left: auto;
+    .picker-table.no-price .picker-head,
+    .picker-table.no-price .picker-row {
+      grid-template-columns: minmax(0, 1fr) 80px 108px;
     }
 
     .picker-footer-actions {
