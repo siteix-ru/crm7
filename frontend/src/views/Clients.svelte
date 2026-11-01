@@ -7,6 +7,8 @@
   import { auth } from '../lib/stores/auth.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
+  import Icon from '../lib/components/ui/Icon.svelte';
+  import Modal from '../lib/components/ui/Modal.svelte';
   import Pagination from '../lib/components/ui/Pagination.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
@@ -42,6 +44,9 @@
   const initialFilters = loadFilters('clients', filterDefaults);
   let filters = $state({ ...initialFilters });
   let draft = $state({ ...initialFilters });
+  let sortOpen = $state(false);
+  let helpOpen = $state(false);
+  let sortDraft = $state(filterDefaults.sort);
 
   const canConfirm = $derived(auth.can('clients.confirm'));
 
@@ -120,20 +125,33 @@
     void load();
   }
 
-  function changeSort(): void {
+  function openSort(): void {
+    sortDraft = filters.sort;
+    sortOpen = true;
+  }
+
+  function applySort(): void {
+    filters = { ...filters, sort: sortDraft };
     saveFilters('clients', filters);
     page = 1;
+    sortOpen = false;
     void load();
   }
 </script>
 
 <section class="page">
-  <div class="head">
-    <h1>Клиенты</h1>
-  </div>
+  <div class="filters">
+    <div class="head">
+      <h1>Клиенты</h1>
+    </div>
 
-  <div class="search-row">
-    <form class="search" onsubmit={(event) => { event.preventDefault(); submitSearch(); }}>
+    <form
+      class="search"
+      onsubmit={(event) => {
+        event.preventDefault();
+        submitSearch();
+      }}
+    >
       <SearchInput
         bind:value={searchInput}
         historyKey="clients"
@@ -144,59 +162,106 @@
         }}
         onpick={submitSearch}
       />
-      <Button type="submit" variant="ghost">Найти</Button>
     </form>
 
-    <FiltersModal
-      count={countActive(filters, filterCountDefaults)}
-      onopen={() => (draft = { ...filters })}
-      onapply={applyFilterDraft}
-      onreset={resetFilters}
-    >
-      <label class="filter-field">
-        <span>Состояние</span>
-        <select bind:value={draft.state}>
-          <option value="">Все состояния</option>
-          <option value="active">Активные</option>
-          <option value="pending">Ожидают подтверждения</option>
-          <option value="blocked">Заблокированные</option>
-        </select>
-      </label>
+    <div class="filter-icons">
+      <button
+        type="button"
+        class="sort-button"
+        class:active={filters.sort !== filterDefaults.sort}
+        title="Сортировка"
+        aria-label="Сортировка"
+        onclick={openSort}
+      >
+        <Icon name="sort" size={16} />
+      </button>
 
-      <label class="filter-field">
-        <span>Менеджер</span>
-        <select bind:value={draft.manager}>
-          <option value="">Все менеджеры</option>
-          <option value="mine">Мои клиенты</option>
-          <option value="none">Без менеджера</option>
-        </select>
-      </label>
+      <FiltersModal
+        icon
+        count={countActive(filters, filterCountDefaults)}
+        onopen={() => (draft = { ...filters })}
+        onapply={applyFilterDraft}
+        onreset={resetFilters}
+      >
+        <label class="filter-field">
+          <span>Состояние</span>
+          <select bind:value={draft.state}>
+            <option value="">Все состояния</option>
+            <option value="active">Активные</option>
+            <option value="pending">Ожидают подтверждения</option>
+            <option value="blocked">Заблокированные</option>
+          </select>
+        </label>
 
-      <label class="filter-field">
-        <span>Регистрация с</span>
-        <input type="date" bind:value={draft.from} max={draft.to} />
-      </label>
-      <label class="filter-field">
-        <span>Регистрация по</span>
-        <input type="date" bind:value={draft.to} min={draft.from} />
-      </label>
-    </FiltersModal>
+        <label class="filter-field">
+          <span>Менеджер</span>
+          <select bind:value={draft.manager}>
+            <option value="">Все менеджеры</option>
+            <option value="mine">Мои клиенты</option>
+            <option value="none">Без менеджера</option>
+          </select>
+        </label>
 
-    <label class="sort-field">
-      <span>Сортировка</span>
-      <select bind:value={filters.sort} onchange={changeSort}>
-        {#each sortOptions as option (option.code)}
-          <option value={option.code}>{option.title}</option>
-        {/each}
-      </select>
-    </label>
+        <label class="filter-field">
+          <span>Регистрация с</span>
+          <input type="date" bind:value={draft.from} max={draft.to} />
+        </label>
+        <label class="filter-field">
+          <span>Регистрация по</span>
+          <input type="date" bind:value={draft.to} min={draft.from} />
+        </label>
+      </FiltersModal>
+
+      <span class="toolbar-divider" aria-hidden="true"></span>
+
+      <button
+        type="button"
+        class="sort-button"
+        title="Как пользоваться"
+        aria-label="Как пользоваться страницей"
+        onclick={() => (helpOpen = true)}
+      >
+        <Icon name="help" size={16} />
+      </button>
+    </div>
   </div>
 
-  <div class="legend">
-    <span class="legend-item"><span class="dot pending"></span>ожидает подтверждения регистрации</span>
-    <span class="legend-item"><span class="dot blocked"></span>заблокирован</span>
-    <span class="legend-item"><span class="dot transfer"></span>передают вам</span>
-  </div>
+  <Modal open={sortOpen} title="Сортировка" onclose={() => (sortOpen = false)}>
+    <div class="sort-options">
+      {#each sortOptions as option (option.code)}
+        <label class="radio">
+          <input type="radio" name="client-sort" value={option.code} bind:group={sortDraft} />
+          <span>{option.title}</span>
+        </label>
+      {/each}
+    </div>
+    <div class="modal-actions">
+      <Button variant="ghost" onclick={() => (sortOpen = false)}>Отмена</Button>
+      <Button onclick={applySort}>Применить</Button>
+    </div>
+  </Modal>
+
+  <Modal open={helpOpen} title="Как пользоваться" onclose={() => (helpOpen = false)} wide>
+    <div class="help-list">
+      <p>Статусы клиентов:</p>
+      <ul>
+        <li>
+          <span class="dot pending"></span>ожидает подтверждения регистрации — клиент сам зарегистрировался;
+          подтверждение и отклонение — в карточке клиента;
+        </li>
+        <li>
+          <span class="dot blocked"></span>заблокирован — доступ к сайту отключён;
+        </li>
+        <li>
+          <span class="dot transfer"></span>передают вам — клиент передан от другого менеджера.
+        </li>
+      </ul>
+      <p>
+        Поиск идёт по имени, компании, ИНН и телефону. Кнопка с воронкой — фильтры по состоянию,
+        менеджеру и дате регистрации; кнопка со стрелками — сортировка.
+      </p>
+    </div>
+  </Modal>
 
   {#if error}
     <div class="alert">{error}</div>
@@ -365,20 +430,6 @@
     color: var(--primary);
   }
 
-  .legend {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .legend-item {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
   .dot {
     width: 10px;
     height: 10px;
@@ -425,48 +476,116 @@
     color: var(--primary);
   }
 
-  .search-row {
+  .filters {
     display: flex;
     flex-wrap: wrap;
+    gap: var(--space-4);
     align-items: center;
-    gap: var(--space-2);
+    justify-content: flex-start;
   }
 
   .search {
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-2);
-    flex: 1 1 auto;
+    flex: 1 1 220px;
+    max-width: 360px;
     min-width: 0;
-    max-width: none;
   }
 
-  .sort-field {
-    display: inline-flex;
+  .filter-icons {
+    display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
-    margin-left: var(--space-2);
-    padding-left: var(--space-4);
-    border-left: 1px solid var(--border);
-    font-size: 14px;
-    color: var(--muted);
-    white-space: nowrap;
+    margin-left: auto;
   }
 
-  .sort-field select {
-    padding: 9px 12px;
+  .sort-button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--surface);
-    font: inherit;
+    color: var(--text);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .sort-button:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+  }
+
+  .sort-button:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .sort-button.active {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .toolbar-divider {
+    width: 1px;
+    height: 24px;
+    margin: 0 var(--space-1);
+    background: var(--border-secondary);
+  }
+
+  .sort-options {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .radio {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+  }
+
+  .help-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    font-size: 14px;
     color: var(--text);
   }
 
-  @media (max-width: 720px) {
-    .search {
-      flex: 1 1 100%;
-      max-width: none;
-    }
+  .help-list ul {
+    margin: 0;
+    padding-left: var(--space-5);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .help-list li {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .help-list .dot {
+    flex: 0 0 auto;
+    margin-top: 5px;
   }
 
   .list {
