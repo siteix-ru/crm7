@@ -411,19 +411,29 @@ final class UserRepository
 
     private function clientsWhere(string $query, array $filters = []): array
     {
-        $state = (string) ($filters['state'] ?? '');
-
         $where = ['u.LEVEL = 5'];
         $params = [];
 
-        if ($state === 'active') {
-            $where[] = "u.reg_state = 'active' AND u.ACTIVE = 'Y'";
-        } elseif ($state === 'pending') {
-            $where[] = "u.reg_state = 'pending'";
-        } elseif ($state === 'blocked') {
-            $where[] = "u.reg_state = 'active' AND u.ACTIVE = 'N'";
-        } else {
+        $states = array_values(array_filter((array) ($filters['state'] ?? [])));
+        $conditions = [];
+
+        foreach ($states as $state) {
+            $condition = match ($state) {
+                'active' => "u.reg_state = 'active' AND u.ACTIVE = 'Y'",
+                'pending' => "u.reg_state = 'pending'",
+                'blocked' => "u.reg_state = 'active' AND u.ACTIVE = 'N'",
+                default => null
+            };
+
+            if ($condition !== null) {
+                $conditions[] = $condition;
+            }
+        }
+
+        if ($conditions === []) {
             $where[] = "u.reg_state IN ('active', 'pending')";
+        } else {
+            $where[] = '(' . implode(' OR ', $conditions) . ')';
         }
 
         if (($filters['from'] ?? '') !== '') {

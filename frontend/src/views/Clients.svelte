@@ -17,7 +17,7 @@
   import { router } from '../lib/router.svelte';
 
   const filterDefaults = {
-    state: '',
+    states: '',
     manager: '',
     from: '',
     to: '',
@@ -26,11 +26,17 @@
   };
 
   const filterCountDefaults = {
-    state: filterDefaults.state,
+    states: filterDefaults.states,
     manager: filterDefaults.manager,
     from: filterDefaults.from,
     to: filterDefaults.to
   };
+
+  const stateOptions = [
+    { value: 'active', label: 'Активные' },
+    { value: 'pending', label: 'Ожидают подтверждения' },
+    { value: 'blocked', label: 'Заблокированные' }
+  ];
 
   const sortRows = [
     { field: 'name', label: 'Название' },
@@ -73,7 +79,7 @@
 
     try {
       const data = await listClients(search, page, perPage, {
-        state: filters.state || undefined,
+        state: filters.states || undefined,
         manager: filters.manager || undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
@@ -116,7 +122,7 @@
 
   function saveClientFilters(): void {
     saveFilters('clients', {
-      state: filters.state,
+      states: filters.states,
       manager: filters.manager,
       from: filters.from,
       to: filters.to,
@@ -125,25 +131,32 @@
     });
   }
 
-  function resetFilterDraft(): void {
-    draft = { ...filterDefaults, view: viewDraft };
-  }
-
   function openView(): void {
     viewDraft = viewMode;
     draft = { ...filters };
     viewOpen = true;
   }
 
+  function toggleState(code: string): void {
+    const current = draft.states ? draft.states.split(',').filter(Boolean) : [];
+    const next = current.includes(code)
+      ? current.filter((item) => item !== code)
+      : [...current, code];
+    draft.states = next.join(',');
+  }
+
+  function toggleManager(value: 'mine' | 'none'): void {
+    draft.manager = draft.manager === value ? '' : value;
+  }
+
   function applyView(): void {
     viewOpen = false;
 
-    const nextDraft = { ...draft };
     const filtersChanged =
-      nextDraft.state !== filters.state ||
-      nextDraft.manager !== filters.manager ||
-      nextDraft.from !== filters.from ||
-      nextDraft.to !== filters.to;
+      draft.states !== filters.states ||
+      draft.manager !== filters.manager ||
+      draft.from !== filters.from ||
+      draft.to !== filters.to;
     const viewChanged = viewDraft !== viewMode;
 
     if (!filtersChanged && !viewChanged) {
@@ -153,10 +166,10 @@
     if (filtersChanged) {
       filters = {
         ...filters,
-        state: nextDraft.state,
-        manager: nextDraft.manager,
-        from: nextDraft.from,
-        to: nextDraft.to
+        states: draft.states,
+        manager: draft.manager,
+        from: draft.from,
+        to: draft.to
       };
     }
 
@@ -403,60 +416,75 @@
   </Modal>
 
   <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-    <div class="view-columns">
-      <div class="view-column">
-        <p class="sort-hint">Вид</p>
-        <div class="sort-options">
-          <label class="sort-option">
-            <input type="radio" name="client-view" value="list" bind:group={viewDraft} />
-            <span>Строкой-таблица</span>
-          </label>
-          <label class="sort-option">
-            <input type="radio" name="client-view" value="tiles" bind:group={viewDraft} />
-            <span>Плитки</span>
-          </label>
-        </div>
-      </div>
+    <div class="view-options">
+      <label class="radio">
+        <input type="radio" name="client-view" value="list" bind:group={viewDraft} />
+        <span>Списком (строками)</span>
+      </label>
+      <label class="radio">
+        <input type="radio" name="client-view" value="tiles" bind:group={viewDraft} />
+        <span>Плитками</span>
+      </label>
+    </div>
 
-      <div class="view-column">
-        <p class="sort-hint">Фильтры</p>
-        <div class="view-filters">
-          <label class="filter-field">
-            <span>Состояние</span>
-            <select bind:value={draft.state}>
-              <option value="">Все состояния</option>
-              <option value="active">Активные</option>
-              <option value="pending">Ожидают подтверждения</option>
-              <option value="blocked">Заблокированные</option>
-            </select>
-          </label>
-
-          <label class="filter-field">
-            <span>Менеджер</span>
-            <select bind:value={draft.manager}>
-              <option value="">Все менеджеры</option>
-              <option value="mine">Мои клиенты</option>
-              <option value="none">Без менеджера</option>
-            </select>
-          </label>
-
-          <label class="filter-field">
-            <span>Регистрация с</span>
-            <input type="date" bind:value={draft.from} max={draft.to} />
-          </label>
-          <label class="filter-field">
-            <span>Регистрация по</span>
-            <input type="date" bind:value={draft.to} min={draft.from} />
-          </label>
-        </div>
+    <div class="sort-status">
+      <span
+        class="sort-status-label"
+        title="Если ничего не выбрано — показываются активные и ожидающие подтверждения"
+      >Статус:</span>
+      <div class="status-opts">
+        {#each stateOptions as option (option.value)}
+          <button
+            type="button"
+            class="status-opt"
+            class:on={draft.states.split(',').includes(option.value)}
+            aria-pressed={draft.states.split(',').includes(option.value)}
+            onclick={() => toggleState(option.value)}
+          >
+            {option.label}
+          </button>
+        {/each}
       </div>
     </div>
-    <div class="modal-actions">
-      <Button variant="ghost" onclick={resetFilterDraft}>Сбросить фильтры</Button>
-      <div class="modal-buttons">
-        <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-        <Button onclick={applyView}>Применить</Button>
+
+    <div class="sort-status">
+      <span class="sort-status-label" title="Если ничего не выбрано — все менеджеры">Менеджер:</span>
+      <div class="status-opts">
+        <button
+          type="button"
+          class="status-opt"
+          class:on={draft.manager === 'mine'}
+          aria-pressed={draft.manager === 'mine'}
+          onclick={() => toggleManager('mine')}
+        >
+          Мои клиенты
+        </button>
+        <button
+          type="button"
+          class="status-opt"
+          class:on={draft.manager === 'none'}
+          aria-pressed={draft.manager === 'none'}
+          onclick={() => toggleManager('none')}
+        >
+          Без менеджера
+        </button>
       </div>
+    </div>
+
+    <div class="view-period">
+      <label class="filter-field">
+        <span>Регистрация с</span>
+        <input type="date" bind:value={draft.from} max={draft.to} />
+      </label>
+      <label class="filter-field">
+        <span>Регистрация по</span>
+        <input type="date" bind:value={draft.to} min={draft.from} />
+      </label>
+    </div>
+
+    <div class="modal-actions">
+      <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+      <Button onclick={applyView}>Применить</Button>
     </div>
   </Modal>
 
@@ -868,34 +896,81 @@
     background: var(--primary-bg);
   }
 
-  .view-columns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-4);
-  }
-
-  .view-column {
-    min-width: 0;
-  }
-
-  .sort-options {
+  .view-options {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: var(--space-3);
+    max-height: 340px;
+    overflow-y: auto;
   }
 
-  .sort-option {
+  .radio {
     display: flex;
     align-items: center;
-    gap: var(--space-2);
+    gap: 8px;
     font-size: 14px;
+    color: var(--text);
     cursor: pointer;
   }
 
-  .view-filters {
+  .sort-status {
     display: flex;
-    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-secondary);
+  }
+
+  .sort-status-label {
+    font-size: 14px;
+    color: var(--text-description);
+  }
+
+  .status-opts {
+    display: flex;
+    flex-wrap: wrap;
     gap: var(--space-2);
+  }
+
+  .status-opt {
+    padding: 0 12px;
+    height: 28px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-description);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+  }
+
+  .status-opt:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+  }
+
+  .status-opt.on {
+    border-color: var(--primary);
+    background: var(--primary);
+    color: #fff;
+    font-weight: 500;
+  }
+
+  .status-opt.on:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    background: var(--primary-hover);
+    color: #fff;
+  }
+
+  .view-period {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
+    border-top: 1px solid var(--border-secondary);
   }
 
   .modal-actions {
@@ -905,13 +980,6 @@
     justify-content: flex-end;
     gap: var(--space-2);
     margin-top: var(--space-4);
-  }
-
-  .modal-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-left: auto;
   }
 
   .list.tiles {
@@ -924,11 +992,7 @@
     align-items: stretch;
   }
 
-  @media (max-width: 640px) {
-    .view-columns {
-      grid-template-columns: 1fr;
-    }
-  }
+
 
   .help-list {
     display: flex;

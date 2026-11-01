@@ -258,7 +258,7 @@ final class ClientController extends ApiController
         $managerFilter = trim($request->queryParam('manager'));
 
         $filters = [
-            'state' => in_array($state, ['active', 'pending', 'blocked'], true) ? $state : '',
+            'state' => $this->clientStates($state),
             'from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) === 1 ? $from : '',
             'to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) === 1 ? $to : '',
             'manager' => in_array($managerFilter, ['mine', 'none'], true) ? $managerFilter : '',
@@ -312,6 +312,31 @@ final class ClientController extends ApiController
             'page' => $page,
             'per_page' => $perPage,
         ]);
+    }
+
+    /**
+     * Статусы: «active,pending,...» (только допустимые, без дублей).
+     *
+     * @return array<int, string>
+     */
+    private function clientStates(string $state): array
+    {
+        $allowed = ['active', 'pending', 'blocked'];
+        $parts = [];
+        $seen = [];
+
+        foreach (explode(',', $state) as $value) {
+            $value = trim($value);
+
+            if ($value === '' || !in_array($value, $allowed, true) || isset($seen[$value])) {
+                continue;
+            }
+
+            $seen[$value] = true;
+            $parts[] = $value;
+        }
+
+        return $parts;
     }
 
     /**
