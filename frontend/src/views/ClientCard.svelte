@@ -128,6 +128,11 @@
   const lastPasswordReset = $derived(
     card?.history.find((item) => item.event === 'password_reset' || item.event === 'password_changed') ?? null
   );
+  const accountHistory = $derived(
+    card
+      ? [...card.history].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+      : []
+  );
 
   const eventTitles: Record<string, string> = {
     registered: 'Регистрация',
@@ -1138,6 +1143,7 @@
 
     {#if tab === 'account' && canOpenAccount}
       <div class="account">
+        <div class="account-main">
         <div class="card">
           <h2>Вход в кабинет</h2>
           <dl class="contacts">
@@ -1212,6 +1218,30 @@
 
         <div class="card">
           <div class="card-head">
+            <h2>Типы цен</h2>
+            {#if canAssignPrices}
+              <Button variant="ghost" disabled={busy} onclick={() => (pricePickerOpen = true)}>
+                Изменить
+              </Button>
+            {/if}
+          </div>
+          {#if !pricesEnabled}
+            <p class="empty">Типы цен отключены в настройках</p>
+          {:else if card.client.price_types.length === 0}
+            <p class="empty">Не назначены — клиент видит базовые цены</p>
+          {:else}
+            <div class="chips">
+              {#each card.client.price_types as type (type.id)}
+                <span class="chip" class:on={type.is_default}>
+                  {type.title}{#if type.is_default} · по умолчанию{/if}
+                </span>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <div class="card">
+          <div class="card-head">
             <h2>Менеджер</h2>
             {#if card.can.assign}
               <Button variant="ghost" disabled={busy} onclick={openAssign}>Назначить</Button>
@@ -1238,30 +1268,6 @@
           {#if canStartTransfer}
             <div class="account-actions">
               <Button variant="ghost" disabled={busy} onclick={openTransfer}>Передать клиента</Button>
-            </div>
-          {/if}
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <h2>Типы цен</h2>
-            {#if canAssignPrices}
-              <Button variant="ghost" disabled={busy} onclick={() => (pricePickerOpen = true)}>
-                Изменить
-              </Button>
-            {/if}
-          </div>
-          {#if !pricesEnabled}
-            <p class="empty">Типы цен отключены в настройках</p>
-          {:else if card.client.price_types.length === 0}
-            <p class="empty">Не назначены — клиент видит базовые цены</p>
-          {:else}
-            <div class="chips">
-              {#each card.client.price_types as type (type.id)}
-                <span class="chip" class:on={type.is_default}>
-                  {type.title}{#if type.is_default} · по умолчанию{/if}
-                </span>
-              {/each}
             </div>
           {/if}
         </div>
@@ -1311,6 +1317,36 @@
               <p class="hint">После изменения клиенту придёт письмо на {card.client.email}.</p>
             {/if}
           {/if}
+        </div>
+        </div>
+
+        <div class="account-side">
+          <div class="card">
+            <div class="card-head">
+              <h2>История учётной записи</h2>
+              {#if accountHistory.length > 10}
+                <button type="button" class="link-btn" onclick={() => showTab('history')}>
+                  Вся история →
+                </button>
+              {/if}
+            </div>
+            {#if accountHistory.length === 0}
+              <p class="empty">Событий пока нет</p>
+            {:else}
+              <ul class="account-events">
+                {#each accountHistory.slice(0, 10) as item (item.id)}
+                  <li>
+                    <span class="event">{eventTitles[item.event] ?? item.event}</span>
+                    <span class="when">
+                      {formatDateTime(item.created_at)}
+                      {#if item.actor}· {item.actor.name}{/if}
+                    </span>
+                    {#if item.comment}<span class="comment">{item.comment}</span>{/if}
+                  </li>
+                {/each}
+              </ul>
+            {/if}
+          </div>
         </div>
       </div>
     {/if}
@@ -2098,9 +2134,48 @@
 
   .account {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
     gap: var(--space-4);
     align-items: start;
+  }
+
+  .account-main,
+  .account-side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+
+  .account-events {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .account-events li {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: var(--space-3);
+    border-left: 2px solid var(--border-secondary);
+  }
+
+  .account-events .event {
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .account-events .when {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .account-events .comment {
+    font-size: 13px;
   }
 
   .summary .tiles {
