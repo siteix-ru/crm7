@@ -103,7 +103,7 @@ final class ClientService
     public function setBlocked(array $actor, array $capabilities, int $clientId, bool $blocked, string $comment): array
     {
         $client = $this->assertClient($clientId);
-        $this->managers->assertCanManage($actor, $capabilities, $clientId);
+        $this->assertCanManageAccount($actor, $capabilities, $clientId);
 
         if (($client['reg_state'] ?? 'active') !== 'active') {
             throw new HttpException(422, 'not_active', 'Регистрация клиента ещё не подтверждена');
@@ -127,7 +127,14 @@ final class ClientService
             $comment !== '' ? $comment : ($blocked ? 'Доступ заблокирован' : 'Доступ восстановлен')
         );
 
-        return ['id' => $clientId, 'active' => !$blocked];
+        [$mailSent, $email] = $this->notifyAccessChange($actor, $client, $blocked, $comment);
+
+        return [
+            'id' => $clientId,
+            'active' => !$blocked,
+            'email_sent' => $mailSent,
+            'email' => $email,
+        ];
     }
 
     public function updateContacts(array $actor, array $capabilities, int $clientId, array $input): array
@@ -437,12 +444,83 @@ final class ClientService
             throw $exception;
         }
 
+        [$mailSent, $email] = $this->notifyPasswordReset($actor, $client, $password);
+
         return [
             'id' => $clientId,
             'login' => (string) ($client['LOGIN'] ?? ''),
             'password' => $password,
             'channel' => 'show',
+            'email_sent' => $mailSent,
+            'email' => $email,
         ];
+    }
+
+    /**
+     * @return array{0: bool, 1: string|null}
+     */
+    private function notifyPasswordReset(array $actor, array $client, string $password): array
+    {
+        $email = trim((string) ($client['EMAIL'] ?? ''));
+
+        if ($email === '' || !Validator::email($email)) {
+            return [false, null];
+        }
+
+        $mailConfig = $this->mail->config();
+
+        if (!$mailConfig['enabled']) {
+            return [false, $email];
+        }
+
+        $name = (string) ($client['FULL_NAME'] ?? '');
+        $actorName = (string) ($actor['FULL_NAME'] ?? '');
+
+        $this->mail->enqueue(
+            $email,
+            'Пароль был сброшен',
+            "Здравствуйте, $name!\n\n"
+            . "Ваш пароль был сброшен: $actorName.\n"
+            . "Новый пароль: $password\n\n"
+            . "После входа рекомендуем сменить пароль в профиле."
+        );
+
+        return [true, $email];
+    }
+
+    /**
+     * @return array{0: bool, 1: string|null}
+     */
+    private function notifyAccessChange(array $actor, array $client, bool $blocked, string $comment): array
+    {
+        $email = trim((string) ($client['EMAIL'] ?? ''));
+
+        if ($email === '' || !Validator::email($email)) {
+            return [false, null];
+        }
+
+        $mailConfig = $this->mail->config();
+
+        if (!$mailConfig['enabled']) {
+            return [false, $email];
+        }
+
+        $name = (string) ($client['FULL_NAME'] ?? '');
+        $actorName = (string) ($actor['FULL_NAME'] ?? '');
+        $reason = $blocked && $comment !== '' ? "\nПричина: $comment\n" : '';
+        $state = $blocked ? 'заблокирована' : 'активирована';
+
+        $this->mail->enqueue(
+            $email,
+            $blocked ? 'Учётная запись заблокирована' : 'Учётная запись активирована',
+            "Здравствуйте, $name!\n\n"
+            . "Ваша учётная запись $state.\n"
+            . $reason
+            . "\nДействие выполнил(а): $actorName.\n\n"
+            . "Если это ошибка — свяжитесь с вашим менеджером."
+        );
+
+        return [true, $email];
     }
 
     /**
@@ -524,6 +602,7 @@ final class ClientService
 
         return [
             'manage' => $canManage,
+            'access' => $this->canManageAccount($actor, $capabilities, $clientId),
             'reset_password' => $this->canManageAccount($actor, $capabilities, $clientId)
                 && !Config::demoMode(),
             'assign' => $canAssign,

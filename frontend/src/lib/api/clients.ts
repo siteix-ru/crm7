@@ -60,16 +60,23 @@ export function getClientInterests(
   );
 }
 
-export function blockClient(id: number, comment: string): Promise<{ id: number; active: boolean }> {
-  return apiRequest<{ id: number; active: boolean }>(`/clients/${id}/block`, {
+export interface ClientAccessResult {
+  id: number;
+  active: boolean;
+  email_sent: boolean;
+  email: string | null;
+}
+
+export function blockClient(id: number, comment: string): Promise<ClientAccessResult> {
+  return apiRequest<ClientAccessResult>(`/clients/${id}/block`, {
     method: 'POST',
     auth: true,
     body: { comment }
   });
 }
 
-export function unblockClient(id: number, comment: string): Promise<{ id: number; active: boolean }> {
-  return apiRequest<{ id: number; active: boolean }>(`/clients/${id}/unblock`, {
+export function unblockClient(id: number, comment: string): Promise<ClientAccessResult> {
+  return apiRequest<ClientAccessResult>(`/clients/${id}/unblock`, {
     method: 'POST',
     auth: true,
     body: { comment }
@@ -98,6 +105,8 @@ export interface ClientPasswordResult {
   login: string;
   password: string;
   channel: 'show';
+  email_sent: boolean;
+  email: string | null;
 }
 
 export interface ClientPasswordLinkResult {

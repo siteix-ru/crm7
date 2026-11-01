@@ -13,7 +13,6 @@
     getClientInterests,
     rejectClient,
     resetClientPassword,
-    sendClientPasswordLink,
     transferClient,
     unblockClient,
     updateClientContacts
@@ -63,11 +62,13 @@
   let actionKind = $state<ActionKind | null>(null);
   let actionComment = $state('');
   let passwordConfirmOpen = $state(false);
-  let passwordEmailOpen = $state(false);
-  let passwordResult = $state<{ login: string; password: string } | null>(null);
+  let passwordResult = $state<{ login: string; password: string; emailSent: boolean; email: string | null } | null>(
+    null
+  );
   let passwordVisible = $state(false);
   let passwordSaved = $state(false);
   let passwordCloseWarn = $state(false);
+  let accessDraft = $state<'active' | 'blocked'>('active');
   let copied = $state<'' | 'login' | 'password'>('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
   let editBusy = $state(false);
@@ -123,6 +124,8 @@
         || (pricesEnabled && auth.can('prices.assign')))
     )
   );
+  const displayName = $derived(card?.client.name || card?.client.company || '');
+  const currentAccess = $derived(card?.client.active ? 'active' : 'blocked');
   const recentRequests = $derived(card?.requests.slice(0, 5) ?? []);
   const topInterests = $derived(card?.interests.slice(0, 5) ?? []);
   const lastPasswordReset = $derived(
@@ -357,17 +360,21 @@
     historyPage = 1;
   }
 
-  async function runAction(action: () => Promise<unknown>, notice: string): Promise<void> {
+  async function runAction<T>(action: () => Promise<T>, notice: string): Promise<T | null> {
     busy = true;
     actionError = '';
     actionNotice = '';
 
     try {
-      await action();
+      const result = await action();
       actionNotice = notice;
       await load(true);
+
+      return result;
     } catch (cause) {
       actionError = cause instanceof ApiError ? cause.message : 'Не удалось выполнить действие';
+
+      return null;
     } finally {
       busy = false;
     }
@@ -384,7 +391,19 @@
       return;
     }
 
+    if (actionKind === 'block' || actionKind === 'unblock') {
+      accessDraft = currentAccess;
+    }
+
     actionKind = null;
+  }
+
+  function applyAccess(): void {
+    if (accessDraft === currentAccess) {
+      return;
+    }
+
+    openAction(accessDraft === 'blocked' ? 'block' : 'unblock');
   }
 
   async function confirmAction(): Promise<void> {
@@ -407,9 +426,28 @@
     } else if (action === 'decline') {
       await runAction(() => rejectClient(id, comment), 'Регистрация отклонена');
     } else if (action === 'block') {
-      await runAction(() => blockClient(id, comment), 'Клиент заблокирован');
+      const result = await runAction(() => blockClient(id, comment), 'Клиент заблокирован');
+      reportAccessEmail(result, 'Клиент заблокирован');
     } else {
-      await runAction(() => unblockClient(id, comment), 'Клиент разблокирован');
+      const result = await runAction(() => unblockClient(id, comment), 'Клиент активирован');
+      reportAccessEmail(result, 'Клиент активирован');
+    }
+  }
+
+  function reportAccessEmail(
+    result: { email_sent: boolean; email: string | null } | null,
+    base: string
+  ): void {
+    if (!result) {
+      return;
+    }
+
+    if (result.email_sent && result.email) {
+      actionNotice = `${base}. Письмо отправлено на ${result.email}`;
+    } else if (result.email) {
+      actionNotice = `${base}. Письмо не отправлено — почта не настроена`;
+    } else {
+      actionNotice = `${base}. E-mail не указан — письмо не отправлено`;
     }
   }
 
@@ -450,7 +488,12 @@
     try {
       const result = await resetClientPassword(id);
       passwordConfirmOpen = false;
-      passwordResult = { login: result.login, password: result.password };
+      passwordResult = {
+        login: result.login,
+        password: result.password,
+        emailSent: result.email_sent,
+        email: result.email
+      };
       passwordVisible = false;
       passwordSaved = false;
       passwordCloseWarn = false;
@@ -458,24 +501,6 @@
     } catch (cause) {
       passwordConfirmOpen = false;
       actionError = cause instanceof ApiError ? cause.message : 'Не удалось сбросить пароль';
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function sendPasswordLink(): Promise<void> {
-    busy = true;
-    actionError = '';
-    actionNotice = '';
-
-    try {
-      const result = await sendClientPasswordLink(id);
-      passwordEmailOpen = false;
-      actionNotice = `Ссылка для смены пароля отправлена на ${result.email}`;
-      await load(true);
-    } catch (cause) {
-      passwordEmailOpen = false;
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось отправить ссылку';
     } finally {
       busy = false;
     }
@@ -693,56 +718,22 @@
     </div>
   {:else if card}
     <div class="hero">
-      <div class="hero-main">
-        <span class="avatar" aria-hidden="true">{initials(card.client.name)}</span>
+      <span class="avatar" aria-hidden="true">{initials(displayName)}</span>
+      <h1>{displayName}</h1>
 
-        <div class="identity">
-          <div class="name-line">
-            <h1>{card.client.name}</h1>
-            <span class="state" class:on={card.client.reg_state === 'active' && card.client.active}>
-              {#if card.client.reg_state === 'active' && !card.client.active}
-                заблокирован
-              {:else}
-                {stateTitles[card.client.reg_state] ?? card.client.reg_state}
-              {/if}
-            </span>
-            {#if card.transfer && card.transfer.status !== 'active'}
-              <span class="state transfer-chip">
-                {card.transfer.status === 'scheduled' ? 'передача запланирована' : 'передача ожидает'}
-              </span>
-            {/if}
-          </div>
-
-          <div class="meta">
-            {#if card.client.company}<span>{card.client.company}</span>{/if}
-            {#if card.client.position}<span>{card.client.position}</span>{/if}
-            <span class="mono">логин: {card.client.login}</span>
-          </div>
-
-          <div class="hero-contacts">
-            {#if card.client.email}
-              <a href={`mailto:${card.client.email}`}>{card.client.email}</a>
-            {/if}
-            {#if card.client.phone}
-              <a href={`tel:${card.client.phone}`}>{card.client.phone}</a>
-            {/if}
-            {#if card.client.inn}<span>ИНН {card.client.inn}</span>{/if}
-          </div>
-        </div>
-      </div>
-
-      <div class="hero-stats">
-        <button type="button" class="stat" onclick={() => openRequests('open')}>
-          <strong>{card.stats.open}</strong><span>открыто</span>
-        </button>
-        <button
-          type="button"
-          class="stat"
-          class:warn={card.stats.overdue > 0}
-          onclick={() => openRequests('overdue')}
-        >
-          <strong>{card.stats.overdue}</strong><span>просрочено</span>
-        </button>
+      <div class="hero-status">
+        <span class="state" class:on={card.client.reg_state === 'active' && card.client.active}>
+          {#if card.client.reg_state === 'active' && !card.client.active}
+            заблокирован
+          {:else}
+            {stateTitles[card.client.reg_state] ?? card.client.reg_state}
+          {/if}
+        </span>
+        {#if card.transfer && card.transfer.status !== 'active'}
+          <span class="state transfer-chip">
+            {card.transfer.status === 'scheduled' ? 'передача запланирована' : 'передача ожидает'}
+          </span>
+        {/if}
       </div>
     </div>
 
@@ -844,7 +835,6 @@
               <div><dt>Компания</dt><dd>{card.client.company || '—'}</dd></div>
               <div><dt>Должность</dt><dd>{card.client.position || '—'}</dd></div>
               <div><dt>ИНН</dt><dd>{card.client.inn || '—'}</dd></div>
-              <div><dt>Логин</dt><dd class="mono">{card.client.login}</dd></div>
             </dl>
           </div>
 
@@ -1216,8 +1206,8 @@
         <div class="card">
           <h2>Пароль</h2>
           <p class="hint">
-            Сброс завершит все активные сеансы клиента. Новый пароль показывается один раз — передайте
-            его клиенту безопасным способом. Ссылка на e-mail действует 60 минут.
+            Сброс завершит все активные сеансы клиента. Новый пароль будет показан один раз и
+            одновременно отправлен на e-mail, если он указан.
           </p>
           {#if !card.can.reset_password}
             <p class="hint">Недостаточно прав для управления паролем клиента.</p>
@@ -1228,22 +1218,13 @@
               <Button variant="ghost" disabled={busy} onclick={() => (passwordConfirmOpen = true)}>
                 Сбросить пароль
               </Button>
-              <Button
-                variant="ghost"
-                disabled={busy || !card.client.email || !appSettings.mailConfigured || !card.client.active}
-                onclick={() => (passwordEmailOpen = true)}
-              >
-                Отправить ссылку на e-mail
-              </Button>
             </div>
-            {#if !card.client.email}
-              <p class="hint">E-mail не указан — доступен только сброс с показом пароля.</p>
-            {:else if !appSettings.mailConfigured}
-              <p class="hint">Почта не настроена — доступен только сброс с показом пароля.</p>
-            {:else if !card.client.active}
-              <p class="hint">
-                Клиент заблокирован — ссылка недоступна, пока доступ не восстановлен.
-              </p>
+            {#if card.client.email && appSettings.mailConfigured}
+              <p class="hint">Копия пароля будет отправлена на {card.client.email}.</p>
+            {:else if card.client.email}
+              <p class="hint">Почта не настроена — пароль будет только показан.</p>
+            {:else}
+              <p class="hint">E-mail не указан — пароль будет только показан.</p>
             {/if}
           {/if}
         </div>
@@ -1317,18 +1298,37 @@
               Доступ к кабинету заблокирован.
             {/if}
           </p>
-          {#if canManage && card.client.reg_state === 'active'}
-            <div class="account-actions">
-              {#if card.client.active}
-                <Button variant="danger" disabled={busy} onclick={() => openAction('block')}>
-                  Заблокировать
-                </Button>
-              {:else}
-                <Button variant="ghost" disabled={busy} onclick={() => openAction('unblock')}>
-                  Разблокировать
-                </Button>
-              {/if}
+          {#if card.can.access && card.client.reg_state === 'active'}
+            <div class="access-choice" role="radiogroup" aria-label="Доступ клиента">
+              <button
+                type="button"
+                class="access-option"
+                class:active={accessDraft === 'active'}
+                role="radio"
+                aria-checked={accessDraft === 'active'}
+                onclick={() => (accessDraft = 'active')}
+              >
+                Активен
+              </button>
+              <button
+                type="button"
+                class="access-option"
+                class:active={accessDraft === 'blocked'}
+                role="radio"
+                aria-checked={accessDraft === 'blocked'}
+                onclick={() => (accessDraft = 'blocked')}
+              >
+                Заблокирован
+              </button>
             </div>
+            <div class="account-actions">
+              <Button disabled={busy || accessDraft === currentAccess} onclick={applyAccess}>
+                Применить
+              </Button>
+            </div>
+            {#if card.client.email && appSettings.mailConfigured}
+              <p class="hint">После изменения клиенту придёт письмо на {card.client.email}.</p>
+            {/if}
           {/if}
         </div>
       </div>
@@ -1414,6 +1414,14 @@
         заново. Попросите клиента сменить пароль в профиле после входа.
       </p>
 
+      {#if passwordResult?.emailSent}
+        <p class="hint">Копия пароля отправлена на {passwordResult.email}.</p>
+      {:else if passwordResult?.email}
+        <p class="hint">Письмо не отправлено — почта не настроена.</p>
+      {:else}
+        <p class="hint">E-mail не указан — передайте пароль клиенту лично.</p>
+      {/if}
+
       <dl class="contacts compact">
         <div>
           <dt>Логин</dt>
@@ -1462,19 +1470,6 @@
         {:else}
           <Button disabled={!passwordSaved} onclick={closePasswordResult}>Готово</Button>
         {/if}
-      </div>
-    </Modal>
-
-    <Modal open={passwordEmailOpen} title="Отправить ссылку?" onclose={() => (passwordEmailOpen = false)}>
-      <p class="hint">
-        Ссылка для смены пароля будет отправлена на <strong>{card.client.email}</strong>. Она
-        действует 60 минут, после смены пароля все сеансы клиента завершатся.
-      </p>
-      <div class="modal-actions">
-        <Button variant="ghost" disabled={busy} onclick={() => (passwordEmailOpen = false)}>
-          Отмена
-        </Button>
-        <Button loading={busy} onclick={() => void sendPasswordLink()}>Отправить</Button>
       </div>
     </Modal>
 
@@ -1915,15 +1910,6 @@
     box-shadow: var(--shadow-sm);
   }
 
-  .meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    color: var(--muted);
-    font-size: 13px;
-    margin-top: 4px;
-  }
-
   .state {
     font-size: 12px;
     padding: 3px 10px;
@@ -2011,11 +1997,12 @@
     box-shadow: var(--shadow-sm);
   }
 
-  .hero-main {
+  .hero-status {
     display: flex;
     align-items: center;
-    gap: var(--space-4);
-    min-width: 0;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-left: auto;
   }
 
   .avatar {
@@ -2031,79 +2018,6 @@
     font-size: 22px;
     font-weight: 600;
     letter-spacing: 0.02em;
-  }
-
-  .identity {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-  }
-
-  .name-line {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .hero-contacts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px var(--space-4);
-    font-size: 13px;
-    color: var(--text);
-  }
-
-  .hero-contacts a {
-    color: var(--primary);
-    text-decoration: none;
-  }
-
-  .hero-contacts a:hover {
-    text-decoration: underline;
-  }
-
-  .hero-stats {
-    display: flex;
-    gap: var(--space-2);
-  }
-
-  .stat {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--bg);
-    font: inherit;
-    color: inherit;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .stat:hover {
-    border-color: var(--primary);
-  }
-
-  .stat strong {
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  .stat span {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .stat.warn strong {
-    color: var(--warning-text);
-  }
-
-  .mono {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 13px;
   }
 
   .summary {
@@ -2244,6 +2158,37 @@
     margin-top: var(--space-3);
   }
 
+  .access-choice {
+    display: inline-flex;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+  }
+
+  .access-option {
+    padding: 6px 14px;
+    border: none;
+    border-radius: calc(var(--radius-sm) - 1px);
+    background: transparent;
+    font: inherit;
+    font-size: 14px;
+    color: var(--text-description);
+    cursor: pointer;
+    transition: background 0.12s ease, color 0.12s ease;
+  }
+
+  .access-option:hover {
+    color: var(--text);
+  }
+
+  .access-option.active {
+    background: var(--surface);
+    color: var(--text);
+    font-weight: 600;
+    box-shadow: var(--shadow-sm);
+  }
+
   .copy-row {
     display: flex;
     align-items: center;
@@ -2312,18 +2257,6 @@
     .account {
       grid-template-columns: minmax(0, 1fr);
     }
-
-    .hero {
-      align-items: flex-start;
-    }
-
-    .hero-stats {
-      width: 100%;
-    }
-
-    .stat {
-      flex: 1;
-    }
   }
 
   @media (max-width: 640px) {
@@ -2333,12 +2266,13 @@
       font-size: 18px;
     }
 
-    .hero-main {
+    .hero {
       align-items: flex-start;
     }
 
-    .account {
-      grid-template-columns: minmax(0, 1fr);
+    .hero-status {
+      width: 100%;
+      margin-left: 0;
     }
   }
 

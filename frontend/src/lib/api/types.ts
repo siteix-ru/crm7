@@ -781,6 +781,7 @@ export interface ClientCard {
   transfer: ClientTransferInfo | null;
   can: {
     manage: boolean;
+    access: boolean;
     reset_password: boolean;
     assign: boolean;
     claim: boolean;
