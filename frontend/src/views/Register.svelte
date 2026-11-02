@@ -8,6 +8,8 @@
   let name = $state('');
   let company = $state('');
   let inn = $state('');
+  let city = $state('');
+  let address = $state('');
   let phone = $state('');
   let email = $state('');
   let password = $state('');
@@ -31,6 +33,8 @@
         name: name.trim(),
         company: company.trim(),
         inn: inn.trim(),
+        city: city.trim(),
+        address: address.trim(),
         phone: phone.trim(),
         email: email.trim(),
         password,
@@ -65,6 +69,8 @@
       <Input label="ФИО" bind:value={name} name="name" autocomplete="name" />
       <Input label="Компания" bind:value={company} name="company" autocomplete="organization" />
       <Input label="ИНН" bind:value={inn} name="inn" autocomplete="off" placeholder="10 или 12 цифр" />
+      <Input label="Город" bind:value={city} name="city" autocomplete="address-level2" />
+      <Input label="Адрес" bind:value={address} name="address" autocomplete="street-address" />
       <Input label="Телефон" bind:value={phone} name="phone" autocomplete="tel" />
       <Input label="E-mail" type="email" bind:value={email} name="email" autocomplete="email" />
       <Input

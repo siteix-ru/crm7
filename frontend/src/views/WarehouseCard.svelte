@@ -31,13 +31,13 @@
   const isNew = $derived(id <= 0);
 
   const roleOptions = [
-    { level: 90, title: 'Сисадмин' },
+    { level: 90, title: 'Технический администратор' },
     { level: 50, title: 'Администратор' },
     { level: 10, title: 'Менеджер' }
   ];
 
   const levelOptions = [
-    { level: 90, title: 'Сисадмин' },
+    { level: 90, title: 'Технический администратор' },
     { level: 50, title: 'Администратор' },
     { level: 10, title: 'Менеджер' },
     { level: 5, title: 'Клиент' }

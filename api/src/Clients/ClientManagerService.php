@@ -71,6 +71,10 @@ final class ClientManagerService
 
     public function canManage(array $actor, array $capabilities, int $clientId): bool
     {
+        if ((int) $actor['LEVEL'] < 10) {
+            return false;
+        }
+
         foreach ($this->managerIds($actor) as $managerId) {
             if ($this->managers->isManagerOf($clientId, $managerId)) {
                 return true;
@@ -211,6 +215,10 @@ final class ClientManagerService
         ?string $dateTo,
         string $comment
     ): array {
+        if ((int) $actor['LEVEL'] < 10) {
+            throw new HttpException(403, 'forbidden', 'Действие доступно только сотрудникам');
+        }
+
         $client = $this->assertClient($clientId);
         $actorId = (int) $actor['ID'];
         $actorName = (string) ($actor['FULL_NAME'] ?? '');
@@ -384,6 +392,10 @@ final class ClientManagerService
 
     public function accept(array $actor, int $transferId): array
     {
+        if ((int) $actor['LEVEL'] < 10) {
+            throw new HttpException(403, 'forbidden', 'Действие доступно только сотрудникам');
+        }
+
         $actorId = (int) $actor['ID'];
         $transfer = $this->managers->findTransfer($transferId);
 
@@ -464,6 +476,10 @@ final class ClientManagerService
 
     public function decline(array $actor, int $transferId): array
     {
+        if ((int) $actor['LEVEL'] < 10) {
+            throw new HttpException(403, 'forbidden', 'Действие доступно только сотрудникам');
+        }
+
         $actorId = (int) $actor['ID'];
         $transfer = $this->managers->findTransfer($transferId);
 
@@ -515,6 +531,10 @@ final class ClientManagerService
 
     public function cancel(array $actor, array $capabilities, int $transferId): array
     {
+        if ((int) $actor['LEVEL'] < 10) {
+            throw new HttpException(403, 'forbidden', 'Действие доступно только сотрудникам');
+        }
+
         $actorId = (int) $actor['ID'];
         $transfer = $this->managers->findTransfer($transferId);
 
@@ -598,7 +618,10 @@ final class ClientManagerService
                 if ($toId !== null) {
                     $target = $this->users->findById($toId);
 
-                    if ($target === null || ($target['ACTIVE'] ?? 'N') !== 'Y') {
+                    if ($target === null
+                        || ($target['ACTIVE'] ?? 'N') !== 'Y'
+                        || !in_array((int) $target['LEVEL'], [10, 50, 90], true)
+                    ) {
                         $this->managers->setTransferStatus($transferId, 'cancelled', null);
                         $this->history->add(
                             $clientId,

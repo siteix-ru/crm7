@@ -141,24 +141,34 @@ final class PriceRepository
         $pdo->beginTransaction();
 
         try {
-            $pdo->prepare('DELETE FROM user_price_types WHERE user_id = ?')->execute([$userId]);
-
-            $insert = $pdo->prepare(
-                'INSERT INTO user_price_types (user_id, price_type_id, sort) VALUES (?, ?, ?)'
-            );
-
-            $sort = 0;
-
-            foreach ($typeIds as $typeId) {
-                $insert->execute([$userId, $typeId, $sort]);
-                $sort += 10;
-            }
-
+            $this->replaceAssignedTypesWithin($userId, $typeIds);
             $pdo->commit();
         } catch (Throwable $exception) {
             $pdo->rollBack();
 
             throw $exception;
+        }
+    }
+
+    /**
+     * Заменяет набор без собственной транзакции — для вызова внутри внешней.
+     *
+     * @param int[] $typeIds
+     */
+    public function replaceAssignedTypesWithin(int $userId, array $typeIds): void
+    {
+        $pdo = Database::pdo();
+        $pdo->prepare('DELETE FROM user_price_types WHERE user_id = ?')->execute([$userId]);
+
+        $insert = $pdo->prepare(
+            'INSERT INTO user_price_types (user_id, price_type_id, sort) VALUES (?, ?, ?)'
+        );
+
+        $sort = 0;
+
+        foreach ($typeIds as $typeId) {
+            $insert->execute([$userId, $typeId, $sort]);
+            $sort += 10;
         }
     }
 

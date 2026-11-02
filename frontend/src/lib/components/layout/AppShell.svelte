@@ -52,6 +52,8 @@
 
   const showSettings = $derived(auth.can('settings.manage'));
 
+  const showStaff = $derived(auth.can('users.manage'));
+
   const showAdmin = $derived(auth.can('users.manage') || auth.can('audit.view'));
 
   const canViewReports = $derived(auth.can('reports.view.all') || auth.can('reports.view.own'));
@@ -70,6 +72,7 @@
     3 +
       (showReports ? 1 : 0) +
       (showClients ? 1 : 0) +
+      (showStaff ? 1 : 0) +
       (showSubstitutions ? 1 : 0) +
       (showWarehouses ? 1 : 0) +
       (showAdmin ? 1 : 0) +
@@ -143,6 +146,12 @@
           <a href="#/clients" class:active={path.startsWith('/clients')} title="Клиенты">
             <Icon name="clients" size={20} />
             <span class="nav-label">Клиенты</span>
+          </a>
+        {/if}
+        {#if showStaff}
+          <a href="#/staff" class:active={path.startsWith('/staff')} title="Сотрудники">
+            <Icon name="staff" size={20} />
+            <span class="nav-label">Сотрудники</span>
           </a>
         {/if}
         {#if showSubstitutions && appSettings.substitutionsEnabled}
@@ -275,6 +284,12 @@
       <a href="#/clients" class:active={path.startsWith('/clients')} title="Клиенты">
         <Icon name="clients" size={20} />
         <span class="nav-label">Клиенты</span>
+      </a>
+    {/if}
+    {#if showStaff}
+      <a href="#/staff" class:active={path.startsWith('/staff')} title="Сотрудники">
+        <Icon name="staff" size={20} />
+        <span class="nav-label">Сотрудники</span>
       </a>
     {/if}
     {#if showSubstitutions}

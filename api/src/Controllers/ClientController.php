@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Clients\ClientManagerService;
+use App\Clients\ClientProvisioningService;
 use App\Clients\ClientService;
 use App\Http\HttpException;
 use App\Http\Request;
@@ -18,9 +19,29 @@ final class ClientController extends ApiController
         private readonly UserRepository $users = new UserRepository(),
         private readonly ClientService $service = new ClientService(),
         private readonly ClientManagerService $managers = new ClientManagerService(),
-        private readonly UserHistoryRepository $history = new UserHistoryRepository()
+        private readonly UserHistoryRepository $history = new UserHistoryRepository(),
+        private readonly ClientProvisioningService $provisioning = new ClientProvisioningService()
     ) {
         parent::__construct();
+    }
+
+    public function create(Request $request): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        $result = $this->provisioning->createManual($request->bodyAll(), $user, $capabilities);
+
+        $this->audit($request, $user, 'client.create', 'user', (int) $result['id'], [
+            'name' => (string) ($result['name'] ?? ''),
+            'login' => (string) ($result['login'] ?? ''),
+            'manager_id' => $result['manager']['id'] ?? null,
+            'price_type_ids' => array_map(
+                static fn (array $type): int => (int) $type['id'],
+                $result['price_types'] ?? []
+            ),
+        ]);
+
+        return Response::ok($result, 201);
     }
 
     public function pending(Request $request): Response
@@ -191,6 +212,17 @@ final class ClientController extends ApiController
         return Response::ok($result);
     }
 
+    public function revokeSessions(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $clientId = (int) ($params['id'] ?? 0);
+        $result = $this->service->revokeSessions($user, $capabilities, $clientId);
+
+        $this->audit($request, $user, 'client.revoke_sessions', 'user', $clientId);
+
+        return Response::ok($result);
+    }
+
     public function sendPasswordReset(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
@@ -353,6 +385,8 @@ final class ClientController extends ApiController
                 'company' => (string) ($row['company'] ?? ''),
                 'inn' => (string) ($row['inn'] ?? ''),
                 'position' => (string) ($row['position'] ?? ''),
+                'city' => (string) ($row['city'] ?? ''),
+                'address' => (string) ($row['address'] ?? ''),
                 'active' => ($row['active'] ?? 'N') === 'Y',
                 'reg_state' => (string) ($row['reg_state'] ?? 'active'),
                 'registered_at' => (string) ($row['registered_at'] ?? ''),

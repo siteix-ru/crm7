@@ -704,6 +704,10 @@ final class RequestRepository
             return [[], []];
         }
 
+        if (!empty($scope['client_only'])) {
+            return [['r.client_id = ?'], [$scope['participant_id']]];
+        }
+
         $condition = '(r.client_id = ? OR r.manager_id = ?';
         $params = [$scope['participant_id'], $scope['participant_id']];
 
@@ -729,23 +733,28 @@ final class RequestRepository
         $params = [];
 
         if (isset($scope['participant_id'])) {
-            $condition = '(r.client_id = ? OR r.manager_id = ?';
+            if (!empty($scope['client_only'])) {
+                $where[] = 'r.client_id = ?';
+                $params[] = $scope['participant_id'];
+            } else {
+                $condition = '(r.client_id = ? OR r.manager_id = ?';
 
-            if (!empty($scope['include_unassigned'])) {
-                $condition .= ' OR r.manager_id IS NULL';
-            }
+                if (!empty($scope['include_unassigned'])) {
+                    $condition .= ' OR r.manager_id IS NULL';
+                }
 
-            if (!empty($scope['substituted_ids'])) {
-                $placeholders = implode(',', array_fill(0, count($scope['substituted_ids']), '?'));
-                $condition .= ' OR r.manager_id IN (' . $placeholders . ')';
-            }
+                if (!empty($scope['substituted_ids'])) {
+                    $placeholders = implode(',', array_fill(0, count($scope['substituted_ids']), '?'));
+                    $condition .= ' OR r.manager_id IN (' . $placeholders . ')';
+                }
 
-            $where[] = $condition . ')';
-            $params[] = $scope['participant_id'];
-            $params[] = $scope['participant_id'];
+                $where[] = $condition . ')';
+                $params[] = $scope['participant_id'];
+                $params[] = $scope['participant_id'];
 
-            foreach ($scope['substituted_ids'] ?? [] as $substitutedId) {
-                $params[] = (int) $substitutedId;
+                foreach ($scope['substituted_ids'] ?? [] as $substitutedId) {
+                    $params[] = (int) $substitutedId;
+                }
             }
         }
 

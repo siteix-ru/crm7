@@ -469,44 +469,44 @@
         <div class="readonly-hint">Отправка сообщений в этом диалоге недоступна</div>
       {/if}
 
-      <form
-        class="composer"
-        onsubmit={(event) => {
-          event.preventDefault();
-          void send();
-        }}
-      >
-        <label class="attach" title="Прикрепить файл (до 10 МБ)">
-          <input
-            bind:this={fileInput}
-            type="file"
-            multiple
-            accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
-            onchange={onFilesChange}
-            disabled={!canPost}
-          />
-          <span aria-hidden="true">⊕</span>
-        </label>
-        <textarea
-          bind:value={body}
-          placeholder={canPost ? 'Введите сообщение…' : 'Только просмотр'}
-          rows="2"
-          disabled={!canPost}
-          onkeydown={(event) => {
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              void send();
-            }
+      {#if canPost}
+        <form
+          class="composer"
+          onsubmit={(event) => {
+            event.preventDefault();
+            void send();
           }}
-        ></textarea>
-        <Button
-          type="submit"
-          loading={sending}
-          disabled={!canPost || (body.trim() === '' && pendingFiles.length === 0)}
         >
-          Отправить
-        </Button>
-      </form>
+          <label class="attach" title="Прикрепить файл (до 10 МБ)">
+            <input
+              bind:this={fileInput}
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
+              onchange={onFilesChange}
+            />
+            <span aria-hidden="true">⊕</span>
+          </label>
+          <textarea
+            bind:value={body}
+            placeholder="Введите сообщение…"
+            rows="2"
+            onkeydown={(event) => {
+              if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                void send();
+              }
+            }}
+          ></textarea>
+          <Button
+            type="submit"
+            loading={sending}
+            disabled={body.trim() === '' && pendingFiles.length === 0}
+          >
+            Отправить
+          </Button>
+        </form>
+      {/if}
     {/if}
   </div>
 

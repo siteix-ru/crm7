@@ -19,6 +19,7 @@
     unblockUser,
     updateUser
   } from '../lib/api/admin';
+  import { convertUser } from '../lib/api/staff';
   import type { AssignedPriceType, ItemType } from '../lib/api/types';
   import { listLegalDocuments, saveLegalDocument, type LegalDocument } from '../lib/api/legal';
   import type {
@@ -45,7 +46,7 @@
   import { auditLabel, entityLabel } from '../lib/labels';
 
   const levelTitles = $derived<Record<number, string>>({
-    90: 'Сисадмин',
+    90: 'Технический администратор',
     50: 'Администратор',
     10: 'Менеджер',
     5: appSettings.clientLabel,
@@ -59,7 +60,7 @@
 
   let tab = $state<
     'users' | 'modules' | 'types' | 'audit' | 'searches' | 'roles' | 'refs' | 'docs'
-  >('users');
+  >('roles');
 
   let users = $state<AdminUser[]>([]);
 let usersTotal = $state(0);
@@ -81,8 +82,7 @@ let usersPerPage = $state(20);
     company: '',
     inn: '',
     position: '',
-    level: 5,
-    password: ''
+    level: 5
   });
   let editForm = $state({ name: '', phone: '', company: '', inn: '', position: '', level: 5 });
 
@@ -139,7 +139,7 @@ let auditPerPage = $state(20);
 
   onMount(() => {
     if (canManageUsers) {
-      void loadUsers();
+      void loadRoles();
     } else if (canViewAudit) {
       tab = 'audit';
       void loadAudit();
@@ -233,7 +233,7 @@ let auditPerPage = $state(20);
         ? `Создан ${result.login}. Пароль: ${result.password} (показывается один раз)`
         : `Создан ${result.login}`;
 
-      form = { name: '', email: '', phone: '', company: '', inn: '', position: '', level: 5, password: '' };
+      form = { name: '', email: '', phone: '', company: '', inn: '', position: '', level: 5 };
       showCreate = false;
       await loadUsers();
     } catch (cause) {
@@ -265,7 +265,16 @@ let auditPerPage = $state(20);
     message = '';
 
     try {
-      await updateUser(editing.id, { ...editForm });
+      const levelChanged = editForm.level !== editing.level;
+      const crossesClientBoundary = levelChanged && ((editing.level === 5) !== (editForm.level === 5));
+
+      if (crossesClientBoundary) {
+        await updateUser(editing.id, { ...editForm, level: editing.level });
+        await convertUser(editing.id, editForm.level);
+      } else {
+        await updateUser(editing.id, { ...editForm });
+      }
+
       message = 'Данные сохранены';
       editing = null;
       await loadUsers();
@@ -674,9 +683,6 @@ let auditPerPage = $state(20);
       <button type="button" class:active={tab === 'modules'} onclick={() => void openTab('modules')}>Модули</button>
       <button type="button" class:active={tab === 'types'} onclick={() => void openTab('types')}>Типы номенклатуры</button>
     {/if}
-    {#if canManageUsers}
-      <button type="button" class:active={tab === 'users'} onclick={() => void openTab('users')}>Пользователи</button>
-    {/if}
     {#if canViewAudit}
       <button type="button" class:active={tab === 'audit'} onclick={() => void openTab('audit')}>Журнал аудита</button>
     {/if}
@@ -741,7 +747,7 @@ let auditPerPage = $state(20);
       </div>
 
       {#if !canManageRoles}
-        <p class="hint">Менять доступ ролей может только сисадмин.</p>
+        <p class="hint">Менять доступ ролей может только технический администратор.</p>
       {/if}
 
       <div class="actions">
@@ -820,7 +826,7 @@ let auditPerPage = $state(20);
           <span>Роль</span>
           <select bind:value={userDraft.level}>
             <option value={0}>Все роли</option>
-            <option value={90}>Сисадмин</option>
+            <option value={90}>Технический администратор</option>
             <option value={50}>Администратор</option>
             <option value={10}>Менеджер</option>
                 <option value={5}>{appSettings.clientLabel}</option>
@@ -852,23 +858,23 @@ let auditPerPage = $state(20);
         <h2>Новый пользователь</h2>
         <div class="grid">
           <label><span>ФИО</span><input bind:value={form.name} /></label>
-          <label><span>E-mail (он же логин)</span><input bind:value={form.email} /></label>
+          <label><span>E-mail</span><input bind:value={form.email} /></label>
           <label><span>Телефон</span><input bind:value={form.phone} /></label>
           <label><span>Компания</span><input bind:value={form.company} /></label>
           <label><span>ИНН</span><input bind:value={form.inn} /></label>
           <label><span>Должность</span><input bind:value={form.position} /></label>
           <label>
             <span>Роль</span>
-            <select bind:value={form.level} disabled={!canManageRoles}>
-                  <option value={5}>{appSettings.clientLabel}</option>
-              <option value={10}>Менеджер</option>
-              <option value={50}>Администратор</option>
-              <option value={90}>Сисадмин</option>
-            </select>
-          </label>
-          <label>
-            <span>Пароль (пусто — сгенерировать)</span>
-            <input bind:value={form.password} />
+            {#if canManageRoles}
+              <select bind:value={form.level}>
+                <option value={5}>{appSettings.clientLabel}</option>
+                <option value={10}>Менеджер</option>
+                <option value={50}>Администратор</option>
+                <option value={90}>Технический администратор</option>
+              </select>
+            {:else}
+              <span class="readonly-value">{levelTitles[Number(form.level)]}</span>
+            {/if}
           </label>
         </div>
         <div class="actions">
@@ -888,12 +894,16 @@ let auditPerPage = $state(20);
           <label><span>Должность</span><input bind:value={editForm.position} /></label>
           <label>
             <span>Роль</span>
-            <select bind:value={editForm.level} disabled={!canManageRoles}>
-                  <option value={5}>{appSettings.clientLabel}</option>
-              <option value={10}>Менеджер</option>
-              <option value={50}>Администратор</option>
-              <option value={90}>Сисадмин</option>
-            </select>
+            {#if canManageRoles}
+              <select bind:value={editForm.level}>
+                <option value={5}>{appSettings.clientLabel}</option>
+                <option value={10}>Менеджер</option>
+                <option value={50}>Администратор</option>
+                <option value={90}>Технический администратор</option>
+              </select>
+            {:else}
+              <span class="readonly-value">{levelTitles[Number(editForm.level)]}</span>
+            {/if}
           </label>
         </div>
         <div class="actions">
@@ -1425,6 +1435,18 @@ let auditPerPage = $state(20);
   label textarea {
     resize: vertical;
     line-height: 1.5;
+  }
+
+  .readonly-value {
+    display: flex;
+    align-items: center;
+    min-height: 34px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--fill-tertiary);
+    color: var(--text);
+    font: inherit;
   }
 
   .docs {

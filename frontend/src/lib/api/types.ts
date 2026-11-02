@@ -349,6 +349,8 @@ export interface ClientItem {
   company: string;
   inn: string;
   position: string;
+  city: string;
+  address: string;
   active: boolean;
   reg_state: string;
   registered_at: string;
@@ -685,6 +687,8 @@ export interface PendingClient {
   company: string;
   inn: string;
   position: string;
+  city: string;
+  address: string;
   registered_at: string;
 }
 
@@ -765,6 +769,8 @@ export interface ClientCard {
     company: string;
     inn: string;
     position: string;
+    city: string;
+    address: string;
     active: boolean;
     reg_state: string;
     registered_at: string;
@@ -777,10 +783,12 @@ export interface ClientCard {
     manage: boolean;
     access: boolean;
     reset_password: boolean;
+    revoke_sessions: boolean;
     assign: boolean;
     claim: boolean;
     accept: boolean;
     cancel: boolean;
+    convert_to_staff: boolean;
   };
   stats: {
     total: number;

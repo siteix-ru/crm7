@@ -18,9 +18,11 @@
   import FilterOutlined from '@ant-design/icons-svg/es/asn/FilterOutlined';
   import GroupOutlined from '@ant-design/icons-svg/es/asn/GroupOutlined';
   import HolderOutlined from '@ant-design/icons-svg/es/asn/HolderOutlined';
+  import IdcardOutlined from '@ant-design/icons-svg/es/asn/IdcardOutlined';
   import ImportOutlined from '@ant-design/icons-svg/es/asn/ImportOutlined';
   import InfoCircleOutlined from '@ant-design/icons-svg/es/asn/InfoCircleOutlined';
   import KeyOutlined from '@ant-design/icons-svg/es/asn/KeyOutlined';
+  import LogoutOutlined from '@ant-design/icons-svg/es/asn/LogoutOutlined';
   import MessageOutlined from '@ant-design/icons-svg/es/asn/MessageOutlined';
   import PieChartOutlined from '@ant-design/icons-svg/es/asn/PieChartOutlined';
   import PictureOutlined from '@ant-design/icons-svg/es/asn/PictureOutlined';
@@ -70,6 +72,7 @@
     import: ImportOutlined,
     info: InfoCircleOutlined,
     key: KeyOutlined,
+    logout: LogoutOutlined,
     'my-reports': PieChartOutlined,
     picture: PictureOutlined,
     search: SearchOutlined,
@@ -78,6 +81,7 @@
     requests: FileTextOutlined,
     settings: SettingOutlined,
     sort: SortAscendingOutlined,
+    staff: IdcardOutlined,
     stocks: DatabaseOutlined,
     substitutions: SwapOutlined,
     tags: TagsOutlined,

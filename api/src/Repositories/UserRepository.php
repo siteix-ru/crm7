@@ -54,15 +54,20 @@ final class UserRepository
         $pdo = Database::pdo();
 
         $stmt = $pdo->prepare(
-            "INSERT INTO users (ACTIVE, LOGIN, PASSWORD, LEVEL, FULL_NAME, STATUS, COMPANY, INN, PHONE, EMAIL, reg_state)
-             VALUES ('Y', ?, ?, 5, ?, 'Y', NULL, ?, ?, ?, 'active')"
+            "INSERT INTO users (ACTIVE, LOGIN, PASSWORD, LEVEL, FULL_NAME,
+ STATUS, COMPANY, INN, DOLGNOST, CITY, ADDRESS, PHONE, EMAIL, reg_state)
+             VALUES ('Y', ?, ?, 5, ?, 'Y', ?, ?, ?, ?, ?, ?, ?, 'active')"
         );
 
         $stmt->execute([
             $data['login'],
             password_hash($data['password'], PASSWORD_DEFAULT),
             $data['name'],
+            ($data['company'] ?? '') !== '' ? $data['company'] : null,
             ($data['inn'] ?? '') !== '' ? $data['inn'] : null,
+            ($data['position'] ?? '') !== '' ? $data['position'] : null,
+            ($data['city'] ?? '') !== '' ? $data['city'] : null,
+            ($data['address'] ?? '') !== '' ? $data['address'] : null,
             ($data['phone'] ?? '') !== '' ? $data['phone'] : null,
             ($data['email'] ?? '') !== '' ? $data['email'] : null,
         ]);
@@ -75,8 +80,9 @@ final class UserRepository
         $pdo = Database::pdo();
 
         $stmt = $pdo->prepare(
-            "INSERT INTO users (ACTIVE, LOGIN, PASSWORD, LEVEL, FULL_NAME, STATUS, COMPANY, INN, PHONE, EMAIL, reg_state)
-             VALUES ('N', ?, ?, 5, ?, 'Y', ?, ?, ?, ?, 'pending')"
+            "INSERT INTO users (ACTIVE, LOGIN, PASSWORD, LEVEL, FULL_NAME,
+ STATUS, COMPANY, INN, CITY, ADDRESS, PHONE, EMAIL, reg_state)
+             VALUES ('N', ?, ?, 5, ?, 'Y', ?, ?, ?, ?, ?, ?, 'pending')"
         );
 
         $stmt->execute([
@@ -85,6 +91,8 @@ final class UserRepository
             $data['name'],
             $data['company'] !== '' ? $data['company'] : null,
             ($data['inn'] ?? '') !== '' ? $data['inn'] : null,
+            ($data['city'] ?? '') !== '' ? $data['city'] : null,
+            ($data['address'] ?? '') !== '' ? $data['address'] : null,
             $data['phone'] !== '' ? $data['phone'] : null,
             $data['email'],
         ]);
@@ -96,7 +104,8 @@ final class UserRepository
     {
         $stmt = Database::pdo()->prepare(
             'SELECT u.ID AS id, u.FULL_NAME AS name, u.EMAIL AS email, u.PHONE AS phone,
-                    u.COMPANY AS company, u.INN AS inn, u.DOLGNOST AS position, u.TIME_ADD AS created_at,
+                    u.COMPANY AS company, u.INN AS inn, u.DOLGNOST AS position,
+                    u.CITY AS city, u.ADDRESS AS address, u.TIME_ADD AS created_at,
                     h.created_at AS registered_at
              FROM users u
              LEFT JOIN user_history h ON h.user_id = u.ID AND h.event = ?
@@ -133,13 +142,15 @@ final class UserRepository
     public function updateContacts(int $id, array $data): void
     {
         $stmt = Database::pdo()->prepare(
-            'UPDATE users SET FULL_NAME = ?, COMPANY = ?, INN = ?, DOLGNOST = ?, PHONE = ?, EMAIL = ? WHERE ID = ?'
+            'UPDATE users SET FULL_NAME = ?, COMPANY = ?, INN = ?, DOLGNOST = ?, CITY = ?, ADDRESS = ?, PHONE = ?, EMAIL = ? WHERE ID = ?'
         );
         $stmt->execute([
             $data['name'],
             $data['company'] !== '' ? $data['company'] : null,
             $data['inn'] !== '' ? $data['inn'] : null,
             $data['position'] !== '' ? $data['position'] : null,
+            ($data['city'] ?? '') !== '' ? $data['city'] : null,
+            ($data['address'] ?? '') !== '' ? $data['address'] : null,
             $data['phone'] !== '' ? $data['phone'] : null,
             $data['email'] !== '' ? $data['email'] : null,
             $id,
@@ -173,6 +184,19 @@ final class UserRepository
         $stmt = Database::pdo()->query(
             "SELECT COUNT(*) FROM users
              WHERE LEVEL >= 50
+               AND ACTIVE = 'Y'
+               AND STATUS = 'Y'
+               AND (reg_state IS NULL OR reg_state = 'active')"
+        );
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function countActiveSuperAdmins(): int
+    {
+        $stmt = Database::pdo()->query(
+            "SELECT COUNT(*) FROM users
+             WHERE LEVEL >= 90
                AND ACTIVE = 'Y'
                AND STATUS = 'Y'
                AND (reg_state IS NULL OR reg_state = 'active')"
@@ -346,7 +370,8 @@ final class UserRepository
 
         $sql = 'SELECT u.ID AS id, u.SID AS sid, u.LOGIN AS login, u.FULL_NAME AS name,
                         u.EMAIL AS email, u.PHONE AS phone, u.COMPANY AS company, u.INN AS inn,
-                        u.DOLGNOST AS position, u.LEVEL AS level, u.ACTIVE AS active, u.reg_state AS reg_state,
+                        u.DOLGNOST AS position, u.CITY AS city, u.ADDRESS AS address,
+                        u.LEVEL AS level, u.ACTIVE AS active, u.reg_state AS reg_state,
                         u.TIME_ADD AS registered_at,
                         cm.manager_id AS manager_id, mu.FULL_NAME AS manager_name,
                         (SELECT COUNT(*) FROM requests r WHERE r.client_id = u.ID) AS requests_total
@@ -464,9 +489,10 @@ final class UserRepository
         }
 
         if ($query !== '') {
-            $where[] = '(u.FULL_NAME LIKE ? OR u.EMAIL LIKE ? OR u.PHONE LIKE ? OR u.COMPANY LIKE ? OR u.LOGIN LIKE ? OR u.INN LIKE ?)';
+            $where[] = '(u.FULL_NAME LIKE ? OR u.EMAIL LIKE ? OR u.PHONE LIKE ? OR u.COMPANY LIKE ?
+                OR u.LOGIN LIKE ? OR u.INN LIKE ? OR u.CITY LIKE ? OR u.ADDRESS LIKE ?)';
             $like = '%' . $query . '%';
-            array_push($params, $like, $like, $like, $like, $like, $like);
+            array_push($params, $like, $like, $like, $like, $like, $like, $like, $like);
         }
 
         return [implode(' AND ', $where), $params];

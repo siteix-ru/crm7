@@ -19,6 +19,7 @@
     ariaInvalid?: boolean;
     ariaDescribedby?: string;
     id?: string;
+    onblur?: (event: FocusEvent) => void;
   }
 
   let {
@@ -38,7 +39,8 @@
     ariaLabel,
     ariaInvalid,
     ariaDescribedby,
-    id
+    id,
+    onblur
   }: Props = $props();
 </script>
 
@@ -63,6 +65,7 @@
     aria-invalid={ariaInvalid ? 'true' : undefined}
     aria-describedby={ariaDescribedby}
     class:invalid={Boolean(error)}
+    {onblur}
   />
   {#if error}
     <span class="error">{error}</span>

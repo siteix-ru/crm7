@@ -15,6 +15,7 @@
     getClientInterests,
     rejectClient,
     resetClientPassword,
+    revokeClientSessions,
     sendClientPasswordLink,
     transferClient,
     unblockClient,
@@ -22,6 +23,12 @@
   } from '../lib/api/clients';
   import { listPriceTypes, setUserPriceTypes } from '../lib/api/prices';
   import { listManagers, listRequests, requestFilters } from '../lib/api/requests';
+  import {
+    convertUser,
+    getUserConversion,
+    staffLevelTitle,
+    type UserConversionPreview
+  } from '../lib/api/staff';
   import type {
     ClientCard,
     ClientCardRequest,
@@ -37,6 +44,7 @@
   import { formatDate, formatDateTime, formatRelative } from '../lib/format';
   import { tooltip } from '../lib/actions/tooltip';
   import Button from '../lib/components/ui/Button.svelte';
+  import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
@@ -62,7 +70,15 @@
   let busy = $state(false);
   type TabId = 'requests' | 'interests' | 'account';
   type ActionKind = 'approve' | 'decline' | 'block' | 'unblock';
-  type ContactField = 'name' | 'email' | 'phone' | 'company' | 'position' | 'inn';
+  type ContactField =
+    | 'name'
+    | 'position'
+    | 'company'
+    | 'inn'
+    | 'city'
+    | 'address'
+    | 'phone'
+    | 'email';
   type HistoryKind = 'all' | 'request' | 'account';
   type HistoryPayload = {
     history: ClientHistoryItem[];
@@ -90,19 +106,11 @@
       maxlength: 255
     },
     {
-      key: 'email',
-      label: 'E-mail',
-      title: 'Изменить e-mail',
-      hint: 'На этот адрес приходят письма о доступе, сбросе пароля и заявках.',
-      type: 'email',
-      maxlength: 255
-    },
-    {
-      key: 'phone',
-      label: 'Телефон',
-      title: 'Изменить телефон',
-      hint: 'Контактный телефон для связи с клиентом.',
-      type: 'tel',
+      key: 'position',
+      label: 'Должность',
+      title: 'Изменить должность',
+      hint: 'Должность контактного лица.',
+      type: 'text',
       maxlength: 255
     },
     {
@@ -114,14 +122,6 @@
       maxlength: 255
     },
     {
-      key: 'position',
-      label: 'Должность',
-      title: 'Изменить должность',
-      hint: 'Должность контактного лица.',
-      type: 'text',
-      maxlength: 255
-    },
-    {
       key: 'inn',
       label: 'ИНН',
       title: 'Изменить ИНН',
@@ -129,19 +129,51 @@
       type: 'text',
       maxlength: 12,
       inputmode: 'numeric'
+    },
+    {
+      key: 'city',
+      label: 'Город',
+      title: 'Изменить город',
+      hint: 'Город клиента или организации.',
+      type: 'text',
+      maxlength: 128
+    },
+    {
+      key: 'address',
+      label: 'Адрес',
+      title: 'Изменить адрес',
+      hint: 'Адрес доставки или юридический адрес.',
+      type: 'text',
+      maxlength: 255
+    },
+    {
+      key: 'phone',
+      label: 'Телефон',
+      title: 'Изменить телефон',
+      hint: 'Контактный телефон для связи с клиентом.',
+      type: 'tel',
+      maxlength: 255
+    },
+    {
+      key: 'email',
+      label: 'E-mail',
+      title: 'Изменить e-mail',
+      hint: 'На этот адрес приходят письма о доступе, сбросе пароля и заявках.',
+      type: 'email',
+      maxlength: 255
     }
   ];
 
   let priceTypes = $state<PriceType[]>([]);
   let priceTypesLoading = $state(false);
   let priceBusy = $state(false);
-  let helpBlock = $state<'' | 'prices' | 'access' | 'password'>('');
   let tab = $state<TabId>('requests');
   let actionKind = $state<ActionKind | null>(null);
   let actionComment = $state('');
-  let accessBusy = $state<'' | 'active' | 'blocked'>('');
   let passwordConfirmOpen = $state(false);
   let passwordLinkBusy = $state(false);
+  let sessionsConfirmOpen = $state(false);
+  let sessionsBusy = $state(false);
   let passwordResult = $state<{ login: string; password: string; emailSent: boolean; email: string | null } | null>(
     null
   );
@@ -181,6 +213,12 @@
   let loginOpen = $state(false);
   let loginBusy = $state(false);
   let loginForm = $state({ login: '' });
+  let convertOpen = $state(false);
+  let convertRole = $state('10');
+  let convertPreview = $state<UserConversionPreview | null>(null);
+  let convertLoading = $state(false);
+  let convertError = $state('');
+  let convertSaving = $state(false);
   let managerOpen = $state(false);
   let transferOpen = $state(false);
   let managerBusy = $state(false);
@@ -292,6 +330,9 @@
   const canStartTransfer = $derived(
     (canManage || (card?.can.assign ?? false)) && !transferInProgress
   );
+  const canConvertToStaff = $derived(
+    card?.can.convert_to_staff === true && !appSettings.demoMode
+  );
   const canOpenAccount = $derived(
     Boolean(
       card
@@ -299,6 +340,7 @@
         || card.can.assign
         || card.can.manage
         || card.can.claim
+        || card.can.convert_to_staff
         || (pricesEnabled && auth.can('prices.assign')))
     )
   );
@@ -310,27 +352,21 @@
       : false
   );
   const displayName = $derived(card?.client.name || card?.client.company || `Клиент #${id}`);
-  const currentAccess = $derived(card?.client.active ? 'active' : 'blocked');
-  const accessState = $derived.by(() => {
+  const accessHelp = $derived.by(() => {
     if (!card) {
-      return { title: '', color: 'var(--muted)' };
+      return '';
     }
 
-    if (card.client.reg_state === 'pending') {
-      return { title: 'Ожидает подтверждения', color: 'var(--warning)' };
-    }
+    const base = card.client.active
+      ? 'Клиент может входить в кабинет. Блокировка завершит его сеансы.'
+      : 'Доступ к кабинету заблокирован.';
 
-    if (card.client.reg_state === 'rejected') {
-      return { title: 'Отклонён', color: 'var(--danger)' };
-    }
-
-    return card.client.active
-      ? { title: 'Активен', color: 'var(--success)' }
-      : { title: 'Заблокирован', color: 'var(--danger)' };
+    return card.client.email && appSettings.mailConfigured
+      ? `${base} После изменения клиенту придёт письмо на ${card.client.email}.`
+      : base;
   });
-  const lastPasswordReset = $derived(
-    card?.history.find((item) => item.event === 'password_reset' || item.event === 'password_changed') ?? null
-  );
+  const pricesHelp =
+    'Включённые типы цен определяют, какие цены доступны клиенту. При оформлении заявки применяется минимальная цена среди включённых типов.';
   const accountHistory = $derived(
     card
       ? [...card.history].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
@@ -375,6 +411,7 @@
     password_reset: 'Сброс пароля',
     password_changed: 'Смена пароля',
     login_changed: 'Логин изменён',
+    sessions_revoked: 'Завершены сессии',
     manager_assigned: 'Назначен менеджер',
     manager_claimed: 'Менеджер взял клиента',
     manager_unassigned: 'Менеджер снят',
@@ -393,7 +430,9 @@
     created: 'Создан администратором',
     blocked: 'Доступ заблокирован',
     unblocked: 'Доступ восстановлен',
-    consent: 'Согласие на обработку данных'
+    consent: 'Согласие на обработку данных',
+    converted_to_staff: 'Переведён в сотрудники',
+    converted_to_client: 'Переведён в клиенты'
   };
 
   function eventTone(event: string): '' | 'success' | 'danger' | 'warning' {
@@ -875,26 +914,6 @@
     actionKind = null;
   }
 
-  async function setAccess(target: 'active' | 'blocked'): Promise<void> {
-    if (busy || target === currentAccess) {
-      return;
-    }
-
-    accessBusy = target;
-
-    try {
-      if (target === 'blocked') {
-        const result = await runAction(() => blockClient(id, ''), 'Клиент заблокирован');
-        reportAccessEmail(result, 'Клиент заблокирован');
-      } else {
-        const result = await runAction(() => unblockClient(id, ''), 'Клиент активирован');
-        reportAccessEmail(result, 'Клиент активирован');
-      }
-    } finally {
-      accessBusy = '';
-    }
-  }
-
   async function confirmAction(): Promise<void> {
     if (actionKind === null) {
       return;
@@ -981,6 +1000,24 @@
     }
   }
 
+  async function confirmRevokeSessions(): Promise<void> {
+    sessionsBusy = true;
+    actionError = '';
+    actionNotice = '';
+
+    try {
+      await revokeClientSessions(id);
+      sessionsConfirmOpen = false;
+      actionNotice = 'Все сессии клиента завершены';
+      await load(true);
+    } catch (cause) {
+      sessionsConfirmOpen = false;
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось завершить сессии';
+    } finally {
+      sessionsBusy = false;
+    }
+  }
+
   async function confirmPasswordLink(): Promise<void> {
     passwordLinkBusy = true;
     actionError = '';
@@ -1053,6 +1090,8 @@
       company: card.client.company,
       inn: card.client.inn,
       position: card.client.position,
+      city: card.client.city,
+      address: card.client.address,
       phone: card.client.phone,
       email: card.client.email
     };
@@ -1127,6 +1166,12 @@
 
     const assigned = card.client.price_types;
     const isOn = assigned.some((item) => item.id === type.id);
+
+    if (isOn && assigned.length === 1) {
+      actionError = 'Нельзя отключить последний тип цены. Сначала включите другой тип.';
+      return;
+    }
+
     let ids = assigned.map((item) => item.id);
     ids = isOn ? ids.filter((id) => id !== type.id) : [...ids, type.id];
 
@@ -1146,43 +1191,6 @@
       actionNotice = 'Типы цен обновлены';
     } catch (cause) {
       actionError = cause instanceof ApiError ? cause.message : 'Не удалось обновить типы цен';
-    } finally {
-      priceBusy = false;
-    }
-  }
-
-  async function setAllPriceTypes(enabled: boolean): Promise<void> {
-    if (!card || !canAssignPrices || priceBusy) {
-      return;
-    }
-
-    const current = card.client.price_types.map((item) => item.id);
-    const ids = enabled ? priceTypes.map((type) => type.id) : [];
-
-    if (enabled && priceTypes.every((type) => current.includes(type.id))) {
-      return;
-    }
-
-    if (!enabled && current.length === 0) {
-      return;
-    }
-
-    priceBusy = true;
-    actionError = '';
-    actionNotice = '';
-
-    try {
-      const result = await setUserPriceTypes(card.client.id, ids);
-      card = {
-        ...card,
-        client: {
-          ...card.client,
-          price_types: result.price_types
-        }
-      };
-      actionNotice = enabled ? 'Все типы цен включены' : 'Все типы цен выключены';
-    } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить типы цен';
     } finally {
       priceBusy = false;
     }
@@ -1272,7 +1280,38 @@
   }
 
   async function claimSelf(): Promise<void> {
-    await runAction(() => claimClient(id), 'Вы взяли клиента');
+    await runAction(() => claimClient(id), 'Клиент взят себе');
+  }
+
+  async function openConvert(): Promise<void> {
+    convertOpen = true;
+    convertRole = '10';
+    convertPreview = null;
+    convertError = '';
+    convertLoading = true;
+
+    try {
+      convertPreview = await getUserConversion(id);
+    } catch (cause) {
+      convertError = cause instanceof ApiError ? cause.message : 'Не удалось проверить связи';
+    } finally {
+      convertLoading = false;
+    }
+  }
+
+  async function confirmConvert(): Promise<void> {
+    convertSaving = true;
+    convertError = '';
+
+    try {
+      await convertUser(id, Number(convertRole));
+      convertOpen = false;
+      router.navigate(`/staff/${id}`);
+    } catch (cause) {
+      convertError = cause instanceof ApiError ? cause.message : 'Не удалось перевести в сотрудника';
+    } finally {
+      convertSaving = false;
+    }
   }
 
   async function acceptCurrentTransfer(): Promise<void> {
@@ -1301,16 +1340,14 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <Button variant="ghost" onclick={() => router.navigate('/clients')}>← Клиенты</Button>
-
-    {#if card && card.client.reg_state === 'pending' && canConfirm}
+  {#if card && card.client.reg_state === 'pending' && canConfirm}
+    <div class="head">
       <div class="head-actions">
         <Button variant="ghost" disabled={busy} onclick={() => openAction('decline')}>Отклонить</Button>
         <Button loading={busy} onclick={() => openAction('approve')}>Подтвердить регистрацию</Button>
       </div>
-    {/if}
-  </div>
+    </div>
+  {/if}
 
   {#if actionError}
     <div class="alert" role="alert">
@@ -1350,10 +1387,28 @@
     </div>
   {:else if card}
     <div class="hero">
+      <a class="back" href="#/clients" title="К списку клиентов" aria-label="К списку клиентов">
+        <Icon name="arrow-left" size={16} />
+      </a>
       <span class="avatar" aria-hidden="true">{initials(displayName)}</span>
-      <h1>{displayName}</h1>
 
-      <div class="hero-tabs" role="tablist" aria-label="Разделы клиента">
+      <div class="hero-main">
+        <h1>{displayName}</h1>
+        <span class="hero-role">Клиент</span>
+      </div>
+
+      <div class="head-right">
+        <div class="hero-status">
+          <span class="state" class:on={card.client.reg_state === 'active' && card.client.active}>
+            {#if card.client.reg_state === 'active' && !card.client.active}
+              заблокирован
+            {:else}
+              {stateTitles[card.client.reg_state] ?? card.client.reg_state}
+            {/if}
+          </span>
+        </div>
+
+        <div class="hero-tabs" role="tablist" aria-label="Разделы клиента">
         <button
           type="button"
           class="hero-tab"
@@ -1391,28 +1446,14 @@
             class:active={tab === 'account'}
             role="tab"
             aria-selected={tab === 'account'}
-            title="Учётная запись"
-            aria-label="Учётная запись"
+            title="Профиль"
+            aria-label="Профиль"
             onclick={() => showTab('account')}
           >
-            <Icon name="settings" size={18} />
+            <Icon name="staff" size={18} />
           </button>
         {/if}
-      </div>
-
-      <div class="hero-status">
-        <span class="state" class:on={card.client.reg_state === 'active' && card.client.active}>
-          {#if card.client.reg_state === 'active' && !card.client.active}
-            заблокирован
-          {:else}
-            {stateTitles[card.client.reg_state] ?? card.client.reg_state}
-          {/if}
-        </span>
-        {#if card.transfer && card.transfer.status !== 'active'}
-          <span class="state transfer-chip">
-            {card.transfer.status === 'scheduled' ? 'передача запланирована' : 'передача ожидает'}
-          </span>
-        {/if}
+        </div>
       </div>
     </div>
 
@@ -1693,167 +1734,13 @@
         <div class="account-main">
         <div class="card">
           <div class="card-head">
-            <div class="card-head-tools">
-              <h2>Доступ</h2>
-              <StatusBadge title={accessState.title} color={accessState.color} />
-            </div>
-            <button
-              type="button"
-              class="help-btn"
-              class:active={helpBlock === 'access'}
-              aria-label="Подсказка по доступу"
-              aria-expanded={helpBlock === 'access'}
-              onclick={() => (helpBlock = helpBlock === 'access' ? '' : 'access')}
-            >
-              <Icon name="help" size={16} />
-            </button>
+            <h2>Личные данные</h2>
           </div>
-          {#if helpBlock === 'access'}
-            <div class="block-help" role="note">
-              <p>
-                {#if card.client.reg_state === 'pending'}
-                  Регистрация ожидает подтверждения — доступ появится после подтверждения.
-                {:else if card.client.reg_state === 'rejected'}
-                  Регистрация отклонена — доступ к кабинету закрыт.
-                {:else if card.client.active}
-                  Клиент может входить в кабинет. Блокировка завершит его сеансы.
-                {:else}
-                  Доступ к кабинету заблокирован.
-                {/if}
-              </p>
-              {#if card.client.email && appSettings.mailConfigured}
-                <p>После изменения клиенту придёт письмо на {card.client.email}.</p>
-              {/if}
-            </div>
-          {/if}
-          <div class="access-choice" role="group" aria-label="Доступ клиента">
-            <button
-              type="button"
-              class="access-option"
-              class:active={card.client.reg_state === 'active' && currentAccess === 'active'}
-              class:success={card.client.reg_state === 'active' && currentAccess === 'active'}
-              aria-pressed={card.client.reg_state === 'active' && currentAccess === 'active'}
-              disabled={busy || accessBusy !== '' || !card.can.access || card.client.reg_state !== 'active'}
-              onclick={() => void setAccess('active')}
-            >
-              {#if accessBusy === 'active'}
-                <Spinner size={14} />
-              {:else}
-                <Icon name="check-circle" size={16} />
-              {/if}
-              Активен
-            </button>
-            <button
-              type="button"
-              class="access-option"
-              class:active={card.client.reg_state === 'active' && currentAccess === 'blocked'}
-              class:danger={card.client.reg_state === 'active' && currentAccess === 'blocked'}
-              aria-pressed={card.client.reg_state === 'active' && currentAccess === 'blocked'}
-              disabled={busy || accessBusy !== '' || !card.can.access || card.client.reg_state !== 'active'}
-              onclick={() => void setAccess('blocked')}
-            >
-              {#if accessBusy === 'blocked'}
-                <Spinner size={14} />
-              {:else}
-                <Icon name="close-circle" size={16} />
-              {/if}
-              Заблокирован
-            </button>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <h2>Безопасность</h2>
-            <button
-              type="button"
-              class="help-btn"
-              class:active={helpBlock === 'password'}
-              aria-label="Подсказка по паролю"
-              aria-expanded={helpBlock === 'password'}
-              onclick={() => (helpBlock = helpBlock === 'password' ? '' : 'password')}
-            >
-              <Icon name="help" size={16} />
-            </button>
-          </div>
-          {#if helpBlock === 'password'}
-            <div class="block-help" role="note">
-              <p>
-                Сброс завершит все активные сеансы клиента. Новый пароль будет показан один раз и
-                одновременно отправлен на e-mail, если он указан.
-              </p>
-              {#if card.client.email && appSettings.mailConfigured}
-                <p>Копия пароля будет отправлена на {card.client.email}.</p>
-              {:else if card.client.email}
-                <p>Почта не настроена — пароль будет только показан.</p>
-              {:else}
-                <p>E-mail не указан — пароль будет только показан.</p>
-              {/if}
-            </div>
-          {/if}
-          <div class="security-list">
-            <div class="security-row">
-              <div class="security-info">
-                <span class="security-label">Логин</span>
-                <code class="security-value">{card.client.login}</code>
-              </div>
-              {#if card.can.access && !appSettings.demoMode}
-                <button
-                  type="button"
-                  class="icon-btn"
-                  title="Изменить логин"
-                  aria-label="Изменить логин"
-                  disabled={busy}
-                  onclick={openLoginEdit}
-                >
-                  <Icon name="edit" size={16} />
-                </button>
-              {/if}
-            </div>
-            <div class="security-row">
-              <div class="security-info">
-                <span class="security-label">Пароль</span>
-                <span class="security-note">
-                  {#if lastPasswordReset}
-                    Последний сброс: {formatDateTime(lastPasswordReset.created_at)}
-                    {#if lastPasswordReset.actor}· {lastPasswordReset.actor.name}{/if}
-                  {:else}
-                    Пароль ещё не сбрасывался
-                  {/if}
-                </span>
-              </div>
-              {#if !card.can.reset_password}
-                <span class="security-note">Недостаточно прав</span>
-              {:else if card.client.reg_state !== 'active'}
-                <span class="security-note">После подтверждения регистрации</span>
-              {:else}
-                <button
-                  type="button"
-                  class="icon-btn"
-                  title="Сбросить пароль"
-                  aria-label="Сбросить пароль"
-                  disabled={busy}
-                  onclick={() => {
-                    actionError = '';
-                    passwordConfirmOpen = true;
-                  }}
-                >
-                  <Icon name="key" size={16} />
-                </button>
-              {/if}
-            </div>
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="card-head">
-            <h2>Контакты</h2>
-          </div>
-          <div class="contact-list">
+          <div class="rows">
             {#each contactFields as field (field.key)}
-              <div class="contact-row">
-                <span class="contact-label">{field.label}</span>
-                <span class="contact-value">{card.client[field.key] || '—'}</span>
+              <div class="row">
+                <span class="row-label">{field.label}</span>
+                <span class="row-value">{card.client[field.key] || '—'}</span>
                 {#if canEditContacts}
                   <button
                     type="button"
@@ -1871,82 +1758,68 @@
           </div>
         </div>
 
+        {#if card.can.access && card.client.reg_state === 'active'}
         <div class="card">
           <div class="card-head">
-            <h2>Типы цен</h2>
-            <div class="card-head-tools">
-              {#if priceBusy}
-                <Spinner size={16} />
-              {/if}
-              <button
-                type="button"
-                class="help-btn"
-                class:active={helpBlock === 'prices'}
-                aria-label="Подсказка по типам цен"
-                aria-expanded={helpBlock === 'prices'}
-                onclick={() => (helpBlock = helpBlock === 'prices' ? '' : 'prices')}
-              >
-                <Icon name="help" size={16} />
-              </button>
-            </div>
+            <h2>Доступ</h2>
+            <HelpTip text={accessHelp} />
           </div>
-          {#if helpBlock === 'prices'}
-            <div class="block-help" role="note">
-              <p>
-                Включённые типы цен определяют, какие цены доступны клиенту. При оформлении заявки
-                применяется минимальная цена среди включённых типов.
-              </p>
+          <div class="rows">
+            <div class="row">
+              <span class="row-label">Роль</span>
+              <span class="row-value">Клиент</span>
             </div>
-          {/if}
-          {#if !pricesEnabled}
-            <p class="empty">Типы цен отключены в настройках</p>
-          {:else if priceTypesLoading && priceTypes.length === 0}
-            <div class="price-loading"><Spinner size={18} /></div>
-          {:else if priceTypes.length === 0}
-            <p class="empty">Типы цен не настроены</p>
-          {:else}
-            <div class="price-toggles">
-              {#each priceTypes as type (type.id)}
-                {@const on = card.client.price_types.some((item) => item.id === type.id)}
+            {#if canConvertToStaff}
+              <div class="row">
+                <span class="row-label">Учётная запись</span>
+                <span class="row-value">Клиент</span>
                 <button
                   type="button"
-                  class="price-toggle"
-                  class:on
-                  disabled={!canAssignPrices || priceBusy}
-                  aria-pressed={on}
-                  title={on ? 'Доступен клиенту — нажмите, чтобы выключить' : 'Недоступен — нажмите, чтобы включить'}
-                  onclick={() => void togglePriceType(type)}
+                  class="icon-btn"
+                  title="Сделать сотрудником"
+                  aria-label="Сделать сотрудником"
+                  disabled={busy}
+                  onclick={() => void openConvert()}
                 >
-                  {#if on}<Icon name="check" size={14} />{/if}
-                  {type.title}
+                  <Icon name="staff" size={16} />
                 </button>
-              {/each}
-            </div>
-            {#if canAssignPrices && priceTypes.length > 1}
-              <div class="price-actions">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={priceBusy}
-                  onclick={() => void setAllPriceTypes(true)}
-                >
-                  Включить все
-                </Button>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  disabled={priceBusy}
-                  onclick={() => void setAllPriceTypes(false)}
-                >
-                  Выключить все
-                </Button>
               </div>
             {/if}
-            {#if !canAssignPrices}
-              <p class="hint">Недостаточно прав для изменения типов цен.</p>
-            {/if}
-          {/if}
+            <div class="row">
+              <span class="row-label">Состояние</span>
+              <span class="row-value">
+                <span class="state" class:on={card.client.active}>
+                  {card.client.active ? 'Активен' : 'Заблокирован'}
+                </span>
+              </span>
+              {#if !appSettings.demoMode}
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title={card.client.active ? 'Заблокировать' : 'Разблокировать'}
+                  aria-label={card.client.active ? 'Заблокировать' : 'Разблокировать'}
+                  disabled={busy}
+                  onclick={() => openAction(card?.client.active ? 'block' : 'unblock')}
+                >
+                  <Icon name={card.client.active ? 'close-circle' : 'check-circle'} size={16} />
+                </button>
+              {/if}
+            </div>
+            <div class="row">
+              <span class="row-label">Регистрация</span>
+              <span class="row-value">{formatDateTime(card.client.registered_at)}</span>
+            </div>
+            <div class="row">
+              <span class="row-label">Последняя активность</span>
+              <span class="row-value">
+                {card.client.last_seen_at
+                  ? formatRelative(card.client.last_seen_at, clock)
+                  : '—'}
+              </span>
+            </div>
+          </div>
         </div>
+        {/if}
 
         <div class="card">
           <div class="card-head">
@@ -1971,60 +1844,151 @@
             {:else}
               <p class="empty">Менеджер не назначен</p>
             {/if}
-            {#if card.can.assign}
-              <button
-                type="button"
-                class="icon-btn"
-                title="Редактировать менеджера"
-                aria-label="Редактировать менеджера"
-                disabled={busy}
-                onclick={openAssign}
-              >
-                <Icon name="edit" size={16} />
-              </button>
+            {#if card.can.assign || canStartTransfer}
+              <div class="manager-actions">
+                {#if card.can.assign}
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title="Редактировать менеджера"
+                    aria-label="Редактировать менеджера"
+                    disabled={busy}
+                    onclick={openAssign}
+                  >
+                    <Icon name="edit" size={16} />
+                  </button>
+                {/if}
+                {#if canStartTransfer}
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title="Передать клиента"
+                    aria-label="Передать клиента"
+                    disabled={busy}
+                    onclick={openTransfer}
+                  >
+                    <Icon name="substitutions" size={16} />
+                  </button>
+                {/if}
+              </div>
             {/if}
           </div>
-          {#if card.can.claim || canStartTransfer}
+          {#if card.can.claim}
             <div class="account-actions">
-              {#if card.can.claim}
-                <Button disabled={busy} onclick={() => void claimSelf()}>Взять себе</Button>
-              {/if}
-              {#if canStartTransfer}
-                <Button variant="ghost" disabled={busy} onclick={openTransfer}>Передать клиента</Button>
-              {/if}
+              <Button disabled={busy} onclick={() => void claimSelf()}>Взять себе</Button>
             </div>
           {/if}
         </div>
+
+        {#if canAssignPrices}
+        <div class="card">
+          <div class="card-head">
+            <h2>Типы цен</h2>
+            <div class="card-head-tools">
+              {#if priceBusy}
+                <Spinner size={16} />
+              {/if}
+              <HelpTip text={pricesHelp} />
+            </div>
+          </div>
+          {#if priceTypesLoading && priceTypes.length === 0}
+            <div class="price-loading"><Spinner size={18} /></div>
+          {:else if priceTypes.length === 0}
+            <p class="empty">Типы цен не настроены</p>
+          {:else}
+            <div class="price-toggles">
+              {#each priceTypes as type (type.id)}
+                {@const on = card.client.price_types.some((item) => item.id === type.id)}
+                <button
+                  type="button"
+                  class="price-toggle"
+                  class:on
+                  disabled={priceBusy || (on && card.client.price_types.length === 1)}
+                  aria-pressed={on}
+                  title={on
+                    ? card.client.price_types.length === 1
+                      ? 'Нельзя отключить последний тип цены'
+                      : 'Доступен клиенту — нажмите, чтобы выключить'
+                    : 'Недоступен — нажмите, чтобы включить'}
+                  onclick={() => void togglePriceType(type)}
+                >
+                  {#if on}<Icon name="check" size={14} />{/if}
+                  {type.title}
+                </button>
+              {/each}
+            </div>
+          {/if}
+        </div>
+        {/if}
 
         </div>
 
         <div class="account-side">
           <div class="card">
             <div class="card-head">
-              <h2>Активность</h2>
+              <h2>Безопасность</h2>
             </div>
-            <dl class="contacts compact">
-              <div>
-                <dt>Регистрация</dt>
-                <dd class="dim">{formatDateTime(card.client.registered_at)}</dd>
+            <div class="rows">
+              <div class="row">
+                <span class="row-label">Логин</span>
+                <span class="row-value">{card.client.login}</span>
+                {#if card.can.access && !appSettings.demoMode}
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title="Изменить логин"
+                    aria-label="Изменить логин"
+                    disabled={busy}
+                    onclick={openLoginEdit}
+                  >
+                    <Icon name="edit" size={16} />
+                  </button>
+                {/if}
               </div>
-              <div>
-                <dt>Последняя активность</dt>
-                <dd
-                  class="dim"
-                  title={card.client.last_seen_at
-                    ? formatDateTime(card.client.last_seen_at)
-                    : undefined}
-                >
-                  {card.client.last_seen_at ? formatRelative(card.client.last_seen_at, clock) : '—'}
-                </dd>
+              <div class="row">
+                <span class="row-label">Пароль</span>
+                <span class="row-value">Сброс завершит активные сессии</span>
+                {#if card.can.reset_password && card.client.reg_state === 'active'}
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title="Сбросить пароль"
+                    aria-label="Сбросить пароль"
+                    disabled={busy}
+                    onclick={() => {
+                      actionError = '';
+                      passwordConfirmOpen = true;
+                    }}
+                  >
+                    <Icon name="key" size={16} />
+                  </button>
+                {/if}
               </div>
-            </dl>
+              {#if card.can.revoke_sessions}
+                <div class="row">
+                  <span class="row-label">Сессии</span>
+                  <span class="row-value">Завершить все сессии клиента</span>
+                  <button
+                    type="button"
+                    class="icon-btn"
+                    title="Завершить все сессии"
+                    aria-label="Завершить все сессии"
+                    disabled={busy}
+                    onclick={() => {
+                      actionError = '';
+                      sessionsConfirmOpen = true;
+                    }}
+                  >
+                    <Icon name="logout" size={16} />
+                  </button>
+                </div>
+              {/if}
+            </div>
           </div>
 
           <div class="card">
             <div class="card-head">
-              <h2>История учётной записи</h2>
+              <h2>История профиля</h2>
               {#if accountHistory.length > 0}
                 <button type="button" class="link-btn" onclick={() => openHistory('account')}>
                   Вся история →
@@ -2105,6 +2069,80 @@
               : actionKind === 'block'
                 ? 'Заблокировать'
                 : 'Разблокировать'}
+        </Button>
+      </div>
+    </Modal>
+
+    <Modal open={convertOpen} title="Сделать сотрудником" onclose={() => (convertOpen = false)}>
+      <p class="hint">
+        Учётная запись останется той же: ID, заявки, история и переписка сохранятся. Клиент
+        получит доступ к разделам персонала, а все активные сессии будут завершены.
+      </p>
+      <label class="edit-label">
+        <span>Роль</span>
+        <select bind:value={convertRole}>
+          <option value="10">{staffLevelTitle(10)}</option>
+          <option value="50">{staffLevelTitle(50)}</option>
+          <option value="90">{staffLevelTitle(90)}</option>
+        </select>
+      </label>
+      {#if convertLoading}
+        <div class="center"><Spinner size={22} /></div>
+      {:else if convertPreview}
+        {#if convertPreview.can}
+          <p class="hint">Связей, мешающих переводу, нет.</p>
+          {#if convertPreview.counts.stock_acl > 0 || convertPreview.counts.price_types > 0 || convertPreview.counts.drafts > 0}
+            <p class="hint">
+              Будет очищено: складской доступ — {convertPreview.counts.stock_acl}, типы цен —
+              {convertPreview.counts.price_types}, черновики — {convertPreview.counts.drafts}.
+            </p>
+          {/if}
+        {:else}
+          <ul class="convert-blockers">
+            {#each convertPreview.blockers as blocker (blocker.code)}
+              <li>{blocker.message}</li>
+            {/each}
+          </ul>
+        {/if}
+      {/if}
+      {#if convertError}
+        <p class="form-error">{convertError}</p>
+      {/if}
+      <div class="modal-actions">
+        <Button variant="ghost" disabled={convertSaving} onclick={() => (convertOpen = false)}>
+          Отмена
+        </Button>
+        <Button
+          loading={convertSaving}
+          disabled={convertLoading || convertPreview?.can !== true}
+          onclick={() => void confirmConvert()}
+        >
+          Сделать сотрудником
+        </Button>
+      </div>
+    </Modal>
+
+    <Modal
+      open={sessionsConfirmOpen}
+      title="Завершить все сессии?"
+      onclose={() => (sessionsConfirmOpen = false)}
+    >
+      <p class="hint">
+        Все активные сессии клиента будут завершены. Для входа потребуется снова ввести логин и
+        пароль.
+      </p>
+      {#if actionError}
+        <div class="alert" role="alert">
+          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+          <span class="notify-text">{actionError}</span>
+        </div>
+      {/if}
+      <div class="modal-actions">
+        <Button variant="ghost" disabled={sessionsBusy} onclick={() => (sessionsConfirmOpen = false)}>
+          Отмена
+        </Button>
+        <Button loading={sessionsBusy} onclick={() => void confirmRevokeSessions()}>
+          Завершить сессии
         </Button>
       </div>
     </Modal>
@@ -2419,7 +2457,7 @@
         >
           <option value="all">Вся история</option>
           <option value="request">Заявки</option>
-          <option value="account">Учётная запись</option>
+          <option value="account">Профиль</option>
         </select>
         <input type="date" bind:value={historyFrom} aria-label="Период с" />
         <input type="date" bind:value={historyTo} aria-label="Период по" />
@@ -2768,6 +2806,19 @@
     font-size: 13px;
   }
 
+  .form-error {
+    margin: var(--space-2) 0 0;
+    color: var(--danger);
+    font-size: 13px;
+  }
+
+  .convert-blockers {
+    margin: var(--space-2) 0 0;
+    padding-left: 18px;
+    color: var(--danger);
+    font-size: 13px;
+  }
+
   .table-scroll {
     overflow-x: auto;
   }
@@ -2798,7 +2849,6 @@
     display: flex;
     align-items: center;
     gap: var(--space-1);
-    margin-left: auto;
   }
 
   .hero-tab {
@@ -2993,12 +3043,11 @@
     font-size: 12px;
     padding: 3px 10px;
     border-radius: 999px;
-    border: 1px solid var(--border);
+    border: 1px solid transparent;
     color: var(--muted);
   }
 
   .state.on {
-    border-color: var(--success-border);
     color: var(--success-text);
   }
 
@@ -3019,15 +3068,10 @@
     font-size: 14px;
   }
 
-  .contacts dd.dim {
-    color: var(--muted);
-  }
-
   .hero {
     display: flex;
     align-items: center;
-    justify-content: flex-start;
-    gap: var(--space-3) var(--space-4);
+    gap: var(--space-3);
     flex-wrap: wrap;
     padding: var(--space-4);
     background: var(--surface);
@@ -3036,16 +3080,65 @@
     box-shadow: var(--shadow-sm);
   }
 
-  .hero h1 {
+  .hero-main {
+    flex: 1 1 auto;
     min-width: 0;
+  }
+
+  .hero h1 {
+    margin: 0;
+    min-width: 0;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.4;
     overflow-wrap: anywhere;
+  }
+
+  .hero-role {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .head-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-left: auto;
   }
 
   .hero-status {
     display: flex;
     align-items: center;
-    flex-wrap: wrap;
     gap: var(--space-2);
+  }
+
+  .hero-status .state {
+    padding: 0 6px;
+    border: none;
+    border-radius: 0;
+    font-size: 13px;
+  }
+
+  .back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--muted);
+    text-decoration: none;
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+
+  .back:hover {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
   }
 
   .avatar {
@@ -3053,14 +3146,13 @@
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
-    width: 64px;
-    height: 64px;
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
     background: color-mix(in srgb, var(--primary) 12%, var(--surface));
     color: var(--primary);
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 600;
-    letter-spacing: 0.02em;
   }
 
   .card-head {
@@ -3081,7 +3173,6 @@
     gap: var(--space-2);
   }
 
-  .help-btn,
   .icon-btn {
     display: inline-flex;
     align-items: center;
@@ -3097,7 +3188,6 @@
     transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
   }
 
-  .help-btn:hover,
   .icon-btn:hover:not(:disabled) {
     border-color: var(--primary-hover);
     color: var(--primary-hover);
@@ -3106,29 +3196,6 @@
   .icon-btn:disabled {
     opacity: 0.55;
     cursor: not-allowed;
-  }
-
-  .help-btn.active {
-    border-color: var(--primary-border);
-    background: var(--primary-bg);
-    color: var(--primary);
-  }
-
-  .block-help {
-    margin: 0 0 var(--space-3);
-    padding: var(--space-3);
-    border: 1px solid var(--primary-border);
-    border-radius: var(--radius-sm);
-    background: var(--primary-bg);
-    font-size: 13px;
-  }
-
-  .block-help p {
-    margin: 0;
-  }
-
-  .block-help p + p {
-    margin-top: var(--space-2);
   }
 
   .link-btn {
@@ -3162,6 +3229,12 @@
     min-width: 0;
   }
 
+  .manager-actions {
+    display: flex;
+    flex: 0 0 auto;
+    gap: var(--space-1);
+  }
+
   .manager-box {
     display: flex;
     align-items: center;
@@ -3180,12 +3253,6 @@
     gap: var(--space-2);
   }
 
-  .price-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-top: var(--space-3);
-  }
 
   .price-toggle {
     display: inline-flex;
@@ -3307,134 +3374,31 @@
     margin-top: var(--space-3);
   }
 
-  .security-list {
+  .rows {
     display: flex;
     flex-direction: column;
   }
 
-  .security-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
+  .row {
+    display: grid;
+    grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1.4fr) auto;
     gap: var(--space-3);
-    padding: var(--space-3) 0;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-secondary);
   }
 
-  .security-row:first-child {
-    padding-top: 0;
+  .row:last-child {
+    border-bottom: none;
   }
 
-  .security-row:last-child {
-    padding-bottom: 0;
-  }
-
-  .security-row + .security-row {
-    border-top: 1px solid var(--border-secondary);
-  }
-
-  .security-info {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-  }
-
-  .security-label {
-    font-size: 12px;
+  .row-label {
     color: var(--muted);
-  }
-
-  .security-value {
-    padding: 3px 10px;
-    border-radius: var(--radius-sm);
-    background: var(--bg);
-    font-size: 14px;
-    font-weight: 500;
-    overflow-wrap: anywhere;
-  }
-
-  .security-note {
     font-size: 13px;
-    color: var(--muted);
   }
 
-  .contact-list {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .contact-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-height: 34px;
-    padding: var(--space-2) 0;
-    font-size: 14px;
-  }
-
-  .contact-row + .contact-row {
-    border-top: 1px solid var(--border-secondary);
-  }
-
-  .contact-label {
-    flex: 0 0 110px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .contact-value {
-    flex: 1 1 auto;
-    min-width: 0;
+  .row-value {
     overflow-wrap: anywhere;
-  }
-
-  .access-choice {
-    display: flex;
-    gap: var(--space-2);
-  }
-
-  .access-option {
-    display: inline-flex;
-    flex: 1 1 0;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 7px 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 14px;
-    color: var(--text);
-    cursor: pointer;
-    transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-  }
-
-  .access-option:hover:not(:disabled):not(.active) {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
-  .access-option:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .access-option.active {
-    font-weight: 600;
-  }
-
-  .access-option.active.success {
-    border-color: var(--success-border);
-    background: var(--success-bg);
-    color: var(--success-text);
-  }
-
-  .access-option.active.danger {
-    border-color: var(--error-border);
-    background: var(--danger-bg);
-    color: var(--error-text);
   }
 
   .copy-row {
@@ -3520,19 +3484,8 @@
   }
 
   @media (max-width: 640px) {
-    .avatar {
-      width: 52px;
-      height: 52px;
-      font-size: 18px;
-    }
-
     .hero {
       align-items: flex-start;
-    }
-
-    .hero-status {
-      width: 100%;
-      margin-left: 0;
     }
   }
 

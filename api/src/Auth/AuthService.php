@@ -113,6 +113,8 @@ final class AuthService
         $name = trim((string) ($input['name'] ?? ''));
         $company = trim((string) ($input['company'] ?? ''));
         $inn = preg_replace('/\s+/', '', (string) ($input['inn'] ?? '')) ?? '';
+        $city = mb_substr(trim((string) ($input['city'] ?? '')), 0, 128);
+        $address = mb_substr(trim((string) ($input['address'] ?? '')), 0, 255);
         $phone = trim((string) ($input['phone'] ?? ''));
         $email = mb_strtolower(trim((string) ($input['email'] ?? '')));
         $password = (string) ($input['password'] ?? '');
@@ -168,6 +170,8 @@ final class AuthService
             'name' => mb_substr($name, 0, 255),
             'company' => mb_substr($company, 0, 255),
             'inn' => $inn,
+            'city' => $city,
+            'address' => $address,
             'phone' => mb_substr($phone, 0, 255),
             'email' => mb_substr($email, 0, 255),
         ]);

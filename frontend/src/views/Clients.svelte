@@ -66,6 +66,7 @@
   let dragSortOver = $state<string | null>(null);
 
   const canConfirm = $derived(auth.can('clients.confirm'));
+  const canCreateClient = $derived(auth.level >= 10);
   const filtersActive = $derived(countActive(filters, filterCountDefaults) > 0);
   const sortActive = $derived(filters.sort !== filterDefaults.sort);
 
@@ -363,6 +364,20 @@
 
       <span class="toolbar-divider" aria-hidden="true"></span>
 
+      {#if canCreateClient}
+        <button
+          type="button"
+          class="sort-button"
+          title="Создать клиента"
+          aria-label="Создать клиента"
+          onclick={() => router.navigate('/clients/new')}
+        >
+          <Icon name="plus" size={16} />
+        </button>
+
+        <span class="toolbar-divider" aria-hidden="true"></span>
+      {/if}
+
       <button
         type="button"
         class="sort-button"
@@ -561,6 +576,8 @@
               <div class="meta">
                 {#if item.company}<span>{item.company}</span>{/if}
                 {#if item.inn}<span>ИНН {item.inn}</span>{/if}
+                {#if item.city}<span>{item.city}</span>{/if}
+                {#if item.address}<span>{item.address}</span>{/if}
                 {#if item.phone}<span>{item.phone}</span>{/if}
                 {#if item.email}<span>{item.email}</span>{/if}
               </div>
@@ -620,7 +637,17 @@
               {#if client.email}
                 <span class="ellipsis" title={client.email}>{client.email}</span>
               {/if}
-              {#if !client.phone && !client.email}<span class="ct-muted">—</span>{/if}
+              {#if client.city || client.address}
+                <span
+                  class="ct-muted ellipsis"
+                  title={[client.city, client.address].filter(Boolean).join(', ')}
+                >
+                  {[client.city, client.address].filter(Boolean).join(', ')}
+                </span>
+              {/if}
+              {#if !client.phone && !client.email && !client.city && !client.address}
+                <span class="ct-muted">—</span>
+              {/if}
             </div>
 
             <span class="ct-manager ellipsis" title={client.manager?.name}>
@@ -695,6 +722,15 @@
             <div class="tile-rows">
               {#if client.inn}
                 <div class="tile-row"><span>ИНН</span><span>{client.inn}</span></div>
+              {/if}
+              {#if client.city}
+                <div class="tile-row"><span>Город</span><span class="ellipsis" title={client.city}>{client.city}</span></div>
+              {/if}
+              {#if client.address}
+                <div class="tile-row">
+                  <span>Адрес</span>
+                  <span class="ellipsis" title={client.address}>{client.address}</span>
+                </div>
               {/if}
               {#if client.phone}
                 <div class="tile-row"><span>Телефон</span><span>{client.phone}</span></div>

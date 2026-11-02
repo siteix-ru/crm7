@@ -1,5 +1,6 @@
 import { apiRequest } from './client';
 import type {
+  AssignedPriceType,
   ClientCard,
   ClientCardRequest,
   ClientHistoryItem,
@@ -12,6 +13,8 @@ export interface RegisterPayload {
   name: string;
   company: string;
   inn: string;
+  city: string;
+  address: string;
   phone: string;
   email: string;
   password: string;
@@ -48,6 +51,40 @@ export function rejectClient(id: number, comment: string): Promise<{ id: number;
 
 export function getClientCard(id: number): Promise<ClientCard> {
   return apiRequest<ClientCard>(`/clients/${id}`, { auth: true });
+}
+
+export interface ClientCreatePayload {
+  name: string;
+  company?: string;
+  inn?: string;
+  position?: string;
+  city?: string;
+  address?: string;
+  phone?: string;
+  email?: string;
+  login?: string;
+  manager_id?: number | null;
+  price_type_ids?: number[];
+}
+
+export interface ClientCreateResult {
+  id: number;
+  name: string;
+  login: string;
+  email: string;
+  phone: string;
+  password: string | null;
+  password_generated: boolean;
+  manager: { id: number; name: string };
+  price_types: AssignedPriceType[];
+}
+
+export function createClient(payload: ClientCreatePayload): Promise<ClientCreateResult> {
+  return apiRequest<ClientCreateResult>('/clients', {
+    method: 'POST',
+    auth: true,
+    body: payload
+  });
 }
 
 export interface ClientHistoryPayload {
@@ -130,6 +167,8 @@ export interface ClientContactsPayload {
   company: string;
   inn: string;
   position: string;
+  city: string;
+  address: string;
   phone: string;
   email: string;
 }
@@ -175,6 +214,14 @@ export function resetClientPassword(id: number): Promise<ClientPasswordResult> {
 
 export function sendClientPasswordLink(id: number): Promise<ClientPasswordLinkResult> {
   return apiRequest<ClientPasswordLinkResult>(`/clients/${id}/reset-password-email`, {
+    method: 'POST',
+    auth: true,
+    body: {}
+  });
+}
+
+export function revokeClientSessions(id: number): Promise<{ id: number; revoked: boolean }> {
+  return apiRequest<{ id: number; revoked: boolean }>(`/clients/${id}/revoke-sessions`, {
     method: 'POST',
     auth: true,
     body: {}

@@ -18,7 +18,7 @@ final class ModuleService
     private const LEVELS = [90, 50, 10, 5, 1];
 
     private const ROLES = [
-        ['level' => 90, 'title' => 'Сисадмин'],
+        ['level' => 90, 'title' => 'Технический администратор'],
         ['level' => 50, 'title' => 'Администратор'],
         ['level' => 10, 'title' => 'Менеджер'],
         ['level' => 5, 'title' => 'Клиент'],

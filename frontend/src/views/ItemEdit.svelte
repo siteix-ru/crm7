@@ -1000,13 +1000,6 @@
           </p>
         {/if}
 
-        {#if !canEdit}
-          <div class="alert">
-            <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-            <span>Недостаточно прав для изменения номенклатуры</span>
-          </div>
-        {/if}
-
         {#if tab === 'main'}
         <div class="form" role="tabpanel" id="item-panel-main" aria-labelledby="item-tab-main">
           {#if itemTypes.length > 0}
@@ -1207,9 +1200,11 @@
 
         <div class="actions">
           <Button variant="ghost" disabled={!dirty || saving} onclick={goBack}>Отмена</Button>
-          <Button type="submit" loading={saving} disabled={!canEdit || !dirty}>
-            {isNew ? 'Создать номенклатуру' : 'Сохранить'}
-          </Button>
+          {#if canEdit}
+            <Button type="submit" loading={saving} disabled={!dirty}>
+              {isNew ? 'Создать номенклатуру' : 'Сохранить'}
+            </Button>
+          {/if}
         </div>
       </form>
     </div>

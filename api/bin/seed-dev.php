@@ -12,7 +12,7 @@ Config::load(__DIR__ . '/../config/.env');
 $pdo = Database::pdo();
 
 $users = [
-    ['admin', 90, 'Сисадмин', 'admin@example.test'],
+    ['admin', 90, 'Технический администратор', 'admin@example.test'],
     ['administrator', 50, 'Администратор', 'administrator@example.test'],
     ['manager', 10, 'Менеджер', 'manager@example.test'],
     ['manager2', 10, 'Менеджер Второй', 'manager2@example.test'],

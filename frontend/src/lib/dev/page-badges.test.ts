@@ -45,5 +45,9 @@ describe('badgeForRoute', () => {
     expect(pageBadges['/requests/:id'].id).toBe('REQ-CARD');
     expect(badgeForRoute('/stocks/items/7/edit')?.id).toBe('STK-ITEM-EDIT');
     expect(badgeForRoute('/legal/privacy')?.id).toBe('LEGAL');
+    expect(badgeForRoute('/clients/new')?.id).toBe('CLI-NEW');
+    expect(badgeForRoute('/clients/5')?.id).toBe('CLI-CARD');
+    expect(badgeForRoute('/staff/new')?.id).toBe('STAFF-NEW');
+    expect(badgeForRoute('/staff/5')?.id).toBe('STAFF-CARD');
   });
 });

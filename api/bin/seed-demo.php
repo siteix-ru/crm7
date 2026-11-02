@@ -158,7 +158,7 @@ foreach ([['admin', 90], ['manager', 10], ['client', 5], ['administrator', 50], 
 }
 
 $accounts = [
-    [1, 'admin', 90, 'Сисадмин Тестовый', 'admin@example.test', '+79000000001', ''],
+    [1, 'admin', 90, 'Технический администратор Тестовый', 'admin@example.test', '+79000000001', ''],
     [2, 'manager', 10, 'Менеджер Тестовый', 'manager@example.test', '+79000000002', 'Менеджер продаж'],
     [3, 'client', 5, 'Клиент Тестовый', 'client@example.test', '+79000000003', 'Руководитель'],
     [4, 'administrator', 50, 'Администратор Тестовый', 'administrator@example.test', '+79000000004', ''],

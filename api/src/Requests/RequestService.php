@@ -1594,8 +1594,7 @@ final class RequestService
 
         return [
             'participant_id' => (int) $user['ID'],
-            'include_unassigned' => in_array('requests.transition', $capabilities, true),
-            'substituted_ids' => $this->substitutedIds($user),
+            'client_only' => true,
         ];
     }
 
@@ -1618,20 +1617,18 @@ final class RequestService
         }
 
         $isClient = (int) $request['client_id'] === (int) $user['ID'];
-        $isManager = (int) ($request['manager_id'] ?? 0) === (int) $user['ID'];
-        $isSubstitute = in_array((int) ($request['manager_id'] ?? 0), $this->substitutedIds($user), true);
-        $isUnassignedForManager = $request['manager_id'] === null
-            && in_array('requests.transition', $capabilities, true);
-        $requestId = (int) ($request['ID'] ?? 0);
-        $isParticipant = $requestId > 0 && $this->assignments->isParticipant($requestId, (int) $user['ID']);
 
-        if (!$isClient && !$isManager && !$isSubstitute && !$isUnassignedForManager && !$isParticipant) {
+        if (!$isClient) {
             throw new HttpException(403, 'forbidden', 'Нет доступа к заявке');
         }
     }
 
     private function canManage(array $user, array $capabilities, array $request): bool
     {
+        if ((int) $user['LEVEL'] < 10) {
+            return false;
+        }
+
         if (in_array('requests.view.all', $capabilities, true)) {
             return true;
         }
@@ -1662,6 +1659,10 @@ final class RequestService
 
     private function canClaim(array $user, array $capabilities, array $request): bool
     {
+        if ((int) $user['LEVEL'] < 10) {
+            return false;
+        }
+
         if (!in_array('requests.transition', $capabilities, true)) {
             return false;
         }

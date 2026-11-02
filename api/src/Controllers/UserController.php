@@ -10,12 +10,14 @@ use App\Http\Request;
 use App\Http\Response;
 use App\Repositories\UserRepository;
 use App\Users\UserAdminService;
+use App\Users\UserRoleConversionService;
 
 final class UserController extends ApiController
 {
     public function __construct(
         private readonly UserRepository $users = new UserRepository(),
-        private readonly UserAdminService $admin = new UserAdminService()
+        private readonly UserAdminService $admin = new UserAdminService(),
+        private readonly UserRoleConversionService $conversion = new UserRoleConversionService()
     ) {
         parent::__construct();
     }
@@ -54,9 +56,25 @@ final class UserController extends ApiController
 
         return Response::ok($this->admin->list([
             'q' => trim($request->queryParam('q')),
+            'scope' => trim($request->queryParam('scope')),
             'level' => (int) $request->queryParam('level', '0'),
             'state' => trim($request->queryParam('state')),
+            'sort' => trim($request->queryParam('sort')),
         ], max(1, (int) $request->queryParam('page', '1')), (int) $request->queryParam('per_page', '50') <= 0 ? 0 : max(10, min(100, (int) $request->queryParam('per_page', '50')))));
+    }
+
+    public function show(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        return Response::ok($this->admin->card($user, $capabilities, (int) ($params['id'] ?? 0)));
+    }
+
+    public function history(Request $request, array $params): Response
+    {
+        [, $capabilities] = $this->context($request);
+
+        return Response::ok($this->admin->history($capabilities, (int) ($params['id'] ?? 0)));
     }
 
     public function create(Request $request): Response
@@ -81,6 +99,40 @@ final class UserController extends ApiController
         $this->audit($request, $user, 'user.update', 'user', (int) ($params['id'] ?? 0), [
             'level' => $result['level'],
         ]);
+
+        return Response::ok($result);
+    }
+
+    public function conversion(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        return Response::ok($this->conversion->preview(
+            $user,
+            $capabilities,
+            (int) ($params['id'] ?? 0)
+        ));
+    }
+
+    public function convert(Request $request, array $params): Response
+    {
+        $this->denyInDemo();
+
+        [$user, $capabilities] = $this->context($request);
+        $id = (int) ($params['id'] ?? 0);
+        $result = $this->conversion->convert($user, $capabilities, $id, $request->bodyAll());
+        $this->audit(
+            $request,
+            $user,
+            $result['direction'] === 'to_staff' ? 'user.converted_to_staff' : 'user.converted_to_client',
+            'user',
+            $id,
+            [
+                'from_level' => $result['from_level'],
+                'to_level' => $result['to_level'],
+                'counts' => $result['counts'],
+            ]
+        );
 
         return Response::ok($result);
     }
@@ -117,6 +169,58 @@ final class UserController extends ApiController
 
         $result = $this->admin->resetPassword($user, $capabilities, (int) ($params['id'] ?? 0));
         $this->audit($request, $user, 'user.reset_password', 'user', (int) ($params['id'] ?? 0));
+
+        return Response::ok($result);
+    }
+
+    public function sendCredentials(Request $request, array $params): Response
+    {
+        $this->denyInDemo();
+
+        [$user, $capabilities] = $this->context($request);
+        $id = (int) ($params['id'] ?? 0);
+        $body = $request->bodyAll();
+        $result = $this->admin->sendCredentials(
+            $user,
+            $capabilities,
+            $id,
+            (string) ($body['login'] ?? ''),
+            (string) ($body['password'] ?? '')
+        );
+        $this->audit($request, $user, 'user.credentials_sent', 'user', $id, [
+            'email' => $result['email'] ?? null,
+        ]);
+
+        return Response::ok($result);
+    }
+
+    public function changeLogin(Request $request, array $params): Response
+    {
+        $this->denyInDemo();
+
+        [$user, $capabilities] = $this->context($request);
+        $id = (int) ($params['id'] ?? 0);
+        $result = $this->admin->changeLogin(
+            $user,
+            $capabilities,
+            $id,
+            (string) ($request->bodyAll()['login'] ?? '')
+        );
+        $this->audit($request, $user, 'user.login_changed', 'user', $id, [
+            'login' => $result['login'],
+        ]);
+
+        return Response::ok($result);
+    }
+
+    public function revokeSessions(Request $request, array $params): Response
+    {
+        $this->denyInDemo();
+
+        [$user, $capabilities] = $this->context($request);
+
+        $result = $this->admin->revokeSessions($user, $capabilities, (int) ($params['id'] ?? 0));
+        $this->audit($request, $user, 'user.revoke_sessions', 'user', (int) ($params['id'] ?? 0));
 
         return Response::ok($result);
     }

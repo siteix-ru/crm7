@@ -161,6 +161,264 @@ const scenarios = [
     }
   },
   {
+    name: 'клиенты: создание из списка',
+    role: 'manager',
+    async run(page) {
+      await page.goto(`${BASE}/#/clients`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.getByRole('button', { name: 'Создать клиента' }), 'нет кнопки создания клиента');
+
+      await page.getByRole('button', { name: 'Создать клиента' }).click();
+      await expectVisible(page.getByRole('heading', { name: 'Новый клиент' }), 'не открылась страница создания клиента');
+
+      const stamp = Date.now();
+      const name = `E2E Клиент ${stamp}`;
+      await page.getByLabel(/Имя клиента/).fill(name);
+      await page.getByLabel('Должность').fill('Директор E2E');
+      await page.getByLabel('Компания').fill('E2E Test LLC');
+      await page.getByLabel('Город').fill('E2E Город');
+      await page.getByLabel('Адрес').fill('E2E улица, 1');
+      await page.getByLabel('Телефон').fill(`+7999${String(stamp).slice(-6)}`);
+      await page.getByLabel('E-mail').fill(`e2e-client-${stamp}@example.test`);
+
+      const priceCard = page.locator('section.card', { hasText: 'Типы цен' });
+
+      if ((await priceCard.count()) > 0) {
+        const firstPrice = priceCard.locator('.price-toggle').first();
+
+        if ((await firstPrice.count()) > 0) {
+          await firstPrice.click();
+        }
+      }
+
+      await page.getByRole('button', { name: 'Создать клиента' }).last().click();
+      await expectVisible(page.getByRole('heading', { name: 'Клиент создан' }), 'не появилось окно с учётными данными');
+
+      const credentials = page.locator('.credential code');
+      const login = (await credentials.nth(0).textContent()).trim();
+      const password = (await credentials.nth(1).textContent()).trim();
+      assert(login.length >= 3, `некорректный логин: ${login}`);
+      assert(password.length >= 10, `некорректный пароль: ${password}`);
+
+      await page.getByRole('button', { name: 'Открыть карточку' }).click();
+      await expectVisible(page.locator('h1', { hasText: name }), 'не открылась карточка созданного клиента');
+      await page.getByRole('tab', { name: 'Профиль' }).click();
+      await expectVisible(
+        page.getByRole('heading', { name: 'Личные данные' }),
+        'в карточке клиента нет блока личных данных'
+      );
+      await expectVisible(page.getByText('E2E Город'), 'в карточке клиента нет города');
+      await expectVisible(page.getByText('E2E улица, 1'), 'в карточке клиента нет адреса');
+
+      await page.getByRole('button', { name: 'Завершить все сессии' }).click();
+      const sessionsDialog = page.getByRole('dialog');
+      await expectVisible(sessionsDialog, 'не открылась модалка завершения сессий');
+      await sessionsDialog.getByRole('button', { name: 'Завершить сессии' }).click();
+      await expectVisible(page.getByText('Все сессии клиента завершены'), 'сессии клиента не завершены');
+    }
+  },
+  {
+    name: 'сотрудники: создание и карточка',
+    role: 'admin',
+    async run(page) {
+      await page.goto(`${BASE}/#/staff`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.getByRole('heading', { name: 'Сотрудники' }), 'не открылся список сотрудников');
+      await expectVisible(page.getByRole('button', { name: 'Добавить сотрудника' }), 'нет кнопки добавления сотрудника');
+
+      await page.getByRole('button', { name: 'Добавить сотрудника' }).click();
+      await expectVisible(page.getByRole('heading', { name: 'Новый сотрудник' }), 'не открылась форма создания');
+
+      const stamp = Date.now();
+      const name = `E2E Сотрудник ${stamp}`;
+      const email = `staff-${stamp}@example.test`;
+      await page.getByLabel(/ФИО/).fill(name);
+      await page.getByLabel('E-mail *').fill(email);
+      await page.getByLabel('Телефон').fill(`+7993${String(stamp).slice(-6)}`);
+      await page.getByLabel('Должность').fill('Менеджер E2E');
+      await page.getByLabel('Отдел').fill('E2E отдел');
+      await page.getByLabel('Город').fill('E2E город');
+      await page.getByLabel('Офис').fill('E2E офис');
+
+      await page.getByRole('button', { name: 'Создать сотрудника' }).click();
+      await expectVisible(page.getByRole('heading', { name: 'Сотрудник создан' }), 'не появились учётные данные');
+
+      const credentials = page.locator('.credential code');
+      const generatedLogin = (await credentials.nth(0).textContent()).trim();
+      assert(generatedLogin.length >= 3, 'некорректный логин сотрудника');
+      assert(generatedLogin !== email, 'логин должен быть отделён от e-mail');
+      assert((await credentials.nth(1).textContent()).trim().length >= 10, 'некорректный пароль сотрудника');
+      await expectVisible(
+        page.getByRole('button', { name: 'Отправить на почту' }),
+        'нет кнопки отправки данных на почту'
+      );
+
+      await page.getByRole('button', { name: 'Открыть карточку' }).click();
+      await expectVisible(page.locator('h1', { hasText: name }), 'не открылась карточка сотрудника');
+      await expectVisible(
+        page.getByRole('heading', { name: 'История профиля' }),
+        'в профиле сотрудника нет истории учётной записи'
+      );
+      await expectVisible(page.getByText('Сотрудник создан'), 'в истории нет события создания');
+      await expectVisible(page.getByText('E2E отдел'), 'отдел не сохранился');
+      await expectVisible(page.getByText('E2E город'), 'город не сохранился');
+      await expectVisible(page.getByText('E2E офис'), 'офис не сохранился');
+      assert((await page.getByText('Типы цен').count()) === 0, 'у сотрудника не должно быть типов цен');
+      assert((await page.getByRole('button', { name: 'Редактировать' }).count()) === 0, 'в шапке не должно быть кнопки редактирования');
+
+      await page.getByRole('button', { name: 'Изменить Должность' }).click();
+      const positionDialog = page.getByRole('dialog');
+      await expectVisible(positionDialog.getByLabel('Должность'), 'не открылась модалка должности');
+      await positionDialog.getByLabel('Должность').fill('Старший менеджер E2E');
+      await positionDialog.getByRole('button', { name: 'Сохранить' }).click();
+      await expectVisible(page.getByText('Данные сохранены'), 'изменения не сохранились');
+      await expectVisible(page.getByText('Старший менеджер E2E'), 'новая должность не отображается');
+
+      await page.getByRole('button', { name: 'Изменить E-mail' }).click();
+      const emailDialog = page.getByRole('dialog');
+      const newEmail = `updated-${stamp}@example.test`;
+      await emailDialog.getByLabel('E-mail').fill(newEmail);
+      await emailDialog.getByRole('button', { name: 'Сохранить' }).click();
+      await expectVisible(page.getByText(newEmail), 'новый e-mail не отображается');
+
+      await page.getByRole('button', { name: 'Изменить логин' }).click();
+      const loginDialog = page.getByRole('dialog');
+      const newLogin = `e2e-staff-${stamp}`;
+      await loginDialog.getByLabel('Логин').fill(newLogin);
+      await loginDialog.getByRole('button', { name: 'Сохранить' }).click();
+      await expectVisible(page.getByText('Логин изменён'), 'логин не изменён');
+      await expectVisible(page.getByText(newLogin), 'новый логин не отображается');
+
+      await page.getByRole('button', { name: 'Сбросить пароль' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Сбросить пароль' }).click();
+      await expectVisible(page.getByRole('heading', { name: 'Новый пароль' }), 'не показан новый пароль');
+      assert((await page.locator('.password-box code').textContent()).trim().length >= 10, 'некорректный новый пароль');
+      await page.getByRole('button', { name: 'Готово' }).click();
+
+      await page.getByRole('button', { name: 'Завершить все сессии' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Завершить сессии' }).click();
+      await expectVisible(page.getByText('Все сессии сотрудника завершены'), 'сессии сотрудника не завершены');
+
+      await page.getByRole('button', { name: 'Заблокировать' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Заблокировать' }).click();
+      await expectVisible(page.locator('.state', { hasText: 'Заблокирован' }), 'сотрудник не заблокирован');
+
+      await page.getByRole('button', { name: 'Разблокировать' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Разблокировать' }).click();
+      await expectVisible(page.locator('.state', { hasText: 'Активен' }), 'сотрудник не разблокирован');
+
+      await page.getByRole('button', { name: /Вся история/ }).click();
+      const historyDialog = page.getByRole('dialog');
+      await expectVisible(historyDialog.getByText('История профиля'), 'не открылась модалка истории');
+      await expectVisible(historyDialog.getByText('Разблокирован'), 'история сотрудника не загрузилась');
+    }
+  },
+  {
+    name: 'сотрудники: ошибки полей',
+    role: 'admin',
+    async run(page) {
+      await page.goto(`${BASE}/#/staff/new`, { waitUntil: 'domcontentloaded' });
+      await page.getByLabel(/ФИО/).click();
+      await page.getByLabel('E-mail *').click();
+      await expectVisible(
+        page.locator('label.field', { hasText: 'ФИО' }).locator('.error'),
+        'ошибка обязательного поля не появилась после blur'
+      );
+
+      await page.getByLabel(/ФИО/).fill(`E2E Дубль ${Date.now()}`);
+      await page.getByLabel('E-mail *').fill('admin@example.test');
+      await page.getByRole('button', { name: 'Создать сотрудника' }).click();
+      await expectVisible(
+        page.locator('label.field', { hasText: 'E-mail' }).locator('.error'),
+        'ошибка занятого e-mail не показана под полем'
+      );
+    }
+  },
+  {
+    name: 'клиенты: перевод в сотрудника и обратно',
+    role: 'admin',
+    async run(page, ctx) {
+      const token = ctx.session.token;
+      const stamp = Date.now();
+      const name = `E2E Конверсия ${stamp}`;
+      const email = `convert-${stamp}@example.test`;
+      const created = await fetch(`${API}/users`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ name, email, level: 5 })
+      });
+      assert(created.ok, `не удалось создать клиента для конвертации: HTTP ${created.status}`);
+      const clientId = (await created.json()).data.id;
+
+      await page.goto(`${BASE}/#/clients/${clientId}`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('tab', { name: 'Профиль' }).click();
+      await page.getByRole('button', { name: 'Сделать сотрудником' }).click();
+
+      const toStaff = page.getByRole('dialog');
+      await expectVisible(toStaff, 'не открылась модалка перевода в сотрудника');
+      await expectVisible(
+        toStaff.getByText('Связей, мешающих переводу, нет.'),
+        'перевод клиента в сотрудника заблокирован'
+      );
+      await toStaff.getByRole('button', { name: 'Сделать сотрудником' }).click();
+      await expectVisible(page.locator('h1', { hasText: name }), 'не открылась карточка сотрудника');
+      await expectVisible(page.getByText('Менеджер'), 'роль сотрудника не отображается');
+
+      await page.getByRole('button', { name: 'Сделать клиентом' }).click();
+      const toClient = page.getByRole('dialog');
+      await expectVisible(toClient, 'не открылась модалка перевода в клиента');
+      await expectVisible(
+        toClient.getByText('Связей, мешающих переводу, нет.'),
+        'перевод сотрудника в клиента заблокирован'
+      );
+      await toClient.getByRole('button', { name: 'Сделать клиентом' }).click();
+      await expectVisible(page.locator('h1', { hasText: name }), 'не открылась карточка клиента');
+    }
+  },
+  {
+    name: 'подсказки: не выходят за экран',
+    role: 'admin',
+    async run(page) {
+      const checkTips = async (heading) => {
+        await expectVisible(page.getByRole('heading', { name: heading }), `не открылась страница «${heading}»`);
+        const triggers = page.getByRole('button', { name: 'Подсказка' });
+        const count = await triggers.count();
+        assert(count > 0, `на странице «${heading}» нет подсказок`);
+
+        for (let index = 0; index < count; index += 1) {
+          const trigger = triggers.nth(index);
+          await trigger.scrollIntoViewIfNeeded();
+          await trigger.click();
+          const tooltip = page.getByRole('tooltip');
+          await expectVisible(tooltip, `не открылась подсказка №${index + 1} на «${heading}»`);
+          const box = await tooltip.evaluate((element) => {
+            const rect = element.getBoundingClientRect();
+
+            return {
+              left: rect.left,
+              top: rect.top,
+              right: rect.right,
+              bottom: rect.bottom,
+              width: window.innerWidth,
+              height: window.innerHeight
+            };
+          });
+
+          assert(box.left >= -0.5, `подсказка №${index + 1} выходит слева на «${heading}»`);
+          assert(box.top >= -0.5, `подсказка №${index + 1} выходит сверху на «${heading}»`);
+          assert(box.right <= box.width + 0.5, `подсказка №${index + 1} выходит справа на «${heading}»`);
+          assert(box.bottom <= box.height + 0.5, `подсказка №${index + 1} выходит снизу на «${heading}»`);
+
+          await page.keyboard.press('Escape');
+          await tooltip.waitFor({ state: 'detached' });
+        }
+      };
+
+      await page.goto(`${BASE}/#/clients/new`, { waitUntil: 'domcontentloaded' });
+      await checkTips('Новый клиент');
+      await page.goto(`${BASE}/#/staff/new`, { waitUntil: 'domcontentloaded' });
+      await checkTips('Новый сотрудник');
+    }
+  },
+  {
     name: 'чат: отправка сообщения',
     role: 'manager',
     async run(page) {
@@ -330,6 +588,27 @@ const scenarios = [
       });
       assert(subject.status === 403, `клиент не должен менять тему (получено ${subject.status})`);
 
+      const createClient = await api('POST', '/clients', { name: 'forbidden-client' });
+      assert(
+        createClient.status === 403,
+        `клиент не должен создавать клиентов (получено ${createClient.status})`
+      );
+
+      await page.goto(`${BASE}/#/clients/new`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(
+        page.getByRole('heading', { name: 'Страница не найдена' }),
+        'клиенту не должен открываться маршрут создания клиента'
+      );
+
+      const staffList = await api('GET', '/users?scope=staff');
+      assert(staffList.status === 403, `клиент не должен видеть сотрудников (получено ${staffList.status})`);
+
+      await page.goto(`${BASE}/#/staff`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(
+        page.getByRole('heading', { name: 'Страница не найдена' }),
+        'клиенту не должен открываться раздел сотрудников'
+      );
+
       const photo = await fetch(`${API}/stocks/photos/1`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -380,6 +659,7 @@ async function main() {
           ([token, user]) => {
             localStorage.setItem('crm_token', token);
             localStorage.setItem('crm_user', user);
+            localStorage.setItem('crm.cookie.accepted', '1');
           },
           [session.token, JSON.stringify(session.user)]
         );

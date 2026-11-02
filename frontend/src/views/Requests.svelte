@@ -667,16 +667,17 @@
         {#if draftCount > 0}<span class="icon-badge" aria-hidden="true">{draftCount}</span>{/if}
       </button>
 
-      <button
-        type="button"
-        class="sort-button"
-        title="Добавить заявку"
-        aria-label="Добавить заявку"
-        disabled={!appSettings.salesEnabled || !auth.can('requests.create')}
-        onclick={() => router.navigate('/requests/new')}
-      >
-        <Icon name="plus" size={16} />
-      </button>
+      {#if appSettings.salesEnabled && auth.can('requests.create')}
+        <button
+          type="button"
+          class="sort-button"
+          title="Добавить заявку"
+          aria-label="Добавить заявку"
+          onclick={() => router.navigate('/requests/new')}
+        >
+          <Icon name="plus" size={16} />
+        </button>
+      {/if}
 
       <button
         type="button"

@@ -18,7 +18,11 @@
   import RequestNew from './views/RequestNew.svelte';
   import Cart from './views/Cart.svelte';
   import Clients from './views/Clients.svelte';
+  import ClientNew from './views/ClientNew.svelte';
   import ClientCard from './views/ClientCard.svelte';
+  import Staff from './views/Staff.svelte';
+  import StaffNew from './views/StaffNew.svelte';
+  import StaffCard from './views/StaffCard.svelte';
   import Chat from './views/Chat.svelte';
   import Stocks from './views/Stocks.svelte';
   import StockGroups from './views/StockGroups.svelte';
@@ -74,6 +78,7 @@
   const devBadge = $derived(import.meta.env.DEV ? badgeForRoute(route) : null);
   const requestMatch = $derived(matchRoute('/requests/:id', route));
   const clientMatch = $derived(matchRoute('/clients/:id', route));
+  const staffMatch = $derived(matchRoute('/staff/:id', route));
   const legalMatch = $derived(matchRoute('/legal/:code', route));
   const userMatch = $derived(matchRoute('/users/:id', route));
   const itemNewMatch = $derived(matchRoute('/stocks/items/new', route));
@@ -112,9 +117,29 @@
       <RequestCard id={Number(requestMatch.id)} />
     {:else if route === '/clients'}
       <Clients />
+    {:else if route === '/clients/new'}
+      {#if auth.level >= 10}
+        <ClientNew />
+      {:else}
+        <NotFound />
+      {/if}
     {:else if clientMatch}
       {#key clientMatch.id}
         <ClientCard id={Number(clientMatch.id)} />
+      {/key}
+    {:else if (route === '/staff' || route === '/staff/new' || staffMatch) && !auth.can('users.manage')}
+      <NotFound />
+    {:else if route === '/staff'}
+      <Staff />
+    {:else if route === '/staff/new'}
+      {#if auth.can('users.manage') && !appSettings.demoMode}
+        <StaffNew />
+      {:else}
+        <NotFound />
+      {/if}
+    {:else if staffMatch}
+      {#key staffMatch.id}
+        <StaffCard id={Number(staffMatch.id)} />
       {/key}
     {:else if route === '/chat'}
       <Chat />

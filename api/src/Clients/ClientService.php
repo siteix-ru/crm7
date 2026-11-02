@@ -46,6 +46,8 @@ final class ClientService
             'company' => (string) ($row['company'] ?? ''),
             'inn' => (string) ($row['inn'] ?? ''),
             'position' => (string) ($row['position'] ?? ''),
+            'city' => (string) ($row['city'] ?? ''),
+            'address' => (string) ($row['address'] ?? ''),
             'registered_at' => (string) ($row['registered_at'] ?? $row['created_at'] ?? ''),
         ], $this->users->listPendingClients());
 
@@ -151,6 +153,8 @@ final class ClientService
         $company = trim((string) ($input['company'] ?? ''));
         $inn = preg_replace('/\s+/', '', (string) ($input['inn'] ?? '')) ?? '';
         $position = trim((string) ($input['position'] ?? ''));
+        $city = mb_substr(trim((string) ($input['city'] ?? '')), 0, 128);
+        $address = mb_substr(trim((string) ($input['address'] ?? '')), 0, 255);
         $phone = trim((string) ($input['phone'] ?? ''));
         $email = mb_strtolower(trim((string) ($input['email'] ?? '')));
 
@@ -187,6 +191,8 @@ final class ClientService
             'Компания' => (string) ($client['COMPANY'] ?? ''),
             'ИНН' => (string) ($client['INN'] ?? ''),
             'Должность' => (string) ($client['DOLGNOST'] ?? ''),
+            'Город' => (string) ($client['CITY'] ?? ''),
+            'Адрес' => (string) ($client['ADDRESS'] ?? ''),
             'Телефон' => (string) ($client['PHONE'] ?? ''),
             'E-mail' => (string) ($client['EMAIL'] ?? ''),
         ];
@@ -195,6 +201,8 @@ final class ClientService
             'Компания' => mb_substr($company, 0, 255),
             'ИНН' => mb_substr($inn, 0, 12),
             'Должность' => mb_substr($position, 0, 255),
+            'Город' => $city,
+            'Адрес' => $address,
             'Телефон' => mb_substr($phone, 0, 255),
             'E-mail' => mb_substr($email, 0, 255),
         ];
@@ -204,6 +212,8 @@ final class ClientService
             'company' => $after['Компания'],
             'inn' => $after['ИНН'],
             'position' => $after['Должность'],
+            'city' => $after['Город'],
+            'address' => $after['Адрес'],
             'phone' => $after['Телефон'],
             'email' => $after['E-mail'],
         ]);
@@ -351,6 +361,8 @@ final class ClientService
                 'company' => (string) ($client['COMPANY'] ?? ''),
                 'inn' => (string) ($client['INN'] ?? ''),
                 'position' => (string) ($client['DOLGNOST'] ?? ''),
+                'city' => (string) ($client['CITY'] ?? ''),
+                'address' => (string) ($client['ADDRESS'] ?? ''),
                 'active' => ($client['ACTIVE'] ?? 'N') === 'Y',
                 'reg_state' => (string) ($client['reg_state'] ?? 'active'),
                 'registered_at' => (string) ($client['TIME_ADD'] ?? ''),
@@ -591,6 +603,30 @@ final class ClientService
         ];
     }
 
+    public function revokeSessions(array $actor, array $capabilities, int $clientId): array
+    {
+        $client = $this->assertClient($clientId);
+        $this->assertCanManageAccount($actor, $capabilities, $clientId);
+
+        if (Config::demoMode()) {
+            throw new HttpException(403, 'demo_mode', 'Действие недоступно в демо-режиме');
+        }
+
+        if ((string) ($client['reg_state'] ?? 'active') !== 'active') {
+            throw new HttpException(422, 'not_activated', 'Сначала подтвердите регистрацию клиента');
+        }
+
+        $this->tokens->revokeAllForUser($clientId);
+        $this->history->add(
+            $clientId,
+            'sessions_revoked',
+            (int) $actor['ID'],
+            'Завершены все сессии клиента'
+        );
+
+        return ['id' => $clientId, 'revoked' => true];
+    }
+
     /**
      * @return array{0: bool, 1: string|null}
      */
@@ -740,17 +776,27 @@ final class ClientService
             'access' => $this->canManageAccount($actor, $capabilities, $clientId),
             'reset_password' => $this->canManageAccount($actor, $capabilities, $clientId)
                 && !Config::demoMode(),
+            'revoke_sessions' => $this->canManageAccount($actor, $capabilities, $clientId)
+                && !Config::demoMode()
+                && (($client['reg_state'] ?? 'active') === 'active'),
             'assign' => $canAssign,
             'claim' => $isStaff
                 && $managerRow === null
                 && ($client['ACTIVE'] ?? 'N') === 'Y',
-            'accept' => $transferRow !== null
+            'accept' => $isStaff
+                && $transferRow !== null
                 && $transferRow['status'] === 'pending'
                 && $transferRow['to'] !== null
                 && (int) $transferRow['to']['id'] === (int) $actor['ID'],
-            'cancel' => $transferRow !== null
+            'cancel' => $isStaff
+                && $transferRow !== null
                 && in_array($transferRow['status'], ['pending', 'scheduled'], true)
                 && ((int) $transferRow['created_by']['id'] === (int) $actor['ID'] || $canAssign),
+            'convert_to_staff' => in_array('roles.manage', $capabilities, true)
+                && (int) $actor['LEVEL'] >= 90
+                && !Config::demoMode()
+                && ($client['ACTIVE'] ?? 'N') === 'Y'
+                && ($client['reg_state'] ?? 'active') === 'active',
         ];
     }
 
