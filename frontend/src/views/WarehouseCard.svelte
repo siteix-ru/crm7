@@ -350,25 +350,27 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <a
-      class="back"
-      href={isNew ? '#/warehouses' : `#/warehouses/${id}`}
-      title={isNew ? 'К списку складов' : 'К карточке склада'}
-    >
-      <Icon name="arrow-left" size={16} />
-    </a>
-    <div>
-      <h1>{isNew ? 'Новый склад' : (warehouse?.name ?? 'Склад')}</h1>
-      <p class="sub">
-        {#if isNew}
-          Заполните данные склада
-        {:else if warehouse}
-          {warehouse.active ? 'Активен' : 'Скрыт от пользователей'}
-        {:else}
-          Загрузка…
-        {/if}
-      </p>
+  <div class="page-hero">
+    <div class="head">
+      <a
+        class="back"
+        href={isNew ? '#/warehouses' : `#/warehouses/${id}`}
+        title={isNew ? 'К списку складов' : 'К карточке склада'}
+      >
+        <Icon name="arrow-left" size={16} />
+      </a>
+      <div>
+        <h1>{isNew ? 'Новый склад' : (warehouse?.name ?? 'Склад')}</h1>
+        <p class="sub">
+          {#if isNew}
+            Заполните данные склада
+          {:else if warehouse}
+            {warehouse.active ? 'Активен' : 'Скрыт от пользователей'}
+          {:else}
+            Загрузка…
+          {/if}
+        </p>
+      </div>
     </div>
   </div>
 

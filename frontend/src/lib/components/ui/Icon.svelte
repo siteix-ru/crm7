@@ -3,15 +3,20 @@
   import ArrowLeftOutlined from '@ant-design/icons-svg/es/asn/ArrowLeftOutlined';
   import ArrowRightOutlined from '@ant-design/icons-svg/es/asn/ArrowRightOutlined';
   import ArrowUpOutlined from '@ant-design/icons-svg/es/asn/ArrowUpOutlined';
+  import AppstoreOutlined from '@ant-design/icons-svg/es/asn/AppstoreOutlined';
+  import AuditOutlined from '@ant-design/icons-svg/es/asn/AuditOutlined';
   import BarChartOutlined from '@ant-design/icons-svg/es/asn/BarChartOutlined';
   import BellOutlined from '@ant-design/icons-svg/es/asn/BellOutlined';
+  import CalendarOutlined from '@ant-design/icons-svg/es/asn/CalendarOutlined';
   import CameraOutlined from '@ant-design/icons-svg/es/asn/CameraOutlined';
   import CheckCircleFilled from '@ant-design/icons-svg/es/asn/CheckCircleFilled';
   import CheckOutlined from '@ant-design/icons-svg/es/asn/CheckOutlined';
   import CloseCircleFilled from '@ant-design/icons-svg/es/asn/CloseCircleFilled';
   import CloseOutlined from '@ant-design/icons-svg/es/asn/CloseOutlined';
+  import CopyOutlined from '@ant-design/icons-svg/es/asn/CopyOutlined';
   import DatabaseOutlined from '@ant-design/icons-svg/es/asn/DatabaseOutlined';
   import DeleteOutlined from '@ant-design/icons-svg/es/asn/DeleteOutlined';
+  import DollarOutlined from '@ant-design/icons-svg/es/asn/DollarOutlined';
   import DownloadOutlined from '@ant-design/icons-svg/es/asn/DownloadOutlined';
   import EditOutlined from '@ant-design/icons-svg/es/asn/EditOutlined';
   import FileTextOutlined from '@ant-design/icons-svg/es/asn/FileTextOutlined';
@@ -23,12 +28,15 @@
   import InfoCircleOutlined from '@ant-design/icons-svg/es/asn/InfoCircleOutlined';
   import KeyOutlined from '@ant-design/icons-svg/es/asn/KeyOutlined';
   import LogoutOutlined from '@ant-design/icons-svg/es/asn/LogoutOutlined';
+  import MailOutlined from '@ant-design/icons-svg/es/asn/MailOutlined';
   import MessageOutlined from '@ant-design/icons-svg/es/asn/MessageOutlined';
   import PieChartOutlined from '@ant-design/icons-svg/es/asn/PieChartOutlined';
   import PictureOutlined from '@ant-design/icons-svg/es/asn/PictureOutlined';
   import PlusOutlined from '@ant-design/icons-svg/es/asn/PlusOutlined';
   import QuestionCircleOutlined from '@ant-design/icons-svg/es/asn/QuestionCircleOutlined';
+  import ReloadOutlined from '@ant-design/icons-svg/es/asn/ReloadOutlined';
   import SafetyCertificateOutlined from '@ant-design/icons-svg/es/asn/SafetyCertificateOutlined';
+  import SendOutlined from '@ant-design/icons-svg/es/asn/SendOutlined';
   import SettingOutlined from '@ant-design/icons-svg/es/asn/SettingOutlined';
   import ShopOutlined from '@ant-design/icons-svg/es/asn/ShopOutlined';
   import ShoppingCartOutlined from '@ant-design/icons-svg/es/asn/ShoppingCartOutlined';
@@ -54,7 +62,9 @@
     'arrow-left': ArrowLeftOutlined,
     'arrow-right': ArrowRightOutlined,
     'arrow-up': ArrowUpOutlined,
+    audit: AuditOutlined,
     bell: BellOutlined,
+    calendar: CalendarOutlined,
     camera: CameraOutlined,
     cart: ShoppingCartOutlined,
     chat: MessageOutlined,
@@ -63,6 +73,8 @@
     clients: TeamOutlined,
     close: CloseOutlined,
     'close-circle': CloseCircleFilled,
+    copy: CopyOutlined,
+    database: DatabaseOutlined,
     edit: EditOutlined,
     export: DownloadOutlined,
     filter: FilterOutlined,
@@ -73,10 +85,14 @@
     info: InfoCircleOutlined,
     key: KeyOutlined,
     logout: LogoutOutlined,
+    mail: MailOutlined,
     'my-reports': PieChartOutlined,
     picture: PictureOutlined,
+    price: DollarOutlined,
     search: SearchOutlined,
+    send: SendOutlined,
     plus: PlusOutlined,
+    refresh: ReloadOutlined,
     reports: BarChartOutlined,
     requests: FileTextOutlined,
     settings: SettingOutlined,
@@ -86,6 +102,7 @@
     substitutions: SwapOutlined,
     tags: TagsOutlined,
     trash: DeleteOutlined,
+    types: AppstoreOutlined,
     view: TableOutlined,
     warehouse: ShopOutlined
   };

@@ -17,7 +17,6 @@
     resetClientPassword,
     revokeClientSessions,
     sendClientPasswordLink,
-    transferClient,
     unblockClient,
     updateClientContacts
   } from '../lib/api/clients';
@@ -40,7 +39,6 @@
     RequestStatus,
     ViewEntry
   } from '../lib/api/types';
-  import { todayIso } from '../lib/period';
   import { formatDate, formatDateTime, formatRelative } from '../lib/format';
   import { tooltip } from '../lib/actions/tooltip';
   import Button from '../lib/components/ui/Button.svelte';
@@ -220,7 +218,6 @@
   let convertError = $state('');
   let convertSaving = $state(false);
   let managerOpen = $state(false);
-  let transferOpen = $state(false);
   let managerBusy = $state(false);
   let managers = $state<ManagerItem[]>([]);
   let interests = $state<ClientInterest[]>([]);
@@ -279,13 +276,6 @@
   let historyPage = $state(1);
   let statuses = $state<RequestStatus[]>([]);
   let managerForm = $state({ manager_id: '', comment: '' });
-  let transferForm = $state({
-    to_manager_id: '',
-    permanent: true,
-    date_from: '',
-    date_to: '',
-    comment: ''
-  });
   let requestsSearchTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
@@ -322,14 +312,6 @@
   const canConfirm = $derived(auth.can('clients.confirm'));
   const pricesEnabled = $derived(appSettings.pricesEnabled);
   const canAssignPrices = $derived(pricesEnabled && auth.can('prices.assign'));
-  const canManage = $derived(card?.can.manage ?? false);
-  const transferInProgress = $derived(
-    card?.transfer !== null && card?.transfer !== undefined
-      && ['pending', 'scheduled'].includes(card.transfer.status)
-  );
-  const canStartTransfer = $derived(
-    (canManage || (card?.can.assign ?? false)) && !transferInProgress
-  );
   const canConvertToStaff = $derived(
     card?.can.convert_to_staff === true && !appSettings.demoMode
   );
@@ -1233,52 +1215,6 @@
     }
   }
 
-  function openTransfer(): void {
-    transferForm = {
-      to_manager_id: '',
-      permanent: true,
-      date_from: todayIso(),
-      date_to: '',
-      comment: ''
-    };
-    actionError = '';
-    actionNotice = '';
-    transferOpen = true;
-    void loadManagers();
-  }
-
-  async function saveTransfer(): Promise<void> {
-    managerBusy = true;
-    actionError = '';
-
-    try {
-      if (transferForm.date_from === '') {
-        throw new ApiError('validation_error', 'Укажите дату передачи', 422);
-      }
-
-      if (!transferForm.permanent && transferForm.date_to === '') {
-        throw new ApiError('validation_error', 'Укажите дату окончания периода', 422);
-      }
-
-      await transferClient(
-        id,
-        transferForm.to_manager_id === '' ? null : Number(transferForm.to_manager_id),
-        transferForm.date_from,
-        transferForm.permanent ? null : transferForm.date_to,
-        transferForm.comment.trim()
-      );
-      transferOpen = false;
-      actionNotice = transferForm.to_manager_id === ''
-        ? 'Клиент передан в пул'
-        : 'Передача отправлена сотруднику';
-      await load(true);
-    } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось передать клиента';
-    } finally {
-      managerBusy = false;
-    }
-  }
-
   async function claimSelf(): Promise<void> {
     await runAction(() => claimClient(id), 'Клиент взят себе');
   }
@@ -1844,32 +1780,18 @@
             {:else}
               <p class="empty">Менеджер не назначен</p>
             {/if}
-            {#if card.can.assign || canStartTransfer}
+            {#if card.can.assign}
               <div class="manager-actions">
-                {#if card.can.assign}
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    title="Редактировать менеджера"
-                    aria-label="Редактировать менеджера"
-                    disabled={busy}
-                    onclick={openAssign}
-                  >
-                    <Icon name="edit" size={16} />
-                  </button>
-                {/if}
-                {#if canStartTransfer}
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    title="Передать клиента"
-                    aria-label="Передать клиента"
-                    disabled={busy}
-                    onclick={openTransfer}
-                  >
-                    <Icon name="substitutions" size={16} />
-                  </button>
-                {/if}
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Редактировать менеджера"
+                  aria-label="Редактировать менеджера"
+                  disabled={busy}
+                  onclick={openAssign}
+                >
+                  <Icon name="edit" size={16} />
+                </button>
               </div>
             {/if}
           </div>
@@ -2615,88 +2537,6 @@
       <div class="modal-actions">
         <Button variant="ghost" disabled={managerBusy} onclick={() => (managerOpen = false)}>Отмена</Button>
         <Button loading={managerBusy} onclick={() => void saveAssign()}>Назначить</Button>
-      </div>
-    </Modal>
-
-    <Modal open={transferOpen} title="Передать клиента" onclose={() => (transferOpen = false)}>
-      <div class="form">
-        <label class="edit-label">
-          <span>Кому</span>
-          <select
-            bind:value={transferForm.to_manager_id}
-            onchange={() => {
-              if (transferForm.to_manager_id === '') {
-                transferForm.permanent = true;
-                transferForm.date_to = '';
-              }
-            }}
-          >
-            <option value="">— в пул (без менеджера) —</option>
-            {#each managers.filter((item) => item.id !== card?.manager?.id) as manager (manager.id)}
-              <option value={String(manager.id)}>{manager.name}</option>
-            {/each}
-          </select>
-        </label>
-
-        <label class="edit-label">
-          <span>Срок</span>
-          <div class="period">
-            <label class="radio">
-              <input type="radio" bind:group={transferForm.permanent} value={true} /> навсегда
-            </label>
-            <label class="radio">
-              <input
-                type="radio"
-                bind:group={transferForm.permanent}
-                value={false}
-                disabled={transferForm.to_manager_id === ''}
-              /> на период
-            </label>
-          </div>
-        </label>
-
-        <label class="edit-label">
-          <span>Дата передачи</span>
-          <input type="date" bind:value={transferForm.date_from} min={todayIso()} />
-        </label>
-
-        <label class="edit-label">
-          <span>Дата окончания</span>
-          <input
-            type="date"
-            bind:value={transferForm.date_to}
-            min={transferForm.date_from || todayIso()}
-            disabled={transferForm.permanent || transferForm.to_manager_id === ''}
-          />
-        </label>
-
-        <label class="edit-label">
-          <span>Комментарий</span>
-          <input bind:value={transferForm.comment} placeholder="Причина передачи" maxlength="500" />
-        </label>
-      </div>
-
-      <p class="hint">
-        {#if transferForm.to_manager_id === ''}
-          Клиент вернётся в пул — любой менеджер сможет его взять.
-        {:else if card?.can.assign}
-          Изменение вступит в силу с даты передачи.
-        {:else}
-          Сотрудник получит уведомление и сможет принять или отклонить передачу; менеджер сменится с
-          даты передачи.
-        {/if}
-      </p>
-
-      {#if actionError}
-        <div class="alert" role="alert">
-          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-          <span>{actionError}</span>
-        </div>
-      {/if}
-
-      <div class="modal-actions">
-        <Button variant="ghost" disabled={managerBusy} onclick={() => (transferOpen = false)}>Отмена</Button>
-        <Button loading={managerBusy} onclick={() => void saveTransfer()}>Передать</Button>
       </div>
     </Modal>
 

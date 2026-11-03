@@ -26,6 +26,7 @@
   import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
@@ -62,7 +63,9 @@
     warehouse_ids: null as number[] | null,
     query: '',
     page: 1,
-    active: 'all'
+    active: 'all',
+    qty_op: '',
+    qty: ''
   };
   const initialStockFilters = loadFilters('stocks', stockFilterDefaults);
   const initialWarehouseIds = Array.isArray(initialStockFilters.warehouse_ids)
@@ -101,7 +104,7 @@
           .filter((id) => Number.isFinite(id) && id > 0)
       : []
   );
-  let priceTypesDraft = $state<number[]>([]);
+  let priceTypesDraft = $state<string[]>([]);
 
   let groups = $state<ItemGroup[]>([]);
 
@@ -135,8 +138,22 @@
         : 'all'
   );
   const canDeactivate = $derived(auth.can('stocks.deactivate'));
-  let statusActiveDraft = $state(true);
-  let statusInactiveDraft = $state(true);
+  const statusOptions = [
+    { value: 'active', label: 'Активированные' },
+    { value: 'inactive', label: 'Деактивированные' }
+  ];
+  const initialQtyOpRaw = String(initialStockFilters.qty_op ?? '');
+  const initialQtyOp: '' | 'gt' | 'lt' =
+    initialQtyOpRaw === 'gt' || initialQtyOpRaw === 'lt' ? initialQtyOpRaw : '';
+  const initialQtyValue =
+    initialQtyOp !== '' && Number.isFinite(Number(initialStockFilters.qty))
+      ? String(Number(initialStockFilters.qty))
+      : '';
+  let qtyOp = $state<'' | 'gt' | 'lt'>(initialQtyOp);
+  let qty = $state(initialQtyValue);
+  let statusDraft = $state<string[]>([]);
+  let qtyOpDraft = $state<'' | 'gt' | 'lt'>(initialQtyOp);
+  let qtyDraft = $state<string | number>(initialQtyValue);
   const PAGE_SIZES = [10, 20, 50, 100];
   const initialView: 'list' | 'tiles' = initialStockFilters.view === 'tiles' ? 'tiles' : 'list';
 
@@ -201,6 +218,9 @@
 
     return [...map.entries()].map(([id, title]) => ({ id, title }));
   });
+  const priceTypeOptions = $derived(
+    availablePriceTypes.map((type) => ({ value: String(type.id), label: type.title }))
+  );
   const listVars = $derived(
     `--photo: ${showPhotos ? '88px' : '0px'}; --price: ${pricesEnabled ? '150px' : '0px'}; --cart: ${canCreate ? '120px' : '0px'};`
   );
@@ -292,11 +312,19 @@
       result.no_group = stockNoGroup;
     }
 
+    if (qtyOp !== '' && qty !== '' && Number.isFinite(Number(qty))) {
+      result.qty_op = qtyOp;
+      result.qty = String(Number(qty));
+    }
+
     return result;
   });
 
   const hasFilters = $derived(
-    query !== '' || groupFilterActive || (canDeactivate && stockActive !== 'all')
+    query !== '' ||
+      groupFilterActive ||
+      (canDeactivate && stockActive !== 'all') ||
+      (qtyOp !== '' && qty !== '')
   );
   const selectedWarehouses = $derived(warehouses.filter((item) => selectedIds.includes(item.id)));
   const headDate = $derived(
@@ -329,21 +357,6 @@
     const filtered = rows.filter((row) => priceTypeFilter.includes(row.id));
 
     return filtered.length > 0 ? filtered : rows;
-  }
-
-  function togglePriceTypesDraft(id: number): void {
-    priceTypesDraft = priceTypesDraft.includes(id)
-      ? priceTypesDraft.filter((value) => value !== id)
-      : [...priceTypesDraft, id];
-  }
-
-  function toggleStatusDraft(kind: 'active' | 'inactive'): void {
-    if (kind === 'active') {
-      statusActiveDraft = !statusActiveDraft;
-      return;
-    }
-
-    statusInactiveDraft = !statusInactiveDraft;
   }
 
   function addToCart(level: StockLevel): void {
@@ -598,75 +611,99 @@
       warehouse_ids: selectedIds,
       query,
       page,
-      active: stockActive
+      active: stockActive,
+      qty_op: qtyOp,
+      qty
     });
   }
 
   function openView(): void {
     viewDraft = viewMode;
     photoDraft = showPhotos;
-    statusActiveDraft = statusActive;
-    statusInactiveDraft = statusInactive;
-    priceTypesDraft =
+    statusDraft = [
+      ...(statusActive ? ['active'] : []),
+      ...(statusInactive ? ['inactive'] : [])
+    ];
+    const selectedPrices =
       priceTypeFilter.length > 0
-        ? [...priceTypeFilter]
+        ? priceTypeFilter
         : availablePriceTypes.map((type) => type.id);
+    priceTypesDraft = selectedPrices.map(String);
+    qtyOpDraft = qtyOp;
+    qtyDraft = qty;
     viewOpen = true;
+  }
+
+  function resetView(): void {
+    viewDraft = 'list';
+    photoDraft = true;
+    statusDraft = ['active', 'inactive'];
+    priceTypesDraft = availablePriceTypes.map((type) => String(type.id));
+    qtyOpDraft = '';
+    qtyDraft = '';
   }
 
   function applyView(): void {
     viewOpen = false;
 
     const allIds = availablePriceTypes.map((type) => type.id);
+    const selectedIds = priceTypesDraft
+      .map(Number)
+      .filter((id) => Number.isFinite(id) && id > 0);
     const nextFilter =
-      priceTypesDraft.length === 0 || priceTypesDraft.length === allIds.length
+      selectedIds.length === 0 || selectedIds.length === allIds.length
         ? []
-        : [...priceTypesDraft];
-    const nextStatusActive = statusActiveDraft;
-    const nextStatusInactive = statusInactiveDraft;
+        : [...selectedIds].sort((a, b) => a - b);
+    const nextStatusActive = statusDraft.length === 0 || statusDraft.includes('active');
+    const nextStatusInactive = statusDraft.length === 0 || statusDraft.includes('inactive');
     const statusChanged =
       canDeactivate &&
       (nextStatusActive !== statusActive || nextStatusInactive !== statusInactive);
+    const qtyRaw = String(qtyDraft ?? '').trim();
+    const qtyNumber = qtyRaw === '' ? null : Number(qtyRaw);
+    const nextQty =
+      qtyOpDraft !== '' && qtyNumber !== null && Number.isFinite(qtyNumber)
+        ? String(qtyNumber)
+        : '';
+    const nextQtyOp = nextQty !== '' ? qtyOpDraft : '';
+    const qtyChanged = nextQtyOp !== qtyOp || nextQty !== qty;
+    const currentFilter = [...priceTypeFilter].sort((a, b) => a - b);
+    const priceChanged =
+      nextFilter.length !== currentFilter.length ||
+      nextFilter.some((id, index) => id !== currentFilter[index]);
+    const photoChanged = photoDraft !== showPhotos;
+    const viewChanged = viewDraft !== viewMode;
 
-    if (
-      viewDraft === viewMode &&
-      photoDraft === showPhotos &&
-      !statusChanged &&
-      nextFilter.length === priceTypeFilter.length &&
-      nextFilter.every((id, index) => id === priceTypeFilter[index])
-    ) {
+    if (!statusChanged && !qtyChanged && !priceChanged && !photoChanged && !viewChanged) {
       return;
     }
-
-    const viewChanged = viewDraft !== viewMode;
 
     viewMode = viewDraft;
     showPhotos = photoDraft;
     priceTypeFilter = nextFilter;
+    qtyOp = nextQtyOp;
+    qty = nextQty;
 
     if (statusChanged) {
       statusActive = nextStatusActive;
       statusInactive = nextStatusInactive;
     }
 
-    if (statusChanged || viewChanged) {
+    saveStockFilters();
+
+    if (statusChanged || qtyChanged || viewChanged) {
       if (viewChanged) {
         perPage = viewMode === 'tiles' ? perPageTiles : perPageList;
       }
 
       page = 1;
-      saveStockFilters();
 
-      if (statusChanged) {
+      if (statusChanged || qtyChanged) {
         void applyFilters();
       } else {
         void loadLevels();
       }
-
-      return;
     }
-
-    saveStockFilters();
   }
 
   function changeSort(): void {
@@ -948,7 +985,8 @@
     </div>
   {/if}
 
-  <div class="filters">
+  <div class="hero page-hero">
+    <div class="filters">
     <div class="head">
       <h1>Номенклатура</h1>
       {#if headDate}
@@ -1033,12 +1071,32 @@
           <button
             type="button"
             class="sort-button"
-            title="Управление группами"
-            aria-label="Управление группами"
+            title="Управление группами номенклатуры"
+            aria-label="Управление группами номенклатуры"
             onclick={() => router.navigate('/stocks/groups')}
           >
             <Icon name="tags" size={16} />
           </button>
+          <button
+            type="button"
+            class="sort-button"
+            title="Управление типами номенклатуры"
+            aria-label="Управление типами номенклатуры"
+            onclick={() => router.navigate('/stocks/types')}
+          >
+            <Icon name="types" size={16} />
+          </button>
+          {#if pricesEnabled}
+            <button
+              type="button"
+              class="sort-button"
+              title="Управление типами цен"
+              aria-label="Управление типами цен"
+              onclick={() => router.navigate('/stocks/price-types')}
+            >
+              <Icon name="price" size={16} />
+            </button>
+          {/if}
         {/if}
 
         {#if canEdit}
@@ -1089,6 +1147,7 @@
         </button>
       </div>
     {/if}
+    </div>
   </div>
 
   {#if loading}
@@ -1345,84 +1404,88 @@
     </Modal>
 
     <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-      <div class="view-columns">
-        <div class="view-column">
-          <p class="sort-hint">Вид</p>
-          <div class="sort-options">
-            <label class="sort-option">
-              <input type="radio" name="stock-view" value="list" bind:group={viewDraft} />
-              <span>Списком</span>
-            </label>
-            <label class="sort-option">
-              <input type="radio" name="stock-view" value="tiles" bind:group={viewDraft} />
-              <span>Плитками</span>
-            </label>
-          </div>
-        </div>
+      <div class="filters-form">
+        <div class="view-options">
+        <label class="radio">
+          <input type="radio" name="stock-view" value="list" bind:group={viewDraft} />
+          <span>Список</span>
+        </label>
+        <label class="radio">
+          <input type="radio" name="stock-view" value="tiles" bind:group={viewDraft} />
+          <span>Плитка</span>
+        </label>
+      </div>
 
-        <div class="view-column">
-          <p class="sort-hint">Фото в номенклатуре</p>
-          <div class="sort-options">
-            <label class="sort-option">
-              <input type="radio" name="stock-photos" value={true} bind:group={photoDraft} />
-              <span>С фото</span>
-            </label>
-            <label class="sort-option">
-              <input type="radio" name="stock-photos" value={false} bind:group={photoDraft} />
-              <span>Без фото</span>
-            </label>
-          </div>
+      <div class="filter-group">
+        <span class="filter-label">Фото в номенклатуре</span>
+        <div class="view-options">
+          <label class="radio">
+            <input type="radio" name="stock-photos" value={true} bind:group={photoDraft} />
+            <span>С фото</span>
+          </label>
+          <label class="radio">
+            <input type="radio" name="stock-photos" value={false} bind:group={photoDraft} />
+            <span>Без фото</span>
+          </label>
         </div>
       </div>
 
       {#if canDeactivate}
-        <div class="sort-status">
-          <span class="sort-status-label" title="Если ничего не выбрано — показываются все">Статус:</span>
-          <div class="status-opts">
-            <button
-              type="button"
-              class="status-opt"
-              class:on={statusActiveDraft}
-              aria-pressed={statusActiveDraft}
-              onclick={() => toggleStatusDraft('active')}
-            >
-              Активированные
-            </button>
-            <button
-              type="button"
-              class="status-opt"
-              class:on={statusInactiveDraft}
-              aria-pressed={statusInactiveDraft}
-              onclick={() => toggleStatusDraft('inactive')}
-            >
-              Деактивированные
-            </button>
-          </div>
+        <div class="filter-group">
+          <span class="filter-label" title="Если ничего не выбрано — показываются все">Статусы</span>
+          <MultiSelect
+            label="Статусы"
+            options={statusOptions}
+            bind:values={statusDraft}
+            allLabel="Все статусы"
+          />
         </div>
       {/if}
+
+      <div class="filter-group">
+        <span class="filter-label">Остаток</span>
+        <div class="filter-fields">
+          <label class="filter-field">
+            <span>Условие</span>
+            <select bind:value={qtyOpDraft}>
+              <option value="">Любой</option>
+              <option value="gt">Больше</option>
+              <option value="lt">Меньше</option>
+            </select>
+          </label>
+          <label class="filter-field">
+            <span>Значение</span>
+            <input
+              type="number"
+              min="0"
+              step="any"
+              bind:value={qtyDraft}
+              disabled={qtyOpDraft === ''}
+              placeholder="Например, 10"
+            />
+          </label>
+        </div>
+      </div>
 
       {#if pricesEnabled && availablePriceTypes.length > 1}
-        <div class="view-prices">
-          <span class="sort-status-label" title="Если ничего не выбрано — все типы цен">Цены:</span>
-          <div class="price-filter">
-            {#each availablePriceTypes as type (type.id)}
-              <button
-                type="button"
-                class="status-opt"
-                class:on={priceTypesDraft.includes(type.id)}
-                aria-pressed={priceTypesDraft.includes(type.id)}
-                onclick={() => togglePriceTypesDraft(type.id)}
-              >
-                {type.title}
-              </button>
-            {/each}
-          </div>
+        <div class="filter-group">
+          <span class="filter-label" title="Если ничего не выбрано — все типы цен">Типы цен</span>
+          <MultiSelect
+            label="Типы цен"
+            options={priceTypeOptions}
+            bind:values={priceTypesDraft}
+            allLabel="Все типы цен"
+            emptyLabel="Нет типов цен"
+            maxHeight="280px"
+          />
         </div>
       {/if}
 
-      <div class="modal-actions">
-        <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-        <Button onclick={applyView}>Применить</Button>
+        <div class="modal-actions">
+          <Button variant="ghost" onclick={resetView}>Сбросить</Button>
+          <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+          <Button onclick={applyView}>Применить</Button>
+        </div>
       </div>
     </Modal>
 
@@ -1453,9 +1516,9 @@
               </li>
             {/if}
             <li>
-              <b>Значок вида</b> (квадратики) — показать товары списком или плитками, а
-              также включить или скрыть фото. На телефоне плитки идут в 2 столбика, на компьютере —
-              в 3. Выбор запоминается.
+              <b>Значок вида</b> (квадратики) — показать товары списком или плитками, включить или
+              скрыть фото, а также задать фильтры: статусы, остаток и типы цен. На телефоне плитки
+              идут в 2 столбика, на компьютере — в 3. Выбор запоминается.
             </li>
             {#if canEdit}
               <li>
@@ -1901,6 +1964,14 @@
     line-height: 1;
   }
 
+  .hero {
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
   .filters {
     display: flex;
     flex-wrap: wrap;
@@ -2014,61 +2085,6 @@
     color: var(--text-description);
   }
 
-  .sort-status {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-secondary);
-  }
-
-  .sort-status-label {
-    font-size: 14px;
-    color: var(--text-description);
-  }
-
-  .status-opts {
-    display: flex;
-    gap: var(--space-2);
-  }
-
-  .status-opt {
-    padding: 0 12px;
-    height: 28px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text-description);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
-  }
-
-  .status-opt:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
-  .status-opt.on {
-    border-color: var(--primary);
-    background: var(--primary);
-    color: #fff;
-    font-weight: 500;
-  }
-
-  .status-opt.on:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    background: var(--primary-hover);
-    color: #fff;
-  }
-
-  .status-opt:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
   .sort-list {
     display: flex;
     flex-direction: column;
@@ -2175,8 +2191,7 @@
     cursor: pointer;
   }
 
-  .sort-option input[type='checkbox'],
-  .sort-option input[type='radio'] {
+  .sort-option input[type='checkbox'] {
     width: 16px;
     height: 16px;
     margin: 0;
@@ -2527,7 +2542,7 @@
 
   @media (min-width: 560px) {
     .levels.tiles {
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
     }
   }
 
@@ -2646,6 +2661,10 @@
   .levels.tiles .col-price .price {
     font-size: 16px;
     font-weight: 600;
+  }
+
+  .levels.tiles .price-lines {
+    gap: 0;
   }
 
   .levels.tiles .col-stock .quantity {
@@ -2785,36 +2804,6 @@
     color: var(--muted);
     font-size: 12px;
     font-weight: 400;
-  }
-
-  .price-filter {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .view-columns {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: var(--space-4);
-  }
-
-  .view-column {
-    min-width: 0;
-  }
-
-  .view-column + .view-column {
-    padding-left: var(--space-4);
-    border-left: 1px solid var(--border-secondary);
-  }
-
-  .view-prices {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-secondary);
   }
 
   .levels .level.cart-over .qty {

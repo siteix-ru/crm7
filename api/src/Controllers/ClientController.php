@@ -335,6 +335,17 @@ final class ClientController extends ApiController
         return Response::ok($result);
     }
 
+    public function facets(Request $request): Response
+    {
+        [$user] = $this->context($request);
+
+        if ((int) $user['LEVEL'] < 10) {
+            throw new HttpException(403, 'forbidden', 'Нет доступа к списку клиентов');
+        }
+
+        return Response::ok($this->users->listClientFacets());
+    }
+
     public function index(Request $request): Response
     {
         [$user, $capabilities] = $this->context($request);
@@ -356,6 +367,8 @@ final class ClientController extends ApiController
 
         $filters = [
             'state' => $this->clientStates($state),
+            'managers' => $this->clientManagers(trim($request->queryParam('managers'))),
+            'cities' => $this->clientCities(trim($request->queryParam('cities'))),
             'from' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) === 1 ? $from : '',
             'to' => preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) === 1 ? $to : '',
             'manager' => in_array($managerFilter, ['mine', 'none'], true) ? $managerFilter : '',
@@ -428,6 +441,62 @@ final class ClientController extends ApiController
             $value = trim($value);
 
             if ($value === '' || !in_array($value, $allowed, true) || isset($seen[$value])) {
+                continue;
+            }
+
+            $seen[$value] = true;
+            $parts[] = $value;
+        }
+
+        return $parts;
+    }
+
+    /**
+     * Менеджеры: «12,34,none» (id менеджеров и/или клиенты без менеджера).
+     *
+     * @return array<int, string>
+     */
+    private function clientManagers(string $managers): array
+    {
+        $parts = [];
+        $seen = [];
+
+        foreach (explode(',', $managers) as $value) {
+            $value = trim($value);
+
+            if ($value === 'none') {
+                $normalized = 'none';
+            } elseif (ctype_digit($value) && (int) $value > 0) {
+                $normalized = (string) (int) $value;
+            } else {
+                continue;
+            }
+
+            if (isset($seen[$normalized])) {
+                continue;
+            }
+
+            $seen[$normalized] = true;
+            $parts[] = $normalized;
+        }
+
+        return $parts;
+    }
+
+    /**
+     * Города клиентов: «Москва,Санкт-Петербург» (без пустых значений и дублей).
+     *
+     * @return array<int, string>
+     */
+    private function clientCities(string $cities): array
+    {
+        $parts = [];
+        $seen = [];
+
+        foreach (explode(',', $cities) as $value) {
+            $value = trim($value);
+
+            if ($value === '' || isset($seen[$value])) {
                 continue;
             }
 

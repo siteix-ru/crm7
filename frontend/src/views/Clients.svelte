@@ -2,12 +2,13 @@
   import { onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
   import { pendingClients } from '../lib/api/clients';
-  import { listClients } from '../lib/api/requests';
-  import type { ClientItem, PendingClient } from '../lib/api/types';
+  import { getClientFacets, listClients, listManagers } from '../lib/api/requests';
+  import type { ClientItem, ManagerItem, PendingClient } from '../lib/api/types';
   import { auth } from '../lib/stores/auth.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
@@ -17,8 +18,9 @@
   import { router } from '../lib/router.svelte';
 
   const filterDefaults = {
-    states: '',
-    manager: '',
+    states: [] as string[],
+    managers: [] as string[],
+    cities: [] as string[],
     from: '',
     to: '',
     sort: 'name_asc',
@@ -27,7 +29,8 @@
 
   const filterCountDefaults = {
     states: filterDefaults.states,
-    manager: filterDefaults.manager,
+    managers: filterDefaults.managers,
+    cities: filterDefaults.cities,
     from: filterDefaults.from,
     to: filterDefaults.to
   };
@@ -43,6 +46,15 @@
     { field: 'created', label: 'Дата регистрации' },
     { field: 'requests', label: 'Заявки' }
   ];
+
+  let managerItems = $state<ManagerItem[]>([]);
+  let clientCities = $state<string[]>([]);
+
+  const managerOptions = $derived([
+    ...managerItems.map((manager) => ({ value: String(manager.id), label: manager.name })),
+    { value: 'none', label: 'Без менеджера' }
+  ]);
+  const cityOptions = $derived(clientCities.map((city) => ({ value: city, label: city })));
 
   let clients = $state<ClientItem[]>([]);
   let total = $state(0);
@@ -72,7 +84,19 @@
 
   onMount(() => {
     void load();
+    void loadFilterOptions();
   });
+
+  async function loadFilterOptions(): Promise<void> {
+    try {
+      const [managers, facets] = await Promise.all([listManagers(), getClientFacets()]);
+      managerItems = managers.items;
+      clientCities = facets.cities;
+    } catch {
+      managerItems = [];
+      clientCities = [];
+    }
+  }
 
   async function load(): Promise<void> {
     loading = true;
@@ -80,8 +104,9 @@
 
     try {
       const data = await listClients(search, page, perPage, {
-        state: filters.states || undefined,
-        manager: filters.manager || undefined,
+        state: filters.states.length > 0 ? filters.states.join(',') : undefined,
+        managers: filters.managers.length > 0 ? filters.managers.join(',') : undefined,
+        cities: filters.cities.length > 0 ? filters.cities.join(',') : undefined,
         from: filters.from || undefined,
         to: filters.to || undefined,
         sort: filters.sort
@@ -151,8 +176,9 @@
 
   function saveClientFilters(): void {
     saveFilters('clients', {
-      states: filters.states,
-      manager: filters.manager,
+      states: [...filters.states],
+      managers: [...filters.managers],
+      cities: [...filters.cities],
       from: filters.from,
       to: filters.to,
       sort: filters.sort,
@@ -162,28 +188,26 @@
 
   function openView(): void {
     viewDraft = viewMode;
-    draft = { ...filters };
+    draft = {
+      ...filters,
+      states: [...filters.states],
+      managers: [...filters.managers],
+      cities: [...filters.cities]
+    };
     viewOpen = true;
   }
 
-  function toggleState(code: string): void {
-    const current = draft.states ? draft.states.split(',').filter(Boolean) : [];
-    const next = current.includes(code)
-      ? current.filter((item) => item !== code)
-      : [...current, code];
-    draft.states = next.join(',');
-  }
-
-  function toggleManager(value: 'mine' | 'none'): void {
-    draft.manager = draft.manager === value ? '' : value;
+  function sameValues(left: string[], right: string[]): boolean {
+    return left.length === right.length && left.every((value) => right.includes(value));
   }
 
   function applyView(): void {
     viewOpen = false;
 
     const filtersChanged =
-      draft.states !== filters.states ||
-      draft.manager !== filters.manager ||
+      !sameValues(draft.states, filters.states) ||
+      !sameValues(draft.managers, filters.managers) ||
+      !sameValues(draft.cities, filters.cities) ||
       draft.from !== filters.from ||
       draft.to !== filters.to;
     const viewChanged = viewDraft !== viewMode;
@@ -195,8 +219,9 @@
     if (filtersChanged) {
       filters = {
         ...filters,
-        states: draft.states,
-        manager: draft.manager,
+        states: [...draft.states],
+        managers: [...draft.managers],
+        cities: [...draft.cities],
         from: draft.from,
         to: draft.to
       };
@@ -206,6 +231,19 @@
     saveClientFilters();
     page = 1;
     void load();
+  }
+
+  function resetView(): void {
+    draft = {
+      states: [],
+      managers: [],
+      cities: [],
+      from: '',
+      to: '',
+      sort: filters.sort,
+      view: 'list'
+    };
+    viewDraft = 'list';
   }
 
   function parseSort(value: string): string[] {
@@ -312,6 +350,7 @@
 </script>
 
 <section class="page">
+  <div class="page-hero">
   <div class="filters">
     <div class="head">
       <h1>Клиенты</h1>
@@ -389,6 +428,7 @@
       </button>
     </div>
   </div>
+  </div>
 
   <Modal open={sortOpen} title="Сортировка" onclose={() => (sortOpen = false)}>
     <p class="sort-hint">
@@ -459,75 +499,70 @@
   </Modal>
 
   <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-    <div class="view-options">
+    <div class="filters-form">
+      <div class="view-options">
       <label class="radio">
         <input type="radio" name="client-view" value="list" bind:group={viewDraft} />
-        <span>Списком (строками)</span>
+        <span>Список</span>
       </label>
       <label class="radio">
         <input type="radio" name="client-view" value="tiles" bind:group={viewDraft} />
-        <span>Плитками</span>
+        <span>Плитка</span>
       </label>
     </div>
 
-    <div class="sort-status">
-      <span
-        class="sort-status-label"
-        title="Если ничего не выбрано — показываются активные и ожидающие подтверждения"
-      >Статус:</span>
-      <div class="status-opts">
-        {#each stateOptions as option (option.value)}
-          <button
-            type="button"
-            class="status-opt"
-            class:on={draft.states.split(',').includes(option.value)}
-            aria-pressed={draft.states.split(',').includes(option.value)}
-            onclick={() => toggleState(option.value)}
-          >
-            {option.label}
-          </button>
-        {/each}
-      </div>
+    <div class="filter-group">
+      <span class="filter-label" title="Если ничего не выбрано — активные и ожидающие подтверждения">
+        Статусы
+      </span>
+      <MultiSelect
+        label="Статусы"
+        options={stateOptions}
+        bind:values={draft.states}
+        allLabel="Все статусы"
+      />
     </div>
 
-    <div class="sort-status">
-      <span class="sort-status-label" title="Если ничего не выбрано — все менеджеры">Менеджер:</span>
-      <div class="status-opts">
-        <button
-          type="button"
-          class="status-opt"
-          class:on={draft.manager === 'mine'}
-          aria-pressed={draft.manager === 'mine'}
-          onclick={() => toggleManager('mine')}
-        >
-          Мои клиенты
-        </button>
-        <button
-          type="button"
-          class="status-opt"
-          class:on={draft.manager === 'none'}
-          aria-pressed={draft.manager === 'none'}
-          onclick={() => toggleManager('none')}
-        >
-          Без менеджера
-        </button>
-      </div>
+    <div class="filter-group">
+      <span class="filter-label">Менеджеры</span>
+      <MultiSelect
+        label="Менеджеры"
+        options={managerOptions}
+        bind:values={draft.managers}
+        allLabel="Все менеджеры"
+        emptyLabel="Нет менеджеров"
+        maxHeight="280px"
+      />
+    </div>
+
+    <div class="filter-group">
+      <span class="filter-label">Города</span>
+      <MultiSelect
+        label="Города"
+        options={cityOptions}
+        bind:values={draft.cities}
+        allLabel="Все города"
+        emptyLabel="Нет городов"
+        maxHeight="280px"
+      />
     </div>
 
     <div class="view-period">
       <label class="filter-field">
         <span>Регистрация с</span>
-        <input type="date" bind:value={draft.from} max={draft.to} />
+        <input type="date" bind:value={draft.from} max={draft.to || undefined} />
       </label>
       <label class="filter-field">
         <span>Регистрация по</span>
-        <input type="date" bind:value={draft.to} min={draft.from} />
+        <input type="date" bind:value={draft.to} min={draft.from || undefined} />
       </label>
     </div>
 
-    <div class="modal-actions">
-      <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-      <Button onclick={applyView}>Применить</Button>
+      <div class="modal-actions">
+        <Button variant="ghost" onclick={resetView}>Сбросить</Button>
+        <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+        <Button onclick={applyView}>Применить</Button>
+      </div>
     </div>
   </Modal>
 
@@ -1042,83 +1077,6 @@
     border-color: var(--primary);
     color: var(--primary);
     background: var(--primary-bg);
-  }
-
-  .view-options {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    max-height: 340px;
-    overflow-y: auto;
-  }
-
-  .radio {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text);
-    cursor: pointer;
-  }
-
-  .sort-status {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-secondary);
-  }
-
-  .sort-status-label {
-    font-size: 14px;
-    color: var(--text-description);
-  }
-
-  .status-opts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .status-opt {
-    padding: 0 12px;
-    height: 28px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text-description);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
-  }
-
-  .status-opt:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
-  .status-opt.on {
-    border-color: var(--primary);
-    background: var(--primary);
-    color: #fff;
-    font-weight: 500;
-  }
-
-  .status-opt.on:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    background: var(--primary-hover);
-    color: #fff;
-  }
-
-  .view-period {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-secondary);
   }
 
   .modal-actions {

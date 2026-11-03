@@ -6,7 +6,6 @@ import type {
   EmailQueueItem,
   EmailSettings,
   EmailTemplate,
-  ItemType,
   ReportSchedule,
   RolesResponse,
   SearchLogResponse,
@@ -253,18 +252,6 @@ export function saveModules(modules: ModuleItem[]): Promise<ModulesResponse> {
         modules.map((module) => [module.code, { enabled: module.enabled, levels: module.levels }])
       )
     }
-  });
-}
-
-export function listItemTypes(): Promise<{ types: ItemType[] }> {
-  return apiRequest<{ types: ItemType[] }>('/admin/item-types', { auth: true });
-}
-
-export function saveItemTypes(types: ItemType[]): Promise<{ types: ItemType[] }> {
-  return apiRequest<{ types: ItemType[] }>('/admin/item-types', {
-    method: 'POST',
-    auth: true,
-    body: { types: Object.fromEntries(types.map((type) => [type.code, type.enabled ?? false])) }
   });
 }
 

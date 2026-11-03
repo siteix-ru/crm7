@@ -75,11 +75,13 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <h1>Корзина</h1>
-    {#if cart.count > 0}
-      <span class="count">{cart.count} поз.</span>
-    {/if}
+  <div class="page-hero">
+    <div class="head">
+      <h1>Корзина</h1>
+      {#if cart.count > 0}
+        <span class="count">{cart.count} поз.</span>
+      {/if}
+    </div>
   </div>
 
   {#if error}

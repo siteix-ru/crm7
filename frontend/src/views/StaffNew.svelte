@@ -187,13 +187,15 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <a class="back" href="#/staff" title="К списку сотрудников" aria-label="К списку сотрудников">
-      <Icon name="arrow-left" size={16} />
-    </a>
-    <div>
-      <h1>Новый сотрудник</h1>
-      <p class="sub">Создание учётной записи и настройка доступа</p>
+  <div class="page-hero">
+    <div class="head">
+      <a class="back" href="#/staff" title="К списку сотрудников" aria-label="К списку сотрудников">
+        <Icon name="arrow-left" size={16} />
+      </a>
+      <div>
+        <h1>Новый сотрудник</h1>
+        <p class="sub">Создание учётной записи и настройка доступа</p>
+      </div>
     </div>
   </div>
 

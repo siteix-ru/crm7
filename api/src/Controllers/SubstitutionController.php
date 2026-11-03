@@ -37,6 +37,26 @@ final class SubstitutionController extends ApiController
         return Response::ok($result, 201);
     }
 
+    public function update(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        $result = $this->service->update(
+            $user,
+            $capabilities,
+            (int) ($params['id'] ?? 0),
+            $request->bodyAll()
+        );
+        $this->audit($request, $user, 'substitution.update', 'substitution', (int) ($params['id'] ?? 0), [
+            'manager_id' => $request->input('manager_id'),
+            'substitute_id' => $request->input('substitute_id'),
+            'from' => (string) $request->input('date_from', ''),
+            'to' => (string) $request->input('date_to', ''),
+        ]);
+
+        return Response::ok($result);
+    }
+
     public function end(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);

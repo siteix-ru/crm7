@@ -811,21 +811,56 @@
 </script>
 
 <section class="page page-wide">
-  <div class="topbar">
-    <Button variant="ghost" onclick={() => router.navigate('/requests')}>← К списку заявок</Button>
+  <div class="topbar page-hero">
+    <button
+      type="button"
+      class="page-icon-btn"
+      title="К списку заявок"
+      aria-label="К списку заявок"
+      onclick={() => router.navigate('/requests')}
+    >
+      <Icon name="arrow-left" size={16} />
+    </button>
 
     {#if detail}
       <div class="actions">
         {#if appSettings.salesEnabled && auth.can('requests.create')}
-          <Button variant="ghost" onclick={() => router.navigate(`/requests/new?copy=${id}`)}>
-            Копировать заявку
-          </Button>
+          <button
+            type="button"
+            class="page-icon-btn"
+            title="Копировать заявку"
+            aria-label="Копировать заявку"
+            onclick={() => router.navigate(`/requests/new?copy=${id}`)}
+          >
+            <Icon name="copy" size={16} />
+          </button>
         {/if}
         {#if detail.can.claim}
-          <Button loading={busy} onclick={claim}>Взять в работу</Button>
+          <button
+            type="button"
+            class="page-icon-btn"
+            title="Взять в работу"
+            aria-label="Взять в работу"
+            disabled={busy}
+            onclick={claim}
+          >
+            {#if busy}
+              <Spinner size={16} />
+            {:else}
+              <Icon name="check-circle" size={16} />
+            {/if}
+          </button>
         {/if}
         {#if detail.can.cancel}
-          <Button variant="danger" onclick={() => (cancelOpen = true)}>Отмена заявки</Button>
+          <button
+            type="button"
+            class="page-icon-btn danger"
+            title="Отмена заявки"
+            aria-label="Отмена заявки"
+            onclick={() => (cancelOpen = true)}
+          >
+            <Icon name="close-circle" size={16} />
+          </button>
         {/if}
       </div>
     {/if}

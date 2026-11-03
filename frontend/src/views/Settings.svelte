@@ -21,12 +21,6 @@
     saveSchedule,
     sendScheduleNow
   } from '../lib/api/schedules';
-  import {
-    createPriceType,
-    deletePriceType,
-    listAdminPriceTypes,
-    updatePriceType
-  } from '../lib/api/prices';
   import { listManagers } from '../lib/api/requests';
   import type {
     DatabaseSettings,
@@ -34,14 +28,16 @@
     EmailSettings,
     EmailTemplate,
     ManagerItem,
-    PriceType,
     ReportSchedule,
     SystemSettings
   } from '../lib/api/types';
+  import Admin from './Admin.svelte';
   import Button from '../lib/components/ui/Button.svelte';
+  import Icon from '../lib/components/ui/Icon.svelte';
   import Input from '../lib/components/ui/Input.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
+  import { auth } from '../lib/stores/auth.svelte';
   import { emailTypeLabel, queueStatusLabel } from '../lib/labels';
   import { formatDateTime } from '../lib/format';
 
@@ -85,11 +81,6 @@
   let photoSizeCard = $state('600');
   let photoSizeMax = $state('1600');
 
-  let priceTypes = $state<PriceType[]>([]);
-  let priceTypeDrafts = $state<Record<number, string>>({});
-  let newPriceTypeTitle = $state('');
-  let priceTypesBusy = $state(false);
-
   let db = $state<DatabaseSettings | null>(null);
   let dbPort = $state('3306');
   let dbPassword = $state('');
@@ -106,6 +97,53 @@
   let scheduleRecipients = $state<number[]>([]);
   let scheduleExtra = $state('');
   let scheduleActive = $state(true);
+
+  type SettingsTab =
+    | 'database'
+    | 'smtp'
+    | 'interface'
+    | 'system'
+    | 'modules'
+    | 'roles'
+    | 'docs'
+    | 'templates'
+    | 'schedules'
+    | 'queue';
+
+  const settingsTabs: { code: SettingsTab; title: string; icon: string }[] = [
+    { code: 'database', title: 'База данных', icon: 'database' },
+    { code: 'smtp', title: 'SMTP', icon: 'mail' },
+    { code: 'interface', title: 'Брендинг и модули', icon: 'types' },
+    { code: 'system', title: 'Система', icon: 'settings' },
+    { code: 'modules', title: 'Модули', icon: 'types' },
+    { code: 'roles', title: 'Роли', icon: 'key' },
+    { code: 'docs', title: 'Документы', icon: 'requests' },
+    { code: 'templates', title: 'Шаблоны писем', icon: 'mail' },
+    { code: 'schedules', title: 'Расписание отчётов', icon: 'calendar' },
+    { code: 'queue', title: 'Очередь отправки', icon: 'send' }
+  ];
+
+  let tab = $state<SettingsTab>('database');
+
+  const visibleSettingsTabs = $derived(
+    settingsTabs.filter((item) => {
+      if (item.code === 'modules' || item.code === 'docs') {
+        return auth.can('settings.manage');
+      }
+
+      if (item.code === 'roles') {
+        return auth.can('roles.manage');
+      }
+
+      return true;
+    })
+  );
+
+  $effect(() => {
+    if (!visibleSettingsTabs.some((item) => item.code === tab)) {
+      tab = 'database';
+    }
+  });
 
   onMount(() => {
     void load();
@@ -154,7 +192,6 @@
       queue = await listQueue();
       schedules = await listSchedules();
       managers = (await listManagers()).items;
-      await loadPriceTypes();
 
       if (templates.length > 0) {
         selectTemplate(templates[0]);
@@ -265,82 +302,6 @@ async function saveSystem(): Promise<void> {
     error = cause instanceof ApiError ? cause.message : 'Не удалось сохранить настройки';
   } finally {
     busy = false;
-  }
-}
-
-async function loadPriceTypes(): Promise<void> {
-  try {
-    const data = await listAdminPriceTypes();
-    priceTypes = data.items;
-    priceTypeDrafts = Object.fromEntries(data.items.map((type) => [type.id, type.title]));
-  } catch (cause) {
-    error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить типы цен';
-  }
-}
-
-async function addPriceType(): Promise<void> {
-  const title = newPriceTypeTitle.trim();
-
-  if (title === '') {
-    return;
-  }
-
-  priceTypesBusy = true;
-  error = '';
-  notice = '';
-
-  try {
-    await createPriceType(title);
-    newPriceTypeTitle = '';
-    await loadPriceTypes();
-    notice = 'Тип цен добавлен';
-  } catch (cause) {
-    error = cause instanceof ApiError ? cause.message : 'Не удалось добавить тип цен';
-  } finally {
-    priceTypesBusy = false;
-  }
-}
-
-async function savePriceType(type: PriceType): Promise<void> {
-  const title = (priceTypeDrafts[type.id] ?? '').trim();
-
-  if (title === '') {
-    error = 'Укажите название типа цен';
-    return;
-  }
-
-  priceTypesBusy = true;
-  error = '';
-  notice = '';
-
-  try {
-    await updatePriceType(type.id, title);
-    await loadPriceTypes();
-    notice = 'Тип цен сохранён';
-  } catch (cause) {
-    error = cause instanceof ApiError ? cause.message : 'Не удалось сохранить тип цен';
-  } finally {
-    priceTypesBusy = false;
-  }
-}
-
-async function removePriceType(type: PriceType): Promise<void> {
-  if (!confirm(`Удалить тип цен «${type.title}»? Цены этого типа также будут удалены.`)) {
-    return;
-  }
-
-  priceTypesBusy = true;
-  error = '';
-  notice = '';
-
-  try {
-    await deletePriceType(type.id);
-    await loadPriceTypes();
-    notice = 'Тип цен удалён';
-  } catch (cause) {
-    error = cause instanceof ApiError ? cause.message : 'Не удалось удалить тип цен';
-  } finally {
-    priceTypesBusy = false;
   }
 }
 
@@ -569,7 +530,27 @@ async function saveSettings(): Promise<void> {
 </script>
 
 <section class="page">
-  <h1>Настройки</h1>
+  <div class="page-hero">
+    <div class="filters">
+      <div class="head">
+        <h1>Настройки</h1>
+      </div>
+
+      <div class="tabs tab-scroll">
+        {#each visibleSettingsTabs as item (item.code)}
+          <button
+            type="button"
+            class:active={tab === item.code}
+            title={item.title}
+            aria-label={item.title}
+            onclick={() => (tab = item.code)}
+          >
+            <Icon name={item.icon} size={16} />
+          </button>
+        {/each}
+      </div>
+    </div>
+  </div>
 
   {#if error}
     <div class="alert">{error}</div>
@@ -581,8 +562,17 @@ async function saveSettings(): Promise<void> {
   {#if loading}
     <div class="center"><Spinner size={26} /></div>
   {:else if settings}
-    <div class="card">
-      <h2>База данных</h2>
+    {#if tab === 'modules'}
+      <Admin section="modules" />
+    {:else if tab === 'roles'}
+      <Admin section="roles" />
+    {:else if tab === 'docs'}
+      <Admin section="docs" />
+    {/if}
+
+    {#if tab === 'database'}
+      <div class="card">
+        <h2>База данных</h2>
 
       {#if db}
         <p class="hint">
@@ -614,10 +604,12 @@ async function saveSettings(): Promise<void> {
           database.json.bak). После смены базы данных войдите заново: сессии хранятся в базе.
         </p>
       {/if}
-    </div>
+      </div>
+    {/if}
 
-    <div class="card">
-      <h2>SMTP</h2>
+    {#if tab === 'smtp'}
+      <div class="card">
+        <h2>SMTP</h2>
 
       <label class="checkbox">
         <input type="checkbox" bind:checked={settings.enabled} />
@@ -667,10 +659,12 @@ async function saveSettings(): Promise<void> {
       <p class="hint">
         Письма уходят через очередь: cron-задача <code>php api/bin/cron.php</code> раз в минуту.
       </p>
-    </div>
+      </div>
+    {/if}
 
-    <div class="card">
-      <h2>Брендинг и модули</h2>
+    {#if tab === 'interface'}
+      <div class="card">
+        <h2>Брендинг и модули</h2>
 
       <div class="grid">
         <Input label="Название CRM (в шапке и на входе)" bind:value={appTitle} placeholder="CRM7" />
@@ -722,10 +716,12 @@ async function saveSettings(): Promise<void> {
       <p class="hint">
         Отключённые модули скрываются в интерфейсе и блокируются на сервере. Данные при этом сохраняются.
       </p>
-    </div>
+      </div>
+    {/if}
 
-    <div class="card">
-      <h2>Система</h2>
+    {#if tab === 'system'}
+      <div class="card">
+        <h2>Система</h2>
 
       <div class="grid">
         <Input label="SLA: срок реакции, часов" type="number" bind:value={slaReaction} />
@@ -864,54 +860,12 @@ async function saveSettings(): Promise<void> {
       <div class="actions">
         <Button loading={busy} onclick={() => void saveSystem()}>Сохранить</Button>
       </div>
-    </div>
-
-    {#if pricesEnabled}
-      <div class="card">
-        <h2>Типы цен (типы профиля)</h2>
-        <p class="hint">
-          Каждому клиенту можно назначить тип профиля — например, «Оптовая». Цена номенклатуры для клиента
-          берётся по его типу. Если тип не назначен, используется первый в списке.
-        </p>
-
-        <div class="price-types">
-          {#each priceTypes as type (type.id)}
-            <div class="pt-row">
-              <input class="pt-title" bind:value={priceTypeDrafts[type.id]} maxlength="255" />
-              <span class="pt-meta">
-                {type.users_count ?? 0} польз. · {type.prices_count ?? 0} цен
-              </span>
-              <Button variant="ghost" disabled={priceTypesBusy} onclick={() => void savePriceType(type)}>
-                Сохранить
-              </Button>
-              <button
-                type="button"
-                class="pt-del"
-                disabled={priceTypesBusy}
-                onclick={() => void removePriceType(type)}
-              >
-                Удалить
-              </button>
-            </div>
-          {/each}
-        </div>
-
-        <div class="pt-add">
-          <Input label="Новый тип цен" bind:value={newPriceTypeTitle} placeholder="Например: Партнёрская" />
-          <Button
-            variant="ghost"
-            loading={priceTypesBusy}
-            disabled={!newPriceTypeTitle.trim()}
-            onclick={() => void addPriceType()}
-          >
-            Добавить тип
-          </Button>
-        </div>
       </div>
     {/if}
 
-    <div class="card">
-      <h2>Шаблоны писем</h2>
+    {#if tab === 'templates'}
+      <div class="card">
+        <h2>Шаблоны писем</h2>
       <p class="hint">Подстановки: {'{title}'}, {'{body}'}, {'{request_number}'}, {'{link}'}</p>
 
       <div class="templates">
@@ -938,10 +892,12 @@ async function saveSettings(): Promise<void> {
           <Button loading={busy} onclick={saveCurrentTemplate}>Сохранить шаблон</Button>
         </div>
       {/if}
-    </div>
+      </div>
+    {/if}
 
-    <div class="card">
-      <h2>Расписание отчётов</h2>
+    {#if tab === 'schedules'}
+      <div class="card">
+        <h2>Расписание отчётов</h2>
       <p class="hint">
         Отчёты отправляются cron-задачей: кому, когда и какой отчёт. Получатели — сотрудники с
         заполненным e-mail.
@@ -1066,10 +1022,12 @@ async function saveSettings(): Promise<void> {
           <Button variant="ghost" onclick={resetScheduleForm}>Отмена</Button>
         {/if}
       </div>
-    </div>
+      </div>
+    {/if}
 
-    <div class="card">
-      <h2>Очередь отправки</h2>
+    {#if tab === 'queue'}
+      <div class="card">
+        <h2>Очередь отправки</h2>
       {#if queue.length === 0}
         <p class="hint">Очередь пуста</p>
       {:else}
@@ -1089,7 +1047,8 @@ async function saveSettings(): Promise<void> {
           {/each}
         </div>
       {/if}
-    </div>
+      </div>
+    {/if}
   {/if}
 </section>
 
@@ -1104,12 +1063,69 @@ async function saveSettings(): Promise<void> {
 
   h1 {
     margin: 0;
-    font-size: 22px;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--text);
   }
 
   h2 {
     margin: 0;
     font-size: 16px;
+  }
+
+  .filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-4);
+    align-items: center;
+    justify-content: flex-start;
+  }
+
+  .head {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+  }
+
+  .tabs {
+    display: flex;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
+
+  .tabs button {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .tabs button:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+  }
+
+  .tabs button.active {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  @media (max-width: 720px) {
+    .tabs {
+      width: 100%;
+      margin-left: 0;
+    }
   }
 
   .card {
@@ -1242,77 +1258,6 @@ async function saveSettings(): Promise<void> {
   .s-del:disabled {
     opacity: 0.55;
     cursor: not-allowed;
-  }
-
-  .price-types {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .pt-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: var(--space-2) var(--space-3);
-  }
-
-  .pt-title {
-    flex: 1;
-    min-width: 180px;
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    outline: none;
-  }
-
-  .pt-title:focus {
-    border-color: var(--primary);
-  }
-
-  .pt-meta {
-    font-size: 12px;
-    color: var(--muted);
-    white-space: nowrap;
-  }
-
-  .pt-del {
-    padding: 9px 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--danger);
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .pt-del:hover:not(:disabled) {
-    border-color: var(--danger);
-    background: rgba(220, 38, 38, 0.06);
-  }
-
-  .pt-del:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .pt-add {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--space-2);
-    margin-top: var(--space-3);
-  }
-
-  .pt-add :global(.field) {
-    flex: 1;
-    min-width: 200px;
   }
 
   .template-item {

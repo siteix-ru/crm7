@@ -23,22 +23,27 @@
   import Staff from './views/Staff.svelte';
   import StaffNew from './views/StaffNew.svelte';
   import StaffCard from './views/StaffCard.svelte';
+  import SubstitutionNew from './views/SubstitutionNew.svelte';
+  import SubstitutionEdit from './views/SubstitutionEdit.svelte';
   import Chat from './views/Chat.svelte';
   import Stocks from './views/Stocks.svelte';
   import StockGroups from './views/StockGroups.svelte';
   import StockGroupEdit from './views/StockGroupEdit.svelte';
+  import StockTypes from './views/StockTypes.svelte';
+  import StockTypeEdit from './views/StockTypeEdit.svelte';
+  import PriceTypes from './views/PriceTypes.svelte';
+  import PriceTypeEdit from './views/PriceTypeEdit.svelte';
   import Warehouses from './views/Warehouses.svelte';
   import WarehouseCard from './views/WarehouseCard.svelte';
   import WarehouseView from './views/WarehouseView.svelte';
   import ItemEdit from './views/ItemEdit.svelte';
   import ItemCard from './views/ItemCard.svelte';
-  import Admin from './views/Admin.svelte';
+  import AdminAudit from './views/AdminAudit.svelte';
   import Legal from './views/Legal.svelte';
   import ManagerProfile from './views/ManagerProfile.svelte';
   import Notifications from './views/Notifications.svelte';
   import Reports from './views/Reports.svelte';
   import Settings from './views/Settings.svelte';
-  import Substitutions from './views/Substitutions.svelte';
   import Profile from './views/Profile.svelte';
   import MyReports from './views/MyReports.svelte';
   import About from './views/About.svelte';
@@ -79,12 +84,15 @@
   const requestMatch = $derived(matchRoute('/requests/:id', route));
   const clientMatch = $derived(matchRoute('/clients/:id', route));
   const staffMatch = $derived(matchRoute('/staff/:id', route));
+  const substitutionEditMatch = $derived(matchRoute('/staff/substitutions/:id', route));
   const legalMatch = $derived(matchRoute('/legal/:code', route));
   const userMatch = $derived(matchRoute('/users/:id', route));
   const itemNewMatch = $derived(matchRoute('/stocks/items/new', route));
   const itemEditMatch = $derived(matchRoute('/stocks/items/:id/edit', route));
   const itemCardMatch = $derived(matchRoute('/stocks/items/:id', route));
   const groupEditMatch = $derived(matchRoute('/stocks/groups/:id', route));
+  const typeEditMatch = $derived(matchRoute('/stocks/types/:id', route));
+  const priceTypeEditMatch = $derived(matchRoute('/stocks/price-types/:id', route));
   const warehouseMatch = $derived(matchRoute('/warehouses/:id', route));
   const warehouseEditMatch = $derived(matchRoute('/warehouses/:id/edit', route));
 </script>
@@ -127,10 +135,22 @@
       {#key clientMatch.id}
         <ClientCard id={Number(clientMatch.id)} />
       {/key}
+    {:else if route === '/staff/substitutions/new'}
+      {#if auth.can('requests.view.all') && appSettings.substitutionsEnabled}
+        <SubstitutionNew />
+      {:else}
+        <NotFound />
+      {/if}
+    {:else if substitutionEditMatch}
+      {#if auth.can('requests.view.all') && appSettings.substitutionsEnabled}
+        <SubstitutionEdit id={Number(substitutionEditMatch.id)} />
+      {:else}
+        <NotFound />
+      {/if}
     {:else if (route === '/staff' || route === '/staff/new' || staffMatch) && !auth.can('users.manage')}
       <NotFound />
     {:else if route === '/staff'}
-      <Staff />
+      {#key route}<Staff initialTab="staff" />{/key}
     {:else if route === '/staff/new'}
       {#if auth.can('users.manage') && !appSettings.demoMode}
         <StaffNew />
@@ -153,6 +173,22 @@
       <StockGroupEdit id={0} />
     {:else if groupEditMatch}
       <StockGroupEdit id={Number(groupEditMatch.id)} />
+    {:else if (route === '/stocks/types' || route === '/stocks/types/new' || typeEditMatch) && !auth.can('settings.manage')}
+      <NotFound />
+    {:else if route === '/stocks/types'}
+      <StockTypes />
+    {:else if route === '/stocks/types/new'}
+      <StockTypeEdit id={0} />
+    {:else if typeEditMatch}
+      <StockTypeEdit id={Number(typeEditMatch.id)} />
+    {:else if (route === '/stocks/price-types' || route === '/stocks/price-types/new' || priceTypeEditMatch) && !auth.can('settings.manage')}
+      <NotFound />
+    {:else if route === '/stocks/price-types'}
+      <PriceTypes />
+    {:else if route === '/stocks/price-types/new'}
+      <PriceTypeEdit id={0} />
+    {:else if priceTypeEditMatch}
+      <PriceTypeEdit id={Number(priceTypeEditMatch.id)} />
     {:else if route === '/warehouses'}
       <Warehouses />
     {:else if route === '/warehouses/new'}
@@ -170,7 +206,7 @@
     {:else if route === '/reports'}
       <Reports />
     {:else if route === '/substitutions'}
-      <Substitutions />
+      {#key route}<Staff initialTab="substitutions" />{/key}
     {:else if route === '/notifications'}
       <Notifications />
     {:else if route === '/settings'}
@@ -179,8 +215,12 @@
       <ManagerProfile id={Number(userMatch.id)} />
     {:else if legalMatch}
       <Legal code={legalMatch.code} />
-    {:else if route === '/admin'}
-      <Admin />
+    {:else if route === '/admin/audit'}
+      {#if auth.can('audit.view')}
+        <AdminAudit />
+      {:else}
+        <NotFound />
+      {/if}
     {:else if route === '/my-reports'}
       <MyReports />
     {:else if route === '/profile'}

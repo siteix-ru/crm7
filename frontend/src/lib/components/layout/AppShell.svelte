@@ -37,7 +37,10 @@
 
     if (!appSettings.requestsEnabled && path.startsWith('/requests')) {
       router.navigate('/stocks');
-    } else if (!appSettings.substitutionsEnabled && path === '/substitutions') {
+    } else if (
+      !appSettings.substitutionsEnabled &&
+      (path === '/substitutions' || path.startsWith('/staff/substitutions'))
+    ) {
       router.navigate('/stocks');
     } else if (!appSettings.cartEnabled && path === '/cart') {
       router.navigate('/stocks');
@@ -54,15 +57,13 @@
 
   const showStaff = $derived(auth.can('users.manage'));
 
-  const showAdmin = $derived(auth.can('users.manage') || auth.can('audit.view'));
+  const showAudit = $derived(auth.can('audit.view'));
 
   const canViewReports = $derived(auth.can('reports.view.all') || auth.can('reports.view.own'));
 
   const showReports = $derived(appSettings.reportsEnabled && canViewReports);
 
   const showMyReports = $derived(appSettings.reportsEnabled && !canViewReports);
-
-  const showSubstitutions = $derived(auth.can('clients.assign'));
 
   const showWarehouses = $derived(
     appSettings.warehousesEnabled && (auth.can('stocks.import') || auth.can('stocks.edit'))
@@ -73,9 +74,7 @@
       (showReports ? 1 : 0) +
       (showClients ? 1 : 0) +
       (showStaff ? 1 : 0) +
-      (showSubstitutions ? 1 : 0) +
       (showWarehouses ? 1 : 0) +
-      (showAdmin ? 1 : 0) +
       (showSettings ? 1 : 0)
   );
 
@@ -114,7 +113,11 @@
         <span>{appSettings.appTitle}</span>
       </a>
       <nav class="desktop-nav" class:many={navCount > 6}>
-        <a href="#/stocks" class:active={path === '/stocks'} title="Номенклатура">
+        <a
+          href="#/stocks"
+          class:active={path === '/stocks' || path.startsWith('/stocks/')}
+          title="Номенклатура"
+        >
           <Icon name="stocks" size={20} />
           <span class="nav-label">Номенклатура</span>
         </a>
@@ -149,21 +152,13 @@
           </a>
         {/if}
         {#if showStaff}
-          <a href="#/staff" class:active={path.startsWith('/staff')} title="Сотрудники">
+          <a
+            href="#/staff"
+            class:active={path.startsWith('/staff') || path === '/substitutions'}
+            title="Сотрудники"
+          >
             <Icon name="staff" size={20} />
             <span class="nav-label">Сотрудники</span>
-          </a>
-        {/if}
-        {#if showSubstitutions && appSettings.substitutionsEnabled}
-          <a href="#/substitutions" class:active={path === '/substitutions'} title="Замещения">
-            <Icon name="substitutions" size={20} />
-            <span class="nav-label">Замещения</span>
-          </a>
-        {/if}
-        {#if showAdmin}
-          <a href="#/admin" class:active={path === '/admin'} title="Админ">
-            <Icon name="admin" size={20} />
-            <span class="nav-label">Админ</span>
           </a>
         {/if}
         {#if showSettings}
@@ -175,6 +170,18 @@
       </nav>
     </div>
     <div class="user">
+      {#if showAudit}
+        <button
+          type="button"
+          class="bell"
+          class:current={path === '/admin/audit'}
+          aria-label="Журнал"
+          title="Журнал"
+          onclick={() => router.navigate('/admin/audit')}
+        >
+          <Icon name="audit" size={20} />
+        </button>
+      {/if}
       <button
         type="button"
         class="bell"
@@ -260,7 +267,11 @@
 </main>
 
   <nav class="mobile-nav">
-    <a href="#/stocks" class:active={path === '/stocks'} title="Номенклатура">
+    <a
+      href="#/stocks"
+      class:active={path === '/stocks' || path.startsWith('/stocks/')}
+      title="Номенклатура"
+    >
       <Icon name="stocks" size={20} />
       <span class="nav-label">Номенклатура</span>
     </a>
@@ -287,15 +298,13 @@
       </a>
     {/if}
     {#if showStaff}
-      <a href="#/staff" class:active={path.startsWith('/staff')} title="Сотрудники">
+      <a
+        href="#/staff"
+        class:active={path.startsWith('/staff') || path === '/substitutions'}
+        title="Сотрудники"
+      >
         <Icon name="staff" size={20} />
         <span class="nav-label">Сотрудники</span>
-      </a>
-    {/if}
-    {#if showSubstitutions}
-      <a href="#/substitutions" class:active={path === '/substitutions'} title="Замещения">
-        <Icon name="substitutions" size={20} />
-        <span class="nav-label">Замещения</span>
       </a>
     {/if}
   </nav>

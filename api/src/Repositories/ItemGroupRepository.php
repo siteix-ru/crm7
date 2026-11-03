@@ -8,19 +8,23 @@ use App\Core\Database;
 
 final class ItemGroupRepository
 {
-    public function all(): array
+    public function all(bool $onlyEnabled = false): array
     {
+        $where = $onlyEnabled ? 'WHERE g.ENABLED = 1' : '';
         $rows = Database::pdo()->query(
-            'SELECT g.ID AS id, g.TITLE AS title, g.DESCRIPTION AS description, g.SORT AS sort,
+            "SELECT g.ID AS id, g.TITLE AS title, g.DESCRIPTION AS description, g.ENABLED AS enabled,
+                    g.SORT AS sort,
                     (SELECT COUNT(*) FROM nomenclature n WHERE n.group_id = g.ID) AS positions_count
              FROM item_groups g
-             ORDER BY g.SORT ASC, g.ID ASC'
+             {$where}
+             ORDER BY g.SORT ASC, g.ID ASC"
         )->fetchAll() ?: [];
 
         return array_map(static fn (array $row): array => [
             'id' => (int) $row['id'],
             'title' => (string) $row['title'],
             'description' => (string) ($row['description'] ?? ''),
+            'enabled' => (bool) $row['enabled'],
             'sort' => (int) $row['sort'],
             'positions_count' => (int) $row['positions_count'],
         ], $rows);
@@ -68,7 +72,10 @@ final class ItemGroupRepository
 
     public function find(int $id): ?array
     {
-        $stmt = Database::pdo()->prepare('SELECT ID AS id, TITLE AS title, DESCRIPTION AS description, SORT AS sort FROM item_groups WHERE ID = ? LIMIT 1');
+        $stmt = Database::pdo()->prepare(
+            'SELECT ID AS id, TITLE AS title, DESCRIPTION AS description, ENABLED AS enabled, SORT AS sort
+             FROM item_groups WHERE ID = ? LIMIT 1'
+        );
         $stmt->execute([$id]);
         $row = $stmt->fetch();
 
@@ -76,6 +83,7 @@ final class ItemGroupRepository
             'id' => (int) $row['id'],
             'title' => (string) $row['title'],
             'description' => (string) ($row['description'] ?? ''),
+            'enabled' => (bool) $row['enabled'],
             'sort' => (int) $row['sort'],
         ];
     }
@@ -103,19 +111,31 @@ final class ItemGroupRepository
         return (int) $value;
     }
 
-    public function create(string $title, string $description, int $sort): int
+    public function create(string $title, string $description, bool $enabled, int $sort): int
     {
         $pdo = Database::pdo();
-        $stmt = $pdo->prepare('INSERT INTO item_groups (TITLE, DESCRIPTION, SORT) VALUES (?, ?, ?)');
-        $stmt->execute([$title, $description, $sort]);
+        $stmt = $pdo->prepare(
+            'INSERT INTO item_groups (TITLE, DESCRIPTION, ENABLED, SORT) VALUES (?, ?, ?, ?)'
+        );
+        $stmt->execute([$title, $description, $enabled ? 1 : 0, $sort]);
 
         return (int) $pdo->lastInsertId();
     }
 
-    public function update(int $id, string $title, string $description): void
+    public function update(int $id, string $title, string $description, bool $enabled): void
     {
-        $stmt = Database::pdo()->prepare('UPDATE item_groups SET TITLE = ?, DESCRIPTION = ? WHERE ID = ?');
-        $stmt->execute([$title, $description, $id]);
+        $stmt = Database::pdo()->prepare(
+            'UPDATE item_groups SET TITLE = ?, DESCRIPTION = ?, ENABLED = ? WHERE ID = ?'
+        );
+        $stmt->execute([$title, $description, $enabled ? 1 : 0, $id]);
+    }
+
+    public function countItems(int $id): int
+    {
+        $stmt = Database::pdo()->prepare('SELECT COUNT(*) FROM nomenclature WHERE group_id = ?');
+        $stmt->execute([$id]);
+
+        return (int) $stmt->fetchColumn();
     }
 
     public function delete(int $id): void

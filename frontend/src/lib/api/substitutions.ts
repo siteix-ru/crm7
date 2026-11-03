@@ -21,6 +21,17 @@ export function createSubstitution(payload: SubstitutionPayload): Promise<{ item
   });
 }
 
+export function updateSubstitution(
+  id: number,
+  payload: SubstitutionPayload
+): Promise<{ item: Substitution }> {
+  return apiRequest<{ item: Substitution }>(`/substitutions/${id}`, {
+    method: 'PATCH',
+    auth: true,
+    body: payload
+  });
+}
+
 export function endSubstitution(id: number): Promise<{ ended?: boolean; deleted?: boolean; returned: number; item: Substitution | null }> {
   return apiRequest<{ ended?: boolean; deleted?: boolean; returned: number; item: Substitution | null }>(
     `/substitutions/${id}`,

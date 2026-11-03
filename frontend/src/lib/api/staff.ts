@@ -103,10 +103,39 @@ export interface StaffHistoryItem {
   actor: { id: number; name: string; level: number } | null;
 }
 
+export interface StaffFacets {
+  cities: string[];
+  departments: string[];
+  offices: string[];
+  positions: string[];
+}
+
+export interface StaffClient {
+  id: number;
+  login: string;
+  name: string;
+  company: string;
+  email: string;
+  phone: string;
+  active: boolean;
+  reg_state: string;
+  requests_total: number;
+}
+
 export interface StaffListParams {
   q?: string;
+  levels?: number[];
   level?: number;
+  states?: string[];
   state?: string;
+  cities?: string[];
+  city?: string;
+  departments?: string[];
+  department?: string;
+  offices?: string[];
+  office?: string;
+  positions?: string[];
+  position?: string;
   sort?: string;
   page?: number;
   perPage?: number;
@@ -123,8 +152,22 @@ export function listStaff(params: StaffListParams = {}): Promise<StaffListResult
   const search = new URLSearchParams({ scope: 'staff' });
 
   if (params.q) search.set('q', params.q);
+  if (params.levels && params.levels.length > 0) search.set('levels', params.levels.join(','));
   if (params.level) search.set('level', String(params.level));
+  if (params.states && params.states.length > 0) search.set('states', params.states.join(','));
   if (params.state) search.set('state', params.state);
+  if (params.cities && params.cities.length > 0) search.set('cities', params.cities.join(','));
+  if (params.city) search.set('city', params.city);
+  if (params.departments && params.departments.length > 0) {
+    search.set('departments', params.departments.join(','));
+  }
+  if (params.department) search.set('department', params.department);
+  if (params.offices && params.offices.length > 0) search.set('offices', params.offices.join(','));
+  if (params.office) search.set('office', params.office);
+  if (params.positions && params.positions.length > 0) {
+    search.set('positions', params.positions.join(','));
+  }
+  if (params.position) search.set('position', params.position);
   if (params.sort) search.set('sort', params.sort);
   if (params.page) search.set('page', String(params.page));
   if (params.perPage !== undefined) search.set('per_page', String(params.perPage));
@@ -134,6 +177,16 @@ export function listStaff(params: StaffListParams = {}): Promise<StaffListResult
 
 export function getStaff(id: number): Promise<StaffUser> {
   return apiRequest<StaffUser>(`/users/${id}`, { auth: true });
+}
+
+export function getStaffFacets(): Promise<StaffFacets> {
+  return apiRequest<StaffFacets>('/users/facets', { auth: true });
+}
+
+export function getStaffClients(id: number): Promise<{ items: StaffClient[]; total: number }> {
+  return apiRequest<{ items: StaffClient[]; total: number }>(`/users/${id}/clients`, {
+    auth: true
+  });
 }
 
 export function getStaffHistory(id: number): Promise<{ items: StaffHistoryItem[] }> {

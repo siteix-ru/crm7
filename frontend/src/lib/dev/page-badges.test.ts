@@ -44,6 +44,9 @@ describe('badgeForRoute', () => {
   it('covers every route registered for the app', () => {
     expect(pageBadges['/requests/:id'].id).toBe('REQ-CARD');
     expect(badgeForRoute('/stocks/items/7/edit')?.id).toBe('STK-ITEM-EDIT');
+    expect(badgeForRoute('/stocks/types')?.id).toBe('STK-TYPES');
+    expect(badgeForRoute('/stocks/types/new')?.id).toBe('STK-TYPE-NEW');
+    expect(badgeForRoute('/stocks/types/5')?.id).toBe('STK-TYPE-EDIT');
     expect(badgeForRoute('/legal/privacy')?.id).toBe('LEGAL');
     expect(badgeForRoute('/clients/new')?.id).toBe('CLI-NEW');
     expect(badgeForRoute('/clients/5')?.id).toBe('CLI-CARD');

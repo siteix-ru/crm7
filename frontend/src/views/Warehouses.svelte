@@ -15,6 +15,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
@@ -63,8 +64,11 @@
   const activeFilter = $derived(
     statusActive && !statusInactive ? 'active' : statusInactive && !statusActive ? 'inactive' : 'all'
   );
-  let statusActiveDraft = $state(true);
-  let statusInactiveDraft = $state(true);
+  const statusOptions = [
+    { value: 'active', label: 'Активированные' },
+    { value: 'inactive', label: 'Деактивированные' }
+  ];
+  let statusDraft = $state<string[]>([]);
 
   let query = $state(String(initialWarehouseFilters.query));
   let searchInput = $state(String(initialWarehouseFilters.query));
@@ -346,30 +350,30 @@
 
   function openView(): void {
     viewDraft = viewMode;
-    statusActiveDraft = statusActive;
-    statusInactiveDraft = statusInactive;
+    statusDraft = [
+      ...(statusActive ? ['active'] : []),
+      ...(statusInactive ? ['inactive'] : [])
+    ];
     viewOpen = true;
   }
 
-  function toggleStatusDraft(kind: 'active' | 'inactive'): void {
-    if (kind === 'active') {
-      statusActiveDraft = !statusActiveDraft;
-      return;
-    }
-
-    statusInactiveDraft = !statusInactiveDraft;
+  function resetView(): void {
+    viewDraft = 'list';
+    statusDraft = ['active', 'inactive'];
   }
 
   function applyView(): void {
+    const nextStatusActive = statusDraft.length === 0 || statusDraft.includes('active');
+    const nextStatusInactive = statusDraft.length === 0 || statusDraft.includes('inactive');
     const statusChanged =
-      statusActiveDraft !== statusActive || statusInactiveDraft !== statusInactive;
+      nextStatusActive !== statusActive || nextStatusInactive !== statusInactive;
 
     viewMode = viewDraft;
     viewOpen = false;
 
     if (statusChanged) {
-      statusActive = statusActiveDraft;
-      statusInactive = statusInactiveDraft;
+      statusActive = nextStatusActive;
+      statusInactive = nextStatusInactive;
       page = 1;
     }
 
@@ -432,6 +436,7 @@
     </div>
   {/if}
 
+  <div class="page-hero">
   <div class="filters">
     <div class="head">
       <h1>Склады</h1>
@@ -513,6 +518,7 @@
         </button>
       </div>
     {/if}
+  </div>
   </div>
 
   {#if loading}
@@ -667,42 +673,33 @@
 </Modal>
 
 <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-  <div class="view-options">
-    <label class="radio">
-      <input type="radio" name="wh-view" value="list" bind:group={viewDraft} />
-      Списком (таблица)
-    </label>
-    <label class="radio">
-      <input type="radio" name="wh-view" value="tiles" bind:group={viewDraft} />
-      Плитками
-    </label>
-  </div>
-  <div class="sort-status">
-    <span class="sort-status-label" title="Если ничего не выбрано — показываются все">Статус:</span>
-    <div class="status-opts">
-      <button
-        type="button"
-        class="status-opt"
-        class:on={statusActiveDraft}
-        aria-pressed={statusActiveDraft}
-        onclick={() => toggleStatusDraft('active')}
-      >
-        Активированные
-      </button>
-      <button
-        type="button"
-        class="status-opt"
-        class:on={statusInactiveDraft}
-        aria-pressed={statusInactiveDraft}
-        onclick={() => toggleStatusDraft('inactive')}
-      >
-        Деактивированные
-      </button>
+  <div class="filters-form">
+    <div class="view-options">
+      <label class="radio">
+        <input type="radio" name="wh-view" value="list" bind:group={viewDraft} />
+        <span>Список</span>
+      </label>
+      <label class="radio">
+        <input type="radio" name="wh-view" value="tiles" bind:group={viewDraft} />
+        <span>Плитка</span>
+      </label>
     </div>
-  </div>
-  <div class="modal-actions">
-    <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-    <Button onclick={applyView}>Применить</Button>
+
+    <div class="filter-group">
+      <span class="filter-label" title="Если ничего не выбрано — показываются все">Статусы</span>
+      <MultiSelect
+        label="Статусы"
+        options={statusOptions}
+        bind:values={statusDraft}
+        allLabel="Все статусы"
+      />
+    </div>
+
+    <div class="modal-actions">
+      <Button variant="ghost" onclick={resetView}>Сбросить</Button>
+      <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+      <Button onclick={applyView}>Применить</Button>
+    </div>
   </div>
 </Modal>
 
@@ -1241,69 +1238,6 @@
     background: var(--primary-bg);
   }
 
-  .view-options {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .sort-status {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-secondary);
-  }
-
-  .sort-status-label {
-    font-size: 14px;
-    color: var(--text-description);
-  }
-
-  .status-opts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .status-opt {
-    padding: 0 12px;
-    height: 28px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text-description);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
-  }
-
-  .status-opt:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
-  .status-opt.on {
-    border-color: var(--primary);
-    background: var(--primary);
-    color: #fff;
-    font-weight: 500;
-  }
-
-  .status-opt.on:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    background: var(--primary-hover);
-    color: #fff;
-  }
-
-  .status-opt:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .radio,
   .checkbox {
     display: flex;
     align-items: center;

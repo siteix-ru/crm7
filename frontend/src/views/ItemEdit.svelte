@@ -824,54 +824,63 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <button
-      type="button"
-      class="back"
-      title="Назад"
-      aria-label="Назад"
-      onclick={goBack}
-    >
-      <Icon name="arrow-left" size={16} />
-    </button>
-    <div class="head-text">
-      <h1>
-        {isNew ? 'Новая номенклатура' : name || 'Редактирование номенклатуры'}
-        {#if !isNew && !active}
-          <span class="status off">деактивирована</span>
-        {/if}
-      </h1>
-    </div>
-
-    {#if !isNew && (canDeactivate || canDelete)}
-      <div class="head-actions">
-        {#if canDeactivate}
-          <Button
-            variant={active ? 'ghost' : 'success'}
-            loading={statusBusy}
-            disabled={deactivateBlocked !== null}
-            title={deactivateBlockReason}
-            onclick={() => void toggleActive()}
-          >
-            {active ? 'Деактивировать' : 'Активировать'}
-          </Button>
-        {/if}
-        {#if canDeactivate && canDelete}
-          <span class="head-divider" aria-hidden="true"></span>
-        {/if}
-        {#if canDelete}
-          <Button
-            variant="danger"
-            loading={statusBusy}
-            disabled={deleteBlocked !== null}
-            title={deleteBlockReason}
-            onclick={() => void deleteItem()}
-          >
-            Удалить
-          </Button>
-        {/if}
+  <div class="hero page-hero">
+    <div class="head">
+      <button
+        type="button"
+        class="back"
+        title="Назад"
+        aria-label="Назад"
+        onclick={goBack}
+      >
+        <Icon name="arrow-left" size={16} />
+      </button>
+      <div class="head-text">
+        <h1>
+          {isNew ? 'Новая номенклатура' : name || 'Редактирование номенклатуры'}
+          {#if !isNew && !active}
+            <span class="status off">деактивирована</span>
+          {/if}
+        </h1>
       </div>
-    {/if}
+
+      {#if !isNew && (canDeactivate || canDelete)}
+        <div class="head-actions">
+          {#if canDeactivate}
+            <button
+              type="button"
+              class="icon-btn"
+              title={active ? deactivateBlockReason || 'Деактивировать' : 'Активировать'}
+              aria-label={active ? 'Деактивировать' : 'Активировать'}
+              disabled={statusBusy || deactivateBlocked !== null}
+              onclick={() => void toggleActive()}
+            >
+              {#if statusBusy}
+                <Spinner size={16} />
+              {:else}
+                <Icon name={active ? 'close-circle' : 'check-circle'} size={16} />
+              {/if}
+            </button>
+          {/if}
+          {#if canDelete}
+            <button
+              type="button"
+              class="icon-btn danger"
+              title={deleteBlockReason || 'Удалить'}
+              aria-label="Удалить"
+              disabled={statusBusy || deleteBlocked !== null}
+              onclick={() => void deleteItem()}
+            >
+              {#if statusBusy}
+                <Spinner size={16} />
+              {:else}
+                <Icon name="trash" size={16} />
+              {/if}
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 
   {#if error}
@@ -1296,14 +1305,52 @@
   .page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-5);
+    gap: var(--space-4);
+  }
+
+  .hero {
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
   }
 
   .head {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-start;
+    align-items: center;
     gap: var(--space-3);
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-description);
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+
+  .icon-btn:hover:not(:disabled) {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
+  }
+
+  .icon-btn.danger:hover:not(:disabled) {
+    border-color: var(--error-border);
+    color: var(--danger);
+  }
+
+  .icon-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
 
   .back {
@@ -1339,12 +1386,6 @@
     gap: var(--space-2);
     flex: 0 0 auto;
     margin-left: auto;
-  }
-
-  .head-divider {
-    width: 1px;
-    height: 20px;
-    background: var(--border);
   }
 
   @media (max-width: 640px) {

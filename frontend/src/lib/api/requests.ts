@@ -282,7 +282,8 @@ export function addComment(id: number, body: string, isInternal = true): Promise
 
 export interface ClientListFilters {
   state?: string;
-  manager?: string;
+  managers?: string;
+  cities?: string;
   from?: string;
   to?: string;
   sort?: string;
@@ -300,7 +301,8 @@ export function listClients(
   if (page > 1) params.set('page', String(page));
   params.set('per_page', String(perPage));
   if (filters.state) params.set('state', filters.state);
-  if (filters.manager) params.set('manager', filters.manager);
+  if (filters.managers) params.set('managers', filters.managers);
+  if (filters.cities) params.set('cities', filters.cities);
   if (filters.from) params.set('from', filters.from);
   if (filters.to) params.set('to', filters.to);
   if (filters.sort) params.set('sort', filters.sort);
@@ -309,6 +311,14 @@ export function listClients(
     `/clients?${params.toString()}`,
     { auth: true }
   );
+}
+
+export interface ClientFacets {
+  cities: string[];
+}
+
+export function getClientFacets(): Promise<ClientFacets> {
+  return apiRequest<ClientFacets>('/clients/facets', { auth: true });
 }
 
 export interface AssignClientResult {

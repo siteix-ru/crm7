@@ -39,7 +39,7 @@ final class PriceService
         return $this->prices->findType($id);
     }
 
-    public function createType(string $title): array
+    public function createType(string $title, string $description = '', bool $enabled = true): array
     {
         $title = trim($title);
 
@@ -51,13 +51,29 @@ final class PriceService
             throw new HttpException(422, 'validation_error', 'Название слишком длинное (до 255 символов)');
         }
 
-        $id = $this->prices->createType($this->uniqueCode($title), $title, $this->prices->nextSort());
+        $description = trim($description);
+
+        if (mb_strlen($description) > 1000) {
+            throw new HttpException(422, 'validation_error', 'Описание слишком длинное (до 1000 символов)');
+        }
+
+        $id = $this->prices->createType(
+            $this->uniqueCode($title),
+            $title,
+            $description,
+            $this->prices->nextSort(),
+            $enabled
+        );
 
         return $this->prices->findType($id) ?? [];
     }
 
-    public function updateType(int $id, string $title): array
-    {
+    public function updateType(
+        int $id,
+        string $title,
+        string $description = '',
+        ?bool $enabled = null
+    ): array {
         $type = $this->prices->findType($id);
 
         if ($type === null) {
@@ -74,7 +90,18 @@ final class PriceService
             throw new HttpException(422, 'validation_error', 'Название слишком длинное (до 255 символов)');
         }
 
-        $this->prices->updateType($id, $title);
+        $description = trim($description);
+
+        if (mb_strlen($description) > 1000) {
+            throw new HttpException(422, 'validation_error', 'Описание слишком длинное (до 1000 символов)');
+        }
+
+        $this->prices->updateType(
+            $id,
+            $title,
+            $description,
+            $enabled ?? (bool) ($type['enabled'] ?? true)
+        );
 
         return $this->prices->findType($id) ?? [];
     }

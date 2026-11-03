@@ -1,0 +1,4 @@
+-- 058: описание типа цен.
+
+ALTER TABLE `price_types`
+  ADD COLUMN IF NOT EXISTS `DESCRIPTION` text DEFAULT NULL AFTER `TITLE`;

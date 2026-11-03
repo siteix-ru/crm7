@@ -710,7 +710,15 @@
 
 <section class="page">
   <div class="back-row">
-    <Button variant="ghost" onclick={() => router.navigate('/requests')}>← К списку заявок</Button>
+    <button
+      type="button"
+      class="page-icon-btn"
+      title="К списку заявок"
+      aria-label="К списку заявок"
+      onclick={() => router.navigate('/requests')}
+    >
+      <Icon name="arrow-left" size={16} />
+    </button>
   </div>
 
   <div class="card">

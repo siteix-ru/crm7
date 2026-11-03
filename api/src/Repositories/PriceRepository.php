@@ -12,7 +12,8 @@ final class PriceRepository
     public function types(): array
     {
         $rows = Database::pdo()->query(
-            'SELECT pt.ID AS id, pt.CODE AS code, pt.TITLE AS title, pt.SORT AS sort,
+            'SELECT pt.ID AS id, pt.CODE AS code, pt.TITLE AS title, pt.DESCRIPTION AS description,
+                    pt.SORT AS sort, pt.ENABLED AS enabled,
                     (SELECT COUNT(DISTINCT upt.user_id) FROM user_price_types upt WHERE upt.price_type_id = pt.ID) AS users_count,
                     (SELECT COUNT(*) FROM nomenclature_prices np WHERE np.price_type_id = pt.ID) AS prices_count
              FROM price_types pt
@@ -23,7 +24,9 @@ final class PriceRepository
             'id' => (int) $row['id'],
             'code' => (string) $row['code'],
             'title' => (string) $row['title'],
+            'description' => (string) ($row['description'] ?? ''),
             'sort' => (int) $row['sort'],
+            'enabled' => (bool) $row['enabled'],
             'users_count' => (int) $row['users_count'],
             'prices_count' => (int) $row['prices_count'],
         ], $rows);
@@ -31,7 +34,13 @@ final class PriceRepository
 
     public function findType(int $id): ?array
     {
-        $stmt = Database::pdo()->prepare('SELECT ID AS id, CODE AS code, TITLE AS title, SORT AS sort FROM price_types WHERE ID = ? LIMIT 1');
+        $stmt = Database::pdo()->prepare(
+            'SELECT ID AS id, CODE AS code, TITLE AS title, DESCRIPTION AS description,
+                    SORT AS sort, ENABLED AS enabled
+             FROM price_types
+             WHERE ID = ?
+             LIMIT 1'
+        );
         $stmt->execute([$id]);
         $row = $stmt->fetch();
 
@@ -39,7 +48,9 @@ final class PriceRepository
             'id' => (int) $row['id'],
             'code' => (string) $row['code'],
             'title' => (string) $row['title'],
+            'description' => (string) ($row['description'] ?? ''),
             'sort' => (int) $row['sort'],
+            'enabled' => (bool) $row['enabled'],
         ];
     }
 
@@ -57,7 +68,7 @@ final class PriceRepository
      */
     public function baseTypeId(): ?int
     {
-        $value = Database::pdo()->query('SELECT ID FROM price_types ORDER BY SORT ASC, ID ASC LIMIT 1')->fetchColumn();
+        $value = Database::pdo()->query('SELECT ID FROM price_types WHERE ENABLED = 1 ORDER BY SORT ASC, ID ASC LIMIT 1')->fetchColumn();
 
         return $value === false ? null : (int) $value;
     }
@@ -306,19 +317,34 @@ final class PriceRepository
         }
     }
 
-    public function createType(string $code, string $title, int $sort): int
-    {
+    public function createType(
+        string $code,
+        string $title,
+        string $description,
+        int $sort,
+        bool $enabled
+    ): int {
         $pdo = Database::pdo();
-        $stmt = $pdo->prepare('INSERT INTO price_types (CODE, TITLE, SORT) VALUES (?, ?, ?)');
-        $stmt->execute([$code, $title, $sort]);
+        $stmt = $pdo->prepare(
+            'INSERT INTO price_types (CODE, TITLE, DESCRIPTION, SORT, ENABLED) VALUES (?, ?, ?, ?, ?)'
+        );
+        $stmt->execute([
+            $code,
+            $title,
+            $description !== '' ? $description : null,
+            $sort,
+            $enabled ? 1 : 0,
+        ]);
 
         return (int) $pdo->lastInsertId();
     }
 
-    public function updateType(int $id, string $title): void
+    public function updateType(int $id, string $title, string $description, bool $enabled): void
     {
-        $stmt = Database::pdo()->prepare('UPDATE price_types SET TITLE = ? WHERE ID = ?');
-        $stmt->execute([$title, $id]);
+        $stmt = Database::pdo()->prepare(
+            'UPDATE price_types SET TITLE = ?, DESCRIPTION = ?, ENABLED = ? WHERE ID = ?'
+        );
+        $stmt->execute([$title, $description !== '' ? $description : null, $enabled ? 1 : 0, $id]);
     }
 
     public function deleteType(int $id): void

@@ -52,18 +52,80 @@ final class UserAdminService
             $where[] = 'u.LEVEL >= 10';
         }
 
-        if (!empty($filters['level'])) {
+        $levels = is_array($filters['levels'] ?? null)
+            ? array_values(array_unique(array_filter(
+                array_map('intval', $filters['levels']),
+                static fn (int $level): bool => in_array($level, [10, 50, 90], true)
+            )))
+            : [];
+
+        if ($levels !== []) {
+            $where[] = 'u.LEVEL IN (' . implode(', ', array_fill(0, count($levels), '?')) . ')';
+            array_push($params, ...$levels);
+        } elseif (!empty($filters['level'])) {
             $where[] = 'u.LEVEL = ?';
             $params[] = (int) $filters['level'];
         }
 
-        if (!empty($filters['state'])) {
+        $states = is_array($filters['states'] ?? null)
+            ? array_values(array_unique(array_filter(
+                $filters['states'],
+                static fn ($state): bool => in_array($state, ['active', 'blocked', 'pending'], true)
+            )))
+            : [];
+
+        if ($states !== []) {
+            $parts = [];
+
+            foreach ($states as $state) {
+                if ($state === 'blocked') {
+                    $parts[] = "u.ACTIVE = 'N'";
+                } elseif ($state === 'active') {
+                    $parts[] = "(u.ACTIVE = 'Y' AND u.reg_state = 'active')";
+                } elseif ($state === 'pending') {
+                    $parts[] = "u.reg_state = 'pending'";
+                }
+            }
+
+            if ($parts !== []) {
+                $where[] = '(' . implode(' OR ', $parts) . ')';
+            }
+        } elseif (!empty($filters['state'])) {
             if ($filters['state'] === 'blocked') {
                 $where[] = "u.ACTIVE = 'N'";
             } elseif ($filters['state'] === 'active') {
                 $where[] = "u.ACTIVE = 'Y' AND u.reg_state = 'active'";
             } elseif ($filters['state'] === 'pending') {
                 $where[] = "u.reg_state = 'pending'";
+            }
+        }
+
+        $facets = [
+            'cities' => ['singular' => 'city', 'column' => 'u.CITY'],
+            'departments' => ['singular' => 'department', 'column' => 'u.DEPARTMENT'],
+            'offices' => ['singular' => 'office', 'column' => 'u.OFFICE'],
+            'positions' => ['singular' => 'position', 'column' => 'u.DOLGNOST'],
+        ];
+
+        foreach ($facets as $key => $config) {
+            $values = is_array($filters[$key] ?? null)
+                ? array_values(array_unique(array_filter(
+                    array_map(static fn ($value): string => trim((string) $value), $filters[$key]),
+                    static fn (string $value): bool => $value !== ''
+                )))
+                : [];
+
+            if ($values !== []) {
+                $where[] = $config['column'] . ' IN (' . implode(', ', array_fill(0, count($values), '?')) . ')';
+                array_push($params, ...$values);
+                continue;
+            }
+
+            $value = trim((string) ($filters[$config['singular']] ?? ''));
+
+            if ($value !== '') {
+                $where[] = $config['column'] . ' LIKE ?';
+                $params[] = '%' . $value . '%';
             }
         }
 

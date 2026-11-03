@@ -259,6 +259,39 @@ final class UserRepository
         $stmt->execute([$path, $id]);
     }
 
+    public function listStaffFacets(): array
+    {
+        $rows = Database::pdo()->query(
+            'SELECT CITY AS city, DEPARTMENT AS department, OFFICE AS office, DOLGNOST AS position
+             FROM users
+             WHERE LEVEL >= 10'
+        )->fetchAll() ?: [];
+        $facets = [
+            'cities' => [],
+            'departments' => [],
+            'offices' => [],
+            'positions' => [],
+        ];
+
+        foreach ($rows as $row) {
+            foreach (['city' => 'cities', 'department' => 'departments', 'office' => 'offices', 'position' => 'positions'] as $source => $target) {
+                $value = trim((string) ($row[$source] ?? ''));
+
+                if ($value !== '') {
+                    $facets[$target][$value] = true;
+                }
+            }
+        }
+
+        foreach ($facets as $key => $values) {
+            $list = array_keys($values);
+            natcasesort($list);
+            $facets[$key] = array_values($list);
+        }
+
+        return $facets;
+    }
+
     public function listManagers(): array
     {
         $stmt = Database::pdo()->query(
@@ -357,6 +390,29 @@ final class UserRepository
         }
 
         return [$where, $params];
+    }
+
+    public function listClientFacets(): array
+    {
+        $rows = Database::pdo()->query(
+            "SELECT DISTINCT CITY AS city
+             FROM users
+             WHERE LEVEL = 5 AND CITY IS NOT NULL AND CITY <> ''"
+        )->fetchAll() ?: [];
+        $cities = [];
+
+        foreach ($rows as $row) {
+            $city = trim((string) ($row['city'] ?? ''));
+
+            if ($city !== '') {
+                $cities[$city] = true;
+            }
+        }
+
+        $list = array_keys($cities);
+        natcasesort($list);
+
+        return ['cities' => array_values($list)];
     }
 
     public function listClients(string $query, int $limit = 50, int $offset = 0, array $filters = []): array
@@ -486,6 +542,44 @@ final class UserRepository
             $params[] = (int) ($filters['manager_id'] ?? 0);
         } elseif ($manager === 'none') {
             $where[] = 'cm.client_id IS NULL';
+        }
+
+        $managerIds = [];
+        $includeNone = false;
+
+        foreach ((array) ($filters['managers'] ?? []) as $value) {
+            $value = (string) $value;
+
+            if ($value === 'none') {
+                $includeNone = true;
+            } elseif (ctype_digit($value) && (int) $value > 0) {
+                $managerIds[] = (int) $value;
+            }
+        }
+
+        if ($managerIds !== [] || $includeNone) {
+            $managerParts = [];
+
+            if ($managerIds !== []) {
+                $managerParts[] = 'cm.manager_id IN (' . implode(',', array_fill(0, count($managerIds), '?')) . ')';
+                array_push($params, ...$managerIds);
+            }
+
+            if ($includeNone) {
+                $managerParts[] = 'cm.client_id IS NULL';
+            }
+
+            $where[] = '(' . implode(' OR ', $managerParts) . ')';
+        }
+
+        $cities = array_values(array_filter(
+            array_map(static fn ($value): string => trim((string) $value), (array) ($filters['cities'] ?? [])),
+            static fn (string $value): bool => $value !== ''
+        ));
+
+        if ($cities !== []) {
+            $where[] = 'u.CITY IN (' . implode(',', array_fill(0, count($cities), '?')) . ')';
+            array_push($params, ...$cities);
         }
 
         if ($query !== '') {

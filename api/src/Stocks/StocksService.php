@@ -982,7 +982,7 @@ final class StocksService
         $this->stocks->setNomenclatureArticle((string) $item['SID'], $this->normalizeArticle($input['article'] ?? null));
         $this->stocks->setNomenclatureType(
             (string) $item['SID'],
-            array_key_exists('type', $input) ? $this->normalizeType($input['type']) : ItemTypes::PRODUCT
+            array_key_exists('type', $input) ? $this->normalizeType($input['type']) : $this->storedType('')
         );
 
         // Новая позиция создаётся деактивированной — пользователь активирует её отдельно.
@@ -1257,14 +1257,20 @@ final class StocksService
 
     private function storedType(string $value): string
     {
-        return ItemTypes::isKnown($value) ? $value : ItemTypes::PRODUCT;
+        if ($this->itemTypes->isKnown($value)) {
+            return $value;
+        }
+
+        $default = $this->itemTypes->defaultCode();
+
+        return $default !== '' ? $default : ItemTypes::PRODUCT;
     }
 
     private function normalizeType(mixed $value, ?string $current = null): string
     {
         $type = trim((string) ($value ?? ''));
 
-        if (!ItemTypes::isKnown($type)) {
+        if (!$this->itemTypes->isKnown($type)) {
             throw new HttpException(422, 'validation_error', 'Неизвестный тип номенклатуры');
         }
 

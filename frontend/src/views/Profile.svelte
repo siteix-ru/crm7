@@ -224,7 +224,11 @@
 </script>
 
 <section class="page" class:profile-layout={tab === 'profile'}>
-  <h1>Профиль</h1>
+  <div class="page-hero">
+    <div class="head">
+      <h1>Профиль</h1>
+    </div>
+  </div>
 
   <div class="tabs tab-scroll">
     <button type="button" class:active={tab === 'profile'} onclick={() => (tab = 'profile')}>
@@ -419,8 +423,7 @@
       align-items: start;
     }
 
-    .page.profile-layout > h1,
-    .page.profile-layout > .tabs,
+  .page.profile-layout > .tabs,
     .page.profile-layout > .alert {
       grid-column: 1 / -1;
     }

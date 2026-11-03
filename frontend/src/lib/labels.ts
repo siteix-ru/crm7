@@ -42,6 +42,9 @@ const AUDIT_LABELS: Record<string, string> = {
   'stocks.export': 'Экспорт остатков',
   'stocks.item.create': 'Добавление номенклатуры',
   'stocks.item.update': 'Правка номенклатуры',
+  'item_type.create': 'Создание типа номенклатуры',
+  'item_type.update': 'Правка типа номенклатуры',
+  'item_type.delete': 'Удаление типа номенклатуры',
   'stocks.warehouse.rename': 'Переименование склада',
   'stocks.manage': 'Управление складом'
 };
@@ -51,6 +54,7 @@ const ENTITY_LABELS: Record<string, string> = {
   request: 'заявка',
   client: 'клиент',
   stocks: 'склад',
+  item_type: 'тип номенклатуры',
   roles: 'роль',
   substitution: 'замещение',
   legal: 'документ',

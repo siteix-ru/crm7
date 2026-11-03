@@ -54,13 +54,54 @@ final class UserController extends ApiController
             throw new HttpException(403, 'forbidden', 'Недостаточно прав');
         }
 
+        $levels = array_values(array_filter(
+            array_map(
+                'intval',
+                array_filter(explode(',', trim($request->queryParam('levels'))), static fn (string $value): bool => $value !== '')
+            ),
+            static fn (int $level): bool => in_array($level, [10, 50, 90], true)
+        ));
+        $states = array_values(array_filter(
+            array_filter(explode(',', trim($request->queryParam('states'))), static fn (string $value): bool => $value !== ''),
+            static fn (string $state): bool => in_array($state, ['active', 'blocked', 'pending'], true)
+        ));
+        $csv = static function (string $name) use ($request): array {
+            return array_values(array_filter(
+                array_filter(
+                    explode(',', trim($request->queryParam($name))),
+                    static fn (string $value): bool => $value !== ''
+                )
+            ));
+        };
+
         return Response::ok($this->admin->list([
             'q' => trim($request->queryParam('q')),
             'scope' => trim($request->queryParam('scope')),
             'level' => (int) $request->queryParam('level', '0'),
+            'levels' => $levels,
             'state' => trim($request->queryParam('state')),
+            'states' => $states,
+            'city' => trim($request->queryParam('city')),
+            'cities' => $csv('cities'),
+            'department' => trim($request->queryParam('department')),
+            'departments' => $csv('departments'),
+            'office' => trim($request->queryParam('office')),
+            'offices' => $csv('offices'),
+            'position' => trim($request->queryParam('position')),
+            'positions' => $csv('positions'),
             'sort' => trim($request->queryParam('sort')),
         ], max(1, (int) $request->queryParam('page', '1')), (int) $request->queryParam('per_page', '50') <= 0 ? 0 : max(10, min(100, (int) $request->queryParam('per_page', '50')))));
+    }
+
+    public function facets(Request $request): Response
+    {
+        [, $capabilities] = $this->context($request);
+
+        if (!in_array('users.manage', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав');
+        }
+
+        return Response::ok($this->users->listStaffFacets());
     }
 
     public function show(Request $request, array $params): Response
@@ -75,6 +116,41 @@ final class UserController extends ApiController
         [, $capabilities] = $this->context($request);
 
         return Response::ok($this->admin->history($capabilities, (int) ($params['id'] ?? 0)));
+    }
+
+    public function clients(Request $request, array $params): Response
+    {
+        [, $capabilities] = $this->context($request);
+
+        if (!in_array('users.manage', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав');
+        }
+
+        $userId = (int) ($params['id'] ?? 0);
+        $user = $this->users->findById($userId);
+
+        if ($user === null || (int) ($user['LEVEL'] ?? 0) < 10) {
+            throw new HttpException(404, 'not_found', 'Сотрудник не найден');
+        }
+
+        $rows = $this->users->listClients(trim($request->queryParam('q')), 0, 0, [
+            'manager' => 'mine',
+            'manager_id' => $userId,
+            'sort' => 'name_asc',
+        ]);
+        $items = array_map(static fn (array $row): array => [
+            'id' => (int) $row['id'],
+            'login' => (string) $row['login'],
+            'name' => (string) $row['name'],
+            'company' => (string) ($row['company'] ?? ''),
+            'email' => (string) ($row['email'] ?? ''),
+            'phone' => (string) ($row['phone'] ?? ''),
+            'active' => ($row['active'] ?? 'N') === 'Y',
+            'reg_state' => (string) ($row['reg_state'] ?? ''),
+            'requests_total' => (int) ($row['requests_total'] ?? 0),
+        ], $rows);
+
+        return Response::ok(['items' => $items, 'total' => count($items)]);
     }
 
     public function create(Request $request): Response

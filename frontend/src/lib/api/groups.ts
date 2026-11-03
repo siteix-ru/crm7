@@ -15,24 +15,26 @@ export function listGroupItems(id: number): Promise<{ items: ItemGroupItem[] }> 
 
 export function createItemGroup(
   title: string,
-  description = ''
+  description = '',
+  enabled = true
 ): Promise<{ group: ItemGroup }> {
   return apiRequest<{ group: ItemGroup }>('/admin/item-groups', {
     method: 'POST',
     auth: true,
-    body: { title, description }
+    body: { title, description, enabled }
   });
 }
 
 export function updateItemGroup(
   id: number,
   title: string,
-  description = ''
+  description = '',
+  enabled = true
 ): Promise<{ group: ItemGroup }> {
   return apiRequest<{ group: ItemGroup }>(`/admin/item-groups/${id}`, {
     method: 'PATCH',
     auth: true,
-    body: { title, description }
+    body: { title, description, enabled }
   });
 }
 

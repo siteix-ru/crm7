@@ -110,6 +110,97 @@ main:has(.page-wide) {
   font: inherit;
   color: var(--text);
 }
+
+/* Единый каркас модалок «Вид и фильтры» */
+.filters-form .view-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.filters-form .radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.filters-form .filter-group {
+  margin-top: var(--space-4);
+}
+
+.filters-form .filter-label {
+  display: block;
+  margin-bottom: var(--space-2);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.filters-form .filter-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.filters-form .filter-group .filter-fields {
+  margin-top: 0;
+}
+
+.filters-form .filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.filters-form .filter-field input,
+.filters-form .filter-field select {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.filters-form .filter-field input:focus,
+.filters-form .filter-field select:focus {
+  border-color: var(--primary);
+  outline: none;
+}
+
+.filters-form .filter-field input:disabled {
+  background: var(--fill-tertiary);
+  color: var(--text-description);
+  cursor: not-allowed;
+}
+
+.filters-form .view-period {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.filters-form .modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+
 .crm-tooltip {
   position: fixed;
   z-index: 4000;
@@ -149,4 +240,83 @@ html.cookie-visible main {
   .tab-scroll > * {
     flex: 0 0 auto;
   }
+}
+
+/* Единая шапка страницы — эталон STAFF-CARD. */
+.page-hero {
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.page-hero .head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.page-hero h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.page-hero .sub {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.page-hero .head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.page-hero .head-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.page-hero .back,
+.page-icon-btn {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
+}
+
+.page-hero .back:hover,
+.page-icon-btn:hover:not(:disabled) {
+  border-color: var(--primary-hover);
+  color: var(--primary-hover);
+}
+
+.page-icon-btn.danger:hover:not(:disabled) {
+  border-color: var(--error-border);
+  color: var(--danger);
+}
+
+.page-icon-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }

@@ -12,7 +12,6 @@
   import type { PriceType } from '../lib/api/types';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
-  import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
@@ -78,31 +77,39 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <button
-      type="button"
-      class="back"
-      title="Назад к складам"
-      aria-label="Назад к складам"
-      onclick={() => router.navigate('/warehouses')}
-    >
-      <Icon name="arrow-left" size={16} />
-    </button>
-    <div class="head-text">
-      <h1>{warehouse?.name ?? 'Склад'}</h1>
+  <div class="page-hero">
+    <div class="head">
+      <button
+        type="button"
+        class="back"
+        title="Назад к складам"
+        aria-label="Назад к складам"
+        onclick={() => router.navigate('/warehouses')}
+      >
+        <Icon name="arrow-left" size={16} />
+      </button>
+      <div class="head-text">
+        <h1>{warehouse?.name ?? 'Склад'}</h1>
+        {#if warehouse}
+          <p class="sub">
+            {typeTitle(warehouse.type)} · {warehouse.active ? 'Активен' : 'Скрыт от пользователей'}
+          </p>
+        {/if}
+      </div>
       {#if warehouse}
-        <p class="sub">
-          {typeTitle(warehouse.type)} · {warehouse.active ? 'Активен' : 'Скрыт от пользователей'}
-        </p>
+        <div class="head-actions">
+          <button
+            type="button"
+            class="page-icon-btn"
+            title="Редактировать склад"
+            aria-label="Редактировать склад"
+            onclick={() => router.navigate(`/warehouses/${id}/edit`)}
+          >
+            <Icon name="edit" size={16} />
+          </button>
+        </div>
       {/if}
     </div>
-    {#if warehouse}
-      <div class="head-actions">
-        <Button variant="ghost" onclick={() => router.navigate(`/warehouses/${id}/edit`)}>
-          <Icon name="edit" size={16} /> Редактировать
-        </Button>
-      </div>
-    {/if}
   </div>
 
   {#if error}

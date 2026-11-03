@@ -4,6 +4,7 @@
   import {
     emailRequests,
     exportRequests,
+    listClients,
     listRequests,
     listStatuses,
     requestFilters,
@@ -11,7 +12,7 @@
     type RequestWarehouseOption
   } from '../lib/api/requests';
   import { listDrafts, deleteDraft, type RequestDraftSummary } from '../lib/api/drafts';
-  import type { RequestItem, RequestStatus } from '../lib/api/types';
+  import type { ClientItem, RequestItem, RequestStatus } from '../lib/api/types';
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
@@ -19,6 +20,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
@@ -32,6 +34,8 @@
     scopes: [] as string[],
     warehouses: [] as number[],
     overdue: [] as string[],
+    clientId: 0,
+    clientName: '',
     from: defaultPeriod().from,
     to: defaultPeriod().to,
     sort: 'created_desc',
@@ -75,6 +79,14 @@
   let warehouses = $state<RequestWarehouseOption[]>([]);
   let warehouseOpen = $state(false);
   let warehouseDraft = $state<number[]>([]);
+  let selectedClient = $state<{ id: number; name: string } | null>(null);
+  let clientQuery = $state('');
+  let clientResults = $state<ClientItem[]>([]);
+  let clientSearching = $state(false);
+  let clientOpen = $state(false);
+  let clientMenuStyle = $state('');
+  let clientInputEl = $state<HTMLInputElement | null>(null);
+  let clientTimer: ReturnType<typeof setTimeout> | undefined;
   let exportOpen = $state(false);
   let exporting = $state(false);
   let message = $state('');
@@ -94,6 +106,24 @@
     }, 400);
 
     return () => clearTimeout(searchTimer);
+  });
+
+  $effect(() => {
+    if (!clientOpen) {
+      return;
+    }
+
+    void clientResults;
+    updateClientMenuPosition();
+
+    const handlePosition = () => updateClientMenuPosition();
+    window.addEventListener('scroll', handlePosition, true);
+    window.addEventListener('resize', handlePosition);
+
+    return () => {
+      window.removeEventListener('scroll', handlePosition, true);
+      window.removeEventListener('resize', handlePosition);
+    };
   });
 
   let viewMode = $state<'list' | 'tiles'>(initialFilters.view === 'tiles' ? 'tiles' : 'list');
@@ -122,6 +152,9 @@
   let draftCount = $state(0);
 
   const isStaff = $derived(auth.level >= 10);
+  const statusOptions = $derived(
+    statuses.map((status) => ({ value: status.code, label: status.title }))
+  );
   const emailAllowed = $derived(appSettings.emailExportEnabled && appSettings.mailConfigured);
   let dragSortField = $state<string | null>(null);
   let dragSortOver = $state<string | null>(null);
@@ -139,6 +172,7 @@
       (filters.scopes.length > 0 ? 1 : 0) +
       (filters.warehouses.length > 0 ? 1 : 0) +
       (filters.overdue.length > 0 ? 1 : 0) +
+      (filters.clientId > 0 ? 1 : 0) +
       (filters.from !== filterDefaults.from || filters.to !== filterDefaults.to ? 1 : 0)
   );
   const searchActive = $derived(search.trim() !== '');
@@ -172,6 +206,111 @@
     }
   }
 
+  function filterClientLabel(client: ClientItem): string {
+    return client.company ? `${client.name} — ${client.company}` : client.name;
+  }
+
+  function updateClientMenuPosition(): void {
+    if (clientInputEl === null) {
+      return;
+    }
+
+    const rect = clientInputEl.getBoundingClientRect();
+    const gap = 4;
+    const viewportGap = 8;
+    const width = Math.min(
+      Math.max(rect.width, 320),
+      window.innerWidth - viewportGap * 2
+    );
+    const left = Math.max(
+      viewportGap,
+      Math.min(rect.left, window.innerWidth - width - viewportGap)
+    );
+    const spaceBelow = window.innerHeight - rect.bottom - gap - viewportGap;
+    const spaceAbove = rect.top - gap - viewportGap;
+    const placeAbove = spaceBelow < 120 && spaceAbove > spaceBelow;
+    const height = Math.max(100, Math.min(320, placeAbove ? spaceAbove : spaceBelow));
+
+    clientMenuStyle = [
+      'position: fixed',
+      'z-index: 60',
+      `left: ${left}px`,
+      `width: ${width}px`,
+      placeAbove
+        ? `bottom: ${window.innerHeight - rect.top + gap}px`
+        : `top: ${rect.bottom + gap}px`,
+      `max-height: ${height}px`
+    ].join('; ');
+  }
+
+  async function searchFilterClients(query: string): Promise<void> {
+    clientSearching = true;
+
+    try {
+      const data = await listClients(query, 1, 15);
+      clientResults = data.items.filter((client) => client.active);
+    } catch {
+      clientResults = [];
+    } finally {
+      clientSearching = false;
+    }
+  }
+
+  function onClientFilterInput(): void {
+    if (selectedClient !== null && clientQuery.trim() !== selectedClient.name) {
+      selectedClient = null;
+    }
+
+    clientOpen = true;
+    clearTimeout(clientTimer);
+    clientTimer = setTimeout(() => void searchFilterClients(clientQuery.trim()), 250);
+  }
+
+  function onClientFilterFocus(): void {
+    clientOpen = true;
+
+    if (clientResults.length === 0 && !clientSearching) {
+      void searchFilterClients(clientQuery.trim());
+    }
+  }
+
+  function selectFilterClient(client: ClientItem): void {
+    const label = filterClientLabel(client);
+    selectedClient = { id: client.id, name: label };
+    clientQuery = label;
+    clientResults = [];
+    clientOpen = false;
+  }
+
+  function clearFilterClient(): void {
+    selectedClient = null;
+    clientQuery = '';
+    clientResults = [];
+    clientOpen = true;
+    void searchFilterClients('');
+  }
+
+  function onClientFilterKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+
+      if (clientOpen && clientResults.length > 0) {
+        selectFilterClient(clientResults[0]);
+      }
+    } else if (event.key === 'Escape') {
+      clientOpen = false;
+    }
+  }
+
+  function handleClientFilterFocusOut(event: FocusEvent): void {
+    const next = event.relatedTarget as Node | null;
+    const current = event.currentTarget as HTMLElement | null;
+
+    if (next === null || current === null || !current.contains(next)) {
+      clientOpen = false;
+    }
+  }
+
   function persist(): void {
     saveFilters('requests', { ...filters, view: viewMode, per_page: perPage, q: search, page });
   }
@@ -179,8 +318,32 @@
   function resetFilters(): void {
     const period = defaultPeriod();
 
-    draft = { ...draft, statusCodes: [], scopes: [], warehouses: [], overdue: [], from: period.from, to: period.to };
-    filters = { ...filters, statusCodes: [], scopes: [], warehouses: [], overdue: [], from: period.from, to: period.to };
+    selectedClient = null;
+    clientQuery = '';
+    clientResults = [];
+    clientOpen = false;
+    draft = {
+      ...draft,
+      statusCodes: [],
+      scopes: [],
+      warehouses: [],
+      overdue: [],
+      clientId: 0,
+      clientName: '',
+      from: period.from,
+      to: period.to
+    };
+    filters = {
+      ...filters,
+      statusCodes: [],
+      scopes: [],
+      warehouses: [],
+      overdue: [],
+      clientId: 0,
+      clientName: '',
+      from: period.from,
+      to: period.to
+    };
     persist();
     void load(true);
   }
@@ -350,26 +513,44 @@
 
   function openView(): void {
     viewDraft = viewMode;
-    draft = { ...filters };
+    draft = {
+      ...filters,
+      statusCodes: [...filters.statusCodes],
+      scopes: [...filters.scopes],
+      warehouses: [...filters.warehouses],
+      overdue: [...filters.overdue]
+    };
+    selectedClient =
+      filters.clientId > 0
+        ? {
+            id: filters.clientId,
+            name: filters.clientName || `Клиент #${filters.clientId}`
+          }
+        : null;
+    clientQuery = selectedClient?.name ?? '';
+    clientResults = [];
+    clientOpen = false;
     viewOpen = true;
   }
 
-  function toggleScopeDraft(value: string): void {
-    draft.scopes = draft.scopes.includes(value)
-      ? draft.scopes.filter((item) => item !== value)
-      : [...draft.scopes, value];
-  }
+  function resetView(): void {
+    const period = defaultPeriod();
 
-  function toggleStatusDraft(code: string): void {
-    draft.statusCodes = draft.statusCodes.includes(code)
-      ? draft.statusCodes.filter((item) => item !== code)
-      : [...draft.statusCodes, code];
-  }
-
-  function toggleOverdueDraft(value: string): void {
-    draft.overdue = draft.overdue.includes(value)
-      ? draft.overdue.filter((item) => item !== value)
-      : [...draft.overdue, value];
+    selectedClient = null;
+    clientQuery = '';
+    clientResults = [];
+    clientOpen = false;
+    draft = {
+      ...draft,
+      statusCodes: [],
+      scopes: [],
+      overdue: [],
+      clientId: 0,
+      clientName: '',
+      from: period.from,
+      to: period.to
+    };
+    viewDraft = 'list';
   }
 
   function applyView(): void {
@@ -382,6 +563,10 @@
     const currentStatuses = [...filters.statusCodes].sort();
     const nextOverdue = [...draft.overdue].sort();
     const currentOverdue = [...filters.overdue].sort();
+    const nextClientId = selectedClient?.id ?? 0;
+    const nextClientName = selectedClient?.name ?? '';
+    const clientChanged =
+      nextClientId !== filters.clientId || nextClientName !== filters.clientName;
     const filtersChanged =
       period.from !== filters.from ||
       period.to !== filters.to ||
@@ -390,7 +575,8 @@
       nextStatuses.length !== currentStatuses.length ||
       nextStatuses.some((value, index) => value !== currentStatuses[index]) ||
       nextOverdue.length !== currentOverdue.length ||
-      nextOverdue.some((value, index) => value !== currentOverdue[index]);
+      nextOverdue.some((value, index) => value !== currentOverdue[index]) ||
+      clientChanged;
 
     viewMode = viewDraft;
 
@@ -400,6 +586,8 @@
       filters.scopes = nextScopes;
       filters.statusCodes = nextStatuses;
       filters.overdue = nextOverdue;
+      filters.clientId = nextClientId;
+      filters.clientName = nextClientName;
       persist();
       void load(true);
       return;
@@ -425,6 +613,7 @@
         q: search,
         warehouse_ids: filters.warehouses.length > 0 ? filters.warehouses : undefined,
         overdue: filters.overdue.length > 0 ? filters.overdue : undefined,
+        client_id: filters.clientId > 0 ? filters.clientId : undefined,
         from: filters.from,
         to: filters.to,
         sort: filters.sort,
@@ -498,6 +687,7 @@
       q: search,
       warehouse_ids: filters.warehouses.length > 0 ? filters.warehouses : undefined,
       overdue: filters.overdue.length > 0 ? filters.overdue : undefined,
+      client_id: filters.clientId > 0 ? filters.clientId : undefined,
       from: filters.from,
       to: filters.to,
       sort: filters.sort
@@ -596,6 +786,7 @@
     </div>
   {/if}
 
+  <div class="page-hero">
   <div class="filters">
     <div class="head">
       <h1>Заявки</h1>
@@ -690,6 +881,7 @@
         <Icon name="export" size={16} />
       </button>
     </div>
+  </div>
   </div>
 
   {#if error}
@@ -919,83 +1111,133 @@
   </Modal>
 
   <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-    <div class="view-options">
+    <div class="filters-form">
+      <div class="view-options">
       <label class="radio">
         <input type="radio" name="req-view" value="list" bind:group={viewDraft} />
-        <span>Списком (строками)</span>
+        <span>Список</span>
       </label>
       <label class="radio">
         <input type="radio" name="req-view" value="tiles" bind:group={viewDraft} />
-        <span>Плитками</span>
+        <span>Плитка</span>
       </label>
     </div>
 
-    <div class="sort-status">
-      <span class="sort-status-label" title="Если ничего не выбрано — все статусы">Статус:</span>
-      <div class="status-opts">
-        {#each statuses as status (status.code)}
-          <button
-            type="button"
-            class="status-opt"
-            class:on={draft.statusCodes.includes(status.code)}
-            aria-pressed={draft.statusCodes.includes(status.code)}
-            onclick={() => toggleStatusDraft(status.code)}
-          >
-            {status.title}
-          </button>
-        {/each}
-      </div>
-    </div>
-
-    <div class="sort-status">
-      <span class="sort-status-label" title="Если ничего не выбрано — все заявки">Просрочка:</span>
-      <div class="status-opts">
-        {#each overdueOptions as option (option.value)}
-          <button
-            type="button"
-            class="status-opt"
-            class:on={draft.overdue.includes(option.value)}
-            aria-pressed={draft.overdue.includes(option.value)}
-            onclick={() => toggleOverdueDraft(option.value)}
-          >
-            {option.label}
-          </button>
-        {/each}
-      </div>
+    <div class="filter-group">
+      <span class="filter-label" title="Если ничего не выбрано — все статусы">Статусы</span>
+      <MultiSelect
+        label="Статусы"
+        options={statusOptions}
+        bind:values={draft.statusCodes}
+        allLabel="Все статусы"
+        emptyLabel="Нет статусов"
+        maxHeight="300px"
+      />
     </div>
 
     {#if isStaff}
-      <div class="sort-status">
-        <span class="sort-status-label" title="Если ничего не выбрано — все заявки">Менеджер:</span>
-        <div class="status-opts">
-          {#each scopeOptions as option (option.value)}
+      <div class="filter-group">
+        <span class="filter-label">Клиент</span>
+
+        {#if selectedClient}
+          <div class="client-picked">
+            <span class="client-picked-name" title={selectedClient.name}>
+              {selectedClient.name}
+            </span>
             <button
               type="button"
-              class="status-opt"
-              class:on={draft.scopes.includes(option.value)}
-              aria-pressed={draft.scopes.includes(option.value)}
-              onclick={() => toggleScopeDraft(option.value)}
+              class="client-picked-clear"
+              aria-label="Очистить клиента"
+              title="Очистить клиента"
+              onclick={clearFilterClient}
             >
-              {option.label}
+              ✕
             </button>
-          {/each}
-        </div>
+          </div>
+        {:else}
+          <div class="client-filter" onfocusout={handleClientFilterFocusOut}>
+            <input
+              class="client-filter-input"
+              type="text"
+              bind:this={clientInputEl}
+              bind:value={clientQuery}
+              placeholder="Имя, компания, ИНН или телефон"
+              autocomplete="off"
+              aria-label="Клиент"
+              oninput={onClientFilterInput}
+              onfocus={onClientFilterFocus}
+              onkeydown={onClientFilterKeydown}
+            />
+
+            {#if clientOpen}
+              <div class="client-filter-menu" role="listbox" aria-label="Клиенты" style={clientMenuStyle}>
+                {#if clientSearching}
+                  <div class="cf-empty">Поиск…</div>
+                {:else if clientResults.length === 0}
+                  <div class="cf-empty">Ничего не найдено — уточните запрос</div>
+                {:else}
+                  {#each clientResults as client (client.id)}
+                    <button
+                      type="button"
+                      class="cf-item"
+                      role="option"
+                      aria-selected="false"
+                      onmousedown={(event) => event.preventDefault()}
+                      onclick={() => selectFilterClient(client)}
+                    >
+                      <span class="cf-name">{filterClientLabel(client)}</span>
+                      <span class="cf-meta">
+                        {#if client.inn}ИНН {client.inn}{/if}
+                        {#if client.inn && client.phone} · {/if}
+                        {client.phone || client.email || ''}
+                      </span>
+                    </button>
+                  {/each}
+                {/if}
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
+
+    <div class="filter-group">
+      <span class="filter-label" title="Если ничего не выбрано — все заявки">Просрочка</span>
+      <MultiSelect
+        label="Просрочка"
+        options={overdueOptions}
+        bind:values={draft.overdue}
+        allLabel="Все заявки"
+      />
+    </div>
+
+    {#if isStaff}
+      <div class="filter-group">
+        <span class="filter-label" title="Если ничего не выбрано — все заявки">Менеджеры</span>
+        <MultiSelect
+          label="Менеджеры"
+          options={scopeOptions}
+          bind:values={draft.scopes}
+          allLabel="Все заявки"
+        />
       </div>
     {/if}
 
     <div class="view-period">
       <label class="filter-field">
         <span>Период с</span>
-        <input type="date" bind:value={draft.from} max={draft.to} />
+        <input type="date" bind:value={draft.from} max={draft.to || undefined} />
       </label>
       <label class="filter-field">
         <span>Период по</span>
-        <input type="date" bind:value={draft.to} min={draft.from} max={todayIso()} />
+        <input type="date" bind:value={draft.to} min={draft.from || undefined} max={todayIso()} />
       </label>
     </div>
-    <div class="modal-actions">
-      <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-      <Button onclick={applyView}>Применить</Button>
+      <div class="modal-actions">
+        <Button variant="ghost" onclick={resetView}>Сбросить</Button>
+        <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+        <Button onclick={applyView}>Применить</Button>
+      </div>
     </div>
   </Modal>
 
@@ -1933,102 +2175,114 @@
     background: var(--primary-bg);
   }
 
-  .view-options {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    max-height: 340px;
-    overflow-y: auto;
+  .client-filter {
+    position: relative;
   }
 
-  .sort-status {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-secondary);
-  }
-
-  .sort-status-label {
-    font-size: 14px;
-    color: var(--text-description);
-  }
-
-  .status-opts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .status-opt {
-    padding: 0 12px;
-    height: 28px;
+  .client-filter-input {
+    width: 100%;
+    height: 34px;
+    padding: 0 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--surface);
-    color: var(--text-description);
+    color: var(--text);
     font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+    font-size: 14px;
+    box-sizing: border-box;
   }
 
-  .status-opt:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
-  .status-opt.on {
+  .client-filter-input:focus {
     border-color: var(--primary);
-    background: var(--primary);
-    color: #fff;
-    font-weight: 500;
+    outline: none;
   }
 
-  .status-opt.on:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    background: var(--primary-hover);
-    color: #fff;
-  }
-
-  .view-period {
+  .client-filter-menu {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-top: var(--space-4);
-    padding-top: var(--space-4);
-    border-top: 1px solid var(--border-secondary);
-  }
-
-  .filter-field {
-    display: flex;
-    flex: 1 1 160px;
     flex-direction: column;
-    gap: 4px;
-    font-size: 13px;
-    color: var(--text-description);
-  }
-
-  .filter-field input {
-    height: 32px;
-    padding: 0 8px;
+    overflow-y: auto;
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 14px;
-    color: var(--text);
+    box-shadow: var(--shadow-md);
   }
 
-  .radio {
+  .cf-item {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text);
+    flex-direction: column;
+    gap: 2px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    border-bottom: 1px solid var(--border);
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
     cursor: pointer;
   }
 
+  .cf-item:last-child {
+    border-bottom: none;
+  }
+
+  .cf-item:hover {
+    background: var(--bg);
+  }
+
+  .cf-name {
+    font-size: 14px;
+  }
+
+  .cf-meta {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .cf-empty {
+    padding: 10px 12px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .client-picked {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 6px 8px 6px 12px;
+    border: 1px solid var(--primary);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  }
+
+  .client-picked-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+  }
+
+  .client-picked-clear {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  .client-picked-clear:hover {
+    border-color: var(--danger);
+    color: var(--danger);
+  }
 
 </style>

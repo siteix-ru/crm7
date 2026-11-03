@@ -248,25 +248,6 @@ export function assignClient(
   });
 }
 
-export function transferClient(
-  id: number,
-  toManagerId: number | null,
-  dateFrom: string,
-  dateTo: string | null,
-  comment: string
-): Promise<{ id: number }> {
-  return apiRequest<{ id: number }>(`/clients/${id}/transfer`, {
-    method: 'POST',
-    auth: true,
-    body: {
-      to_manager_id: toManagerId,
-      date_from: dateFrom,
-      date_to: dateTo,
-      comment
-    }
-  });
-}
-
 export function acceptTransfer(transferId: number): Promise<{ id: number }> {
   return apiRequest<{ id: number }>(`/client-transfers/${transferId}/accept`, {
     method: 'POST',

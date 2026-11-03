@@ -183,13 +183,15 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <a class="back" href="#/clients" title="К списку клиентов" aria-label="К списку клиентов">
-      <Icon name="arrow-left" size={16} />
-    </a>
-    <div>
-      <h1>Новый клиент</h1>
-      <p class="sub">Создание карточки и учётной записи клиента</p>
+  <div class="page-hero">
+    <div class="head">
+      <a class="back" href="#/clients" title="К списку клиентов" aria-label="К списку клиентов">
+        <Icon name="arrow-left" size={16} />
+      </a>
+      <div>
+        <h1>Новый клиент</h1>
+        <p class="sub">Создание карточки и учётной записи клиента</p>
+      </div>
     </div>
   </div>
 

@@ -15,8 +15,10 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <h1>О программе</h1>
+  <div class="page-hero">
+    <div class="head">
+      <h1>О программе</h1>
+    </div>
   </div>
 
   <div class="card intro">

@@ -48,6 +48,23 @@ final class SubstitutionRepository
         return $stmt->fetch() ?: null;
     }
 
+    public function update(int $id, array $data): void
+    {
+        $stmt = Database::pdo()->prepare(
+            'UPDATE substitutions
+             SET manager_id = ?, substitute_id = ?, date_from = ?, date_to = ?, reason = ?
+             WHERE ID = ?'
+        );
+        $stmt->execute([
+            $data['manager_id'],
+            $data['substitute_id'],
+            $data['date_from'],
+            $data['date_to'],
+            $data['reason'],
+            $id,
+        ]);
+    }
+
     public function create(array $data): int
     {
         $pdo = Database::pdo();
@@ -68,14 +85,19 @@ final class SubstitutionRepository
         return (int) $pdo->lastInsertId();
     }
 
-    public function hasOverlap(int $managerId, string $from, string $to): bool
-    {
+    public function hasOverlap(
+        int $managerId,
+        string $from,
+        string $to,
+        int $excludeId = 0
+    ): bool {
         $stmt = Database::pdo()->prepare(
             'SELECT 1 FROM substitutions
-             WHERE manager_id = ? AND is_active = 1 AND date_to >= CURDATE() AND date_from <= ? AND date_to >= ?
+             WHERE manager_id = ? AND is_active = 1 AND date_to >= CURDATE()
+               AND date_from <= ? AND date_to >= ? AND ID <> ?
              LIMIT 1'
         );
-        $stmt->execute([$managerId, $to, $from]);
+        $stmt->execute([$managerId, $to, $from, $excludeId]);
 
         return $stmt->fetchColumn() !== false;
     }

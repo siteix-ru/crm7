@@ -4,38 +4,26 @@
   import {
     blockUser,
     createUser,
-    listAudit,
-    listItemTypes,
     listModules,
     listRoles,
     listUsers,
     resetUserPassword,
-    saveItemTypes,
     saveModules,
     saveRole,
-    searchLog,
     type ModuleItem,
     type ModuleRole,
     unblockUser,
     updateUser
   } from '../lib/api/admin';
   import { convertUser } from '../lib/api/staff';
-  import type { AssignedPriceType, ItemType } from '../lib/api/types';
+  import type { AssignedPriceType } from '../lib/api/types';
   import { listLegalDocuments, saveLegalDocument, type LegalDocument } from '../lib/api/legal';
-  import type {
-    AdminUser,
-    AuditEntry,
-    RoleCapability,
-    RoleInfo,
-    SearchLogEntry,
-    SearchQueryStat
-  } from '../lib/api/types';
+  import type { AdminUser, RoleCapability, RoleInfo } from '../lib/api/types';
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
   import { addHistory } from '../lib/search-history';
   import { clearFilters, countActive, loadFilters, saveFilters } from '../lib/filters';
-  import { clampDates, todayIso } from '../lib/period';
   import Button from '../lib/components/ui/Button.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
@@ -43,7 +31,12 @@
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { formatDateTime } from '../lib/format';
-  import { auditLabel, entityLabel } from '../lib/labels';
+
+  type AdminSection = 'modules' | 'roles' | 'docs';
+
+  let { section = null }: { section?: AdminSection | null } = $props();
+
+  const embedded = $derived(section !== null);
 
   const levelTitles = $derived<Record<number, string>>({
     90: 'Технический администратор',
@@ -56,11 +49,14 @@
   const adminCoreCapabilities = ['users.manage', 'roles.manage', 'settings.manage'];
 
   const userFilterDefaults = { level: 0, state: '' };
-  const auditFilterDefaults = { from: '', to: '' };
 
-  let tab = $state<
-    'users' | 'modules' | 'types' | 'audit' | 'searches' | 'roles' | 'refs' | 'docs'
-  >('roles');
+  let tab = $state<'users' | 'modules' | 'roles' | 'docs'>('roles');
+
+  $effect(() => {
+    if (section !== null && tab !== section) {
+      tab = section;
+    }
+  });
 
   let users = $state<AdminUser[]>([]);
 let usersTotal = $state(0);
@@ -86,29 +82,12 @@ let usersPerPage = $state(20);
   });
   let editForm = $state({ name: '', phone: '', company: '', inn: '', position: '', level: 5 });
 
-  let audit = $state<AuditEntry[]>([]);
-let auditTotal = $state(0);
-let auditPage = $state(1);
-let auditPerPage = $state(20);
-  let auditAction = $state('');
-  const initialAuditFilters = loadFilters('admin-audit', auditFilterDefaults);
-  let auditFilters = $state({ ...initialAuditFilters });
-  let auditDraft = $state({ ...initialAuditFilters });
-  let auditLoading = $state(false);
-
-  let searchStats = $state({ total: 0, users: 0, unique_queries: 0 });
-  let searchTop = $state<SearchQueryStat[]>([]);
-  let searchRecent = $state<SearchLogEntry[]>([]);
-  let searchLoading = $state(false);
-
   let roles = $state<RoleInfo[]>([]);
   let roleCatalog = $state<RoleCapability[]>([]);
   let roleDraft = $state<Record<number, string[]>>({});
   let roleBusy = $state(0);
   let roleNotice = $state('');
   let roleError = $state('');
-  let statuses = $state<{ code: string; title: string; sort: number; color: string; is_final: boolean }[]>([]);
-  let activityTypes = $state<{ code: string; title: string; audience: string; sort: number }[]>([]);
   let docs = $state<LegalDocument[]>([]);  let docCode = $state('');
   let docTitle = $state('');
   let docBody = $state('');
@@ -126,23 +105,19 @@ let auditPerPage = $state(20);
   let modulesNotice = $state('');
   let modulesError = $state('');
 
-  let itemTypes = $state<ItemType[]>([]);
-  let typesLoading = $state(false);
-  let typesBusy = $state(false);
-  let typesNotice = $state('');
-  let typesError = $state('');
-
   const canManageUsers = $derived(auth.can('users.manage'));
-  const canViewAudit = $derived(auth.can('audit.view'));
   const canManageRoles = $derived(auth.can('roles.manage'));
   const pricesEnabled = $derived(appSettings.pricesEnabled);
 
   onMount(() => {
+    if (section !== null) {
+      void openTab(section);
+
+      return;
+    }
+
     if (canManageUsers) {
       void loadRoles();
-    } else if (canViewAudit) {
-      tab = 'audit';
-      void loadAudit();
     } else if (auth.can('settings.manage')) {
       tab = 'modules';
       void loadModules();
@@ -190,35 +165,6 @@ let auditPerPage = $state(20);
     clearFilters('admin-users');
     usersPage = 1;
     void loadUsers();
-  }
-
-  function clampAuditDates(): void {
-    const dates = clampDates(auditDraft.from, auditDraft.to);
-
-    auditDraft.from = dates.from;
-    auditDraft.to = dates.to;
-  }
-
-  function applyAuditDraft(): void {
-    clampAuditDates();
-    auditFilters = { ...auditDraft };
-    saveFilters('admin-audit', auditFilters);
-    auditPage = 1;
-    void loadAudit();
-  }
-
-  function applyAuditSearch(): void {
-    auditPage = 1;
-    addHistory('admin-audit', auditAction);
-    void loadAudit();
-  }
-
-  function resetAuditFilters(): void {
-    auditDraft = { ...auditFilterDefaults };
-    auditFilters = { ...auditFilterDefaults };
-    clearFilters('admin-audit');
-    auditPage = 1;
-    void loadAudit();
   }
 
   async function submitCreate(): Promise<void> {
@@ -336,28 +282,6 @@ let auditPerPage = $state(20);
     }
   }
 
-  async function loadAudit(): Promise<void> {
-    auditLoading = true;
-    error = '';
-
-    try {
-      const data = await listAudit({
-        action: auditAction,
-      from: auditFilters.from,
-      to: auditFilters.to,
-        page: auditPage,
-        per_page: auditPerPage
-      });
-
-      audit = data.items;
-      auditTotal = data.total;
-    } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить аудит';
-    } finally {
-      auditLoading = false;
-    }
-  }
-
   function selectDoc(document: LegalDocument): void {
     docCode = document.code;
     docTitle = document.title;
@@ -384,16 +308,12 @@ let auditPerPage = $state(20);
   }
 
   async function openTab(
-    next: 'users' | 'modules' | 'types' | 'audit' | 'searches' | 'roles' | 'refs' | 'docs'
+    next: 'users' | 'modules' | 'roles' | 'docs'
   ): Promise<void> {
     tab = next;
 
     if (next === 'modules' && modules.length === 0) {
       await loadModules();
-    }
-
-    if (next === 'types' && itemTypes.length === 0) {
-      await loadItemTypes();
     }
 
     if (next === 'docs' && docs.length === 0) {
@@ -408,26 +328,8 @@ let auditPerPage = $state(20);
       }
     }
 
-    if (next === 'audit' && audit.length === 0) {
-      await loadAudit();
-    }
-
-    if (next === 'searches') {
-      await loadSearches();
-    }
-
     if (next === 'roles') {
       await loadRoles();
-    }
-
-    if (next === 'refs' && statuses.length === 0) {
-      try {
-        const { listStatuses, listActivityTypes } = await import('../lib/api/requests');
-        statuses = await listStatuses();
-        activityTypes = await listActivityTypes();
-      } catch {
-        // некритично
-      }
     }
   }
 
@@ -483,58 +385,6 @@ let auditPerPage = $state(20);
       modulesError = cause instanceof ApiError ? cause.message : 'Не удалось сохранить модули';
     } finally {
       modulesBusy = false;
-    }
-  }
-
-  async function loadItemTypes(): Promise<void> {
-    typesLoading = true;
-    typesError = '';
-    typesNotice = '';
-
-    try {
-      itemTypes = (await listItemTypes()).types;
-    } catch (cause) {
-      typesError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить типы номенклатуры';
-    } finally {
-      typesLoading = false;
-    }
-  }
-
-  function toggleItemType(code: string): void {
-    itemTypes = itemTypes.map((type) =>
-      type.code === code ? { ...type, enabled: !type.enabled } : type
-    );
-    typesNotice = '';
-  }
-
-  async function saveTypesDraft(): Promise<void> {
-    typesBusy = true;
-    typesError = '';
-    typesNotice = '';
-
-    try {
-      itemTypes = (await saveItemTypes(itemTypes)).types;
-      typesNotice = 'Сохранено';
-    } catch (cause) {
-      typesError = cause instanceof ApiError ? cause.message : 'Не удалось сохранить типы номенклатуры';
-    } finally {
-      typesBusy = false;
-    }
-  }
-
-  async function loadSearches(): Promise<void> {
-    searchLoading = true;
-    error = '';
-
-    try {
-      const data = await searchLog();
-      searchStats = data.stats;
-      searchTop = data.top;
-      searchRecent = data.recent;
-    } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить журнал поиска';
-    } finally {
-      searchLoading = false;
     }
   }
 
@@ -673,28 +523,24 @@ let auditPerPage = $state(20);
   }
 </script>
 
-<section class="page">
-  <div class="head">
-    <h1>Администрирование</h1>
-  </div>
+<svelte:element this={embedded ? 'div' : 'section'} class="page">
+  {#if !embedded}
+    <div class="page-hero">
+      <div class="head">
+        <h1>Администрирование</h1>
+      </div>
+    </div>
 
-  <div class="tabs tab-scroll">
-    {#if auth.can('settings.manage')}
-      <button type="button" class:active={tab === 'modules'} onclick={() => void openTab('modules')}>Модули</button>
-      <button type="button" class:active={tab === 'types'} onclick={() => void openTab('types')}>Типы номенклатуры</button>
-    {/if}
-    {#if canViewAudit}
-      <button type="button" class:active={tab === 'audit'} onclick={() => void openTab('audit')}>Журнал аудита</button>
-    {/if}
-    {#if canViewAudit || auth.can('settings.manage')}
-      <button type="button" class:active={tab === 'searches'} onclick={() => void openTab('searches')}>Поиски номенклатуры</button>
-    {/if}
-    <button type="button" class:active={tab === 'roles'} onclick={() => void openTab('roles')}>Роли</button>
-    <button type="button" class:active={tab === 'refs'} onclick={() => void openTab('refs')}>Справочники</button>
-    {#if auth.can('settings.manage')}
-      <button type="button" class:active={tab === 'docs'} onclick={() => void openTab('docs')}>Документы</button>
-    {/if}
-  </div>
+    <div class="tabs tab-scroll">
+      {#if auth.can('settings.manage')}
+        <button type="button" class:active={tab === 'modules'} onclick={() => void openTab('modules')}>Модули</button>
+      {/if}
+      <button type="button" class:active={tab === 'roles'} onclick={() => void openTab('roles')}>Роли</button>
+      {#if auth.can('settings.manage')}
+        <button type="button" class:active={tab === 'docs'} onclick={() => void openTab('docs')}>Документы</button>
+      {/if}
+    </div>
+  {/if}
 
   {#if error}<div class="alert">{error}</div>{/if}
   {#if message}<div class="notice">{message}</div>{/if}
@@ -752,44 +598,6 @@ let auditPerPage = $state(20);
 
       <div class="actions">
         <Button loading={modulesBusy} onclick={() => void saveModulesDraft()}>Сохранить</Button>
-      </div>
-    {/if}
-  {/if}
-
-  {#if tab === 'types'}
-    {#if typesError}<div class="alert">{typesError}</div>{/if}
-    {#if typesNotice}<div class="notice">{typesNotice}</div>{/if}
-
-    {#if typesLoading}
-      <div class="center"><Spinner /></div>
-    {:else}
-      <p class="hint">
-        Разрешённые типы появляются в карточке номенклатуры. Хотя бы один тип должен остаться
-        включённым.
-      </p>
-
-      <div class="modules">
-        {#each itemTypes as type (type.code)}
-          <div class="module-card">
-            <div class="module-head">
-              <label class="checkbox module-toggle">
-                <input
-                  type="checkbox"
-                  checked={type.enabled}
-                  onchange={() => toggleItemType(type.code)}
-                />
-                <span class="module-title">{type.title}</span>
-              </label>
-              <code>{type.code}</code>
-            </div>
-
-            <p class="module-desc">{type.description}</p>
-          </div>
-        {/each}
-      </div>
-
-      <div class="actions">
-        <Button loading={typesBusy} onclick={() => void saveTypesDraft()}>Сохранить</Button>
       </div>
     {/if}
   {/if}
@@ -982,128 +790,6 @@ let auditPerPage = $state(20);
     onsaved={(assigned) => onPriceTypesSaved(pricePicker?.id ?? 0, assigned)}
   />
 
-  {#if tab === 'audit'}
-    <div class="filters">
-      <SearchInput
-        bind:value={auditAction}
-        historyKey="admin-audit"
-        placeholder="Действие по коду (например, request.transition)"
-        onclear={applyAuditSearch}
-        onpick={applyAuditSearch}
-      />
-      <Button variant="ghost" onclick={applyAuditSearch}>Показать</Button>
-
-      <FiltersModal
-        count={countActive(auditFilters, auditFilterDefaults)}
-        onopen={() => (auditDraft = { ...auditFilters })}
-        onapply={applyAuditDraft}
-        onreset={resetAuditFilters}
-      >
-        <label class="filter-field">
-          <span>Период с</span>
-          <input type="date" bind:value={auditDraft.from} max={auditDraft.to || todayIso()} />
-        </label>
-        <label class="filter-field">
-          <span>Период по</span>
-          <input type="date" bind:value={auditDraft.to} min={auditDraft.from} max={todayIso()} />
-        </label>
-      </FiltersModal>
-    </div>
-
-    {#if auditLoading}
-      <div class="center"><Spinner size={26} /></div>
-    {:else if audit.length === 0}
-      <div class="empty">Записей нет</div>
-    {:else}
-      <div class="audit">
-        {#each audit as entry (entry.id)}
-          <div class="entry">
-            <div class="row">
-              <span class="action">{auditLabel(entry.action)}</span>
-              <span class="when">{formatDateTime(entry.created_at)}</span>
-            </div>
-            <div class="meta">
-              {#if entry.user}<span>{entry.user.name}</span>{/if}
-              {#if entry.entity}<span>{entityLabel(entry.entity)} #{entry.entity_id}</span>{/if}
-              {#if entry.ip}<span>{entry.ip}</span>{/if}
-              <span class="action-code">{entry.action}</span>
-            </div>
-            {#if Object.keys(entry.data).length > 0}
-              <div class="data">
-                {#each Object.entries(entry.data) as [key, value]}
-                  <span>{key}: {String(value)}</span>
-                {/each}
-              </div>
-            {/if}
-          </div>
-        {/each}
-      </div>
-
-      <Pager
-        page={auditPage}
-        perPage={auditPerPage}
-        total={auditTotal}
-        loading={auditLoading}
-        onchange={(next) => {
-          auditPage = next;
-          void loadAudit();
-        }}
-        onperpage={(next) => {
-          auditPerPage = next;
-          auditPage = 1;
-          void loadAudit();
-        }}
-      />
-    {/if}
-  {/if}
-
-  {#if tab === 'searches'}
-    {#if searchLoading}
-      <div class="center"><Spinner size={26} /></div>
-    {:else}
-      <div class="search-stats">
-        <div class="stat"><span class="value">{searchStats.total}</span><span class="label">запросов всего</span></div>
-        <div class="stat"><span class="value">{searchStats.unique_queries}</span><span class="label">уникальных запросов</span></div>
-        <div class="stat"><span class="value">{searchStats.users}</span><span class="label">пользователей</span></div>
-      </div>
-
-      <div class="search-card">
-        <h2>Частые запросы</h2>
-        {#if searchTop.length === 0}
-          <p class="empty">Пока нет данных</p>
-        {:else}
-          <div class="search-table">
-            {#each searchTop as row (row.query)}
-              <div class="search-row">
-                <span class="query">{row.query}</span>
-                <span class="count">{row.searches}</span>
-                <span class="when">{formatDateTime(row.last_at)}</span>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </div>
-
-      <div class="search-card">
-        <h2>Последние поиски</h2>
-        {#if searchRecent.length === 0}
-          <p class="empty">Пока нет данных</p>
-        {:else}
-          <div class="search-table">
-            {#each searchRecent as row (row.id)}
-              <div class="search-row">
-                <span class="query">{row.query}</span>
-                <span class="count">{row.results}</span>
-                <span class="who">{row.user_name}</span>
-                <span class="when">{formatDateTime(row.created_at)}</span>
-              </div>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    {/if}
-  {/if}
-
   {#if tab === 'docs'}
     <div class="docs">
       <div class="doc-tabs tab-scroll">
@@ -1139,32 +825,6 @@ let auditPerPage = $state(20);
           </div>
         </div>
       {/if}
-    </div>
-  {/if}
-
-  {#if tab === 'refs'}
-    <div class="card">
-      <h2>Статусы заявок</h2>
-      <div class="refs">
-        {#each statuses as status (status.code)}
-          <div class="ref">
-            <span class="ref-title" style="color: {status.color}">{status.title}</span>
-            <span class="ref-code">{status.code}{status.is_final ? ' · финальный' : ''}</span>
-          </div>
-        {/each}
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Типы действий</h2>
-      <div class="refs">
-        {#each activityTypes as type (type.code)}
-          <div class="ref">
-            <span class="ref-title">{type.title}</span>
-            <span class="ref-code">{type.code} · {type.audience === 'manager' ? 'менеджер' : type.audience === 'client' ? 'клиент' : 'все'}</span>
-          </div>
-        {/each}
-      </div>
     </div>
   {/if}
 
@@ -1250,7 +910,7 @@ let auditPerPage = $state(20);
       {/each}
     </div>
   {/if}
-</section>
+</svelte:element>
 
 <style>
   .page {
@@ -1561,78 +1221,10 @@ let auditPerPage = $state(20);
     flex-wrap: wrap;
   }
 
-  .audit {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .entry {
-    padding: var(--space-3);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    transition: background 0.12s ease;
-  }
-
-  .entry:hover {
-    background: var(--bg);
-  }
-
-  .entry .action {
-    font-weight: 500;
-    font-size: 14px;
-  }
-
-  .entry .action-code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11px;
-    opacity: 0.75;
-  }
-
-  .entry .when {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .data {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    margin-top: 4px;
-    font-size: 12px;
-    color: var(--muted);
-  }
-
   .roles {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-  }
-
-  .refs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .ref {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 8px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-  }
-
-  .ref-title {
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .ref-code {
-    font-size: 12px;
-    color: var(--muted);
   }
 
   .level {
@@ -1782,90 +1374,10 @@ let auditPerPage = $state(20);
     font-size: 13px;
   }
 
-  .empty {
-    padding: var(--space-6);
-    text-align: center;
-    color: var(--muted);
-    background: var(--surface);
-    border: 1px dashed var(--border);
-    border-radius: var(--radius-md);
-  }
-
   .center {
     display: grid;
     place-items: center;
     padding: var(--space-6);
   }
 
-  .search-stats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-  }
-
-  .search-stats .stat {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: var(--space-3) var(--space-4);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
-
-  .search-stats .value {
-    font-size: 22px;
-    font-weight: 600;
-  }
-
-  .search-stats .label {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .search-card {
-    padding: var(--space-4);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
-
-  .search-table {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .search-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    padding: 8px 0;
-    border-bottom: 1px solid var(--border);
-    font-size: 14px;
-  }
-
-  .search-row:last-child {
-    border-bottom: none;
-  }
-
-  .search-row .query {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .search-row .count {
-    font-weight: 600;
-    color: var(--primary);
-    white-space: nowrap;
-  }
-
-  .search-row .who,
-  .search-row .when {
-    color: var(--muted);
-    font-size: 13px;
-    white-space: nowrap;
-  }
 </style>

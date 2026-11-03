@@ -70,12 +70,18 @@ final class AppSettingsController extends ApiController
     {
         $this->context($request);
 
+        $available = array_values(array_filter(
+            $this->prices->types(),
+            static fn (array $type): bool => (bool) ($type['enabled'] ?? true)
+        ));
+
         $items = array_map(static fn (array $type): array => [
             'id' => (int) $type['id'],
             'code' => (string) $type['code'],
             'title' => (string) $type['title'],
+            'description' => (string) ($type['description'] ?? ''),
             'sort' => (int) $type['sort'],
-        ], $this->prices->types());
+        ], $available);
 
         return Response::ok(['items' => $items]);
     }
@@ -89,7 +95,7 @@ final class AppSettingsController extends ApiController
             'title' => (string) $group['title'],
             'description' => (string) ($group['description'] ?? ''),
             'sort' => (int) $group['sort'],
-        ], $this->groups->list());
+        ], $this->groups->list(true));
 
         return Response::ok([
             'items' => $items,

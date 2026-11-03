@@ -9,6 +9,7 @@
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
+  import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
   interface Props {
@@ -69,7 +70,15 @@
 
 <section class="page">
   <div class="head">
-    <Button variant="ghost" onclick={() => window.history.back()}>← Назад</Button>
+    <button
+      type="button"
+      class="page-icon-btn"
+      title="Назад"
+      aria-label="Назад"
+      onclick={() => window.history.back()}
+    >
+      <Icon name="arrow-left" size={16} />
+    </button>
   </div>
 
   {#if loading}

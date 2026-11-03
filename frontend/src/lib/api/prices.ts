@@ -23,19 +23,28 @@ export function listAdminPriceTypes(): Promise<{ items: PriceType[] }> {
   return apiRequest<{ items: PriceType[] }>('/admin/price-types', { auth: true });
 }
 
-export function createPriceType(title: string): Promise<{ type: PriceType }> {
+export function createPriceType(
+  title: string,
+  description: string,
+  enabled = true
+): Promise<{ type: PriceType }> {
   return apiRequest<{ type: PriceType }>('/admin/price-types', {
     method: 'POST',
     auth: true,
-    body: { title }
+    body: { title, description, enabled }
   });
 }
 
-export function updatePriceType(id: number, title: string): Promise<{ type: PriceType }> {
+export function updatePriceType(
+  id: number,
+  title: string,
+  description: string,
+  enabled: boolean
+): Promise<{ type: PriceType }> {
   return apiRequest<{ type: PriceType }>(`/admin/price-types/${id}`, {
     method: 'PATCH',
     auth: true,
-    body: { title }
+    body: { title, description, enabled }
   });
 }
 

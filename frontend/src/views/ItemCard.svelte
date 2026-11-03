@@ -171,31 +171,39 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <button
-      type="button"
-      class="back"
-      title="Назад к номенклатуре"
-      aria-label="Назад к номенклатуре"
-      onclick={() => router.navigate('/stocks')}
-    >
-      <Icon name="arrow-left" size={16} />
-    </button>
-    <div class="head-text">
-      <h1>
-        {item?.name ?? 'Номенклатура'}
-        {#if item && item.active === false}
-          <span class="status off">деактивирована</span>
-        {/if}
-      </h1>
-    </div>
-    {#if item && canEdit}
-      <div class="head-actions">
-        <Button variant="ghost" onclick={() => router.navigate(`/stocks/items/${id}/edit`)}>
-          <Icon name="edit" size={16} /> Редактировать
-        </Button>
+  <div class="hero page-hero">
+    <div class="head">
+      <button
+        type="button"
+        class="back"
+        title="Назад к номенклатуре"
+        aria-label="Назад к номенклатуре"
+        onclick={() => router.navigate('/stocks')}
+      >
+        <Icon name="arrow-left" size={16} />
+      </button>
+      <div class="head-text">
+        <h1>
+          {item?.name ?? 'Номенклатура'}
+          {#if item && item.active === false}
+            <span class="status off">деактивирована</span>
+          {/if}
+        </h1>
       </div>
-    {/if}
+      {#if item && canEdit}
+        <div class="head-actions">
+          <button
+            type="button"
+            class="icon-btn"
+            title="Редактировать номенклатуру"
+            aria-label="Редактировать номенклатуру"
+            onclick={() => router.navigate(`/stocks/items/${id}/edit`)}
+          >
+            <Icon name="edit" size={16} />
+          </button>
+        </div>
+      {/if}
+    </div>
   </div>
 
   {#if error}
@@ -491,13 +499,41 @@
   .page {
     display: flex;
     flex-direction: column;
-    gap: var(--space-5);
+    gap: var(--space-4);
+  }
+
+  .hero {
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
   }
 
   .head {
     display: flex;
-    align-items: flex-start;
+    align-items: center;
     gap: var(--space-3);
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-description);
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+
+  .icon-btn:hover {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
   }
 
   .back {

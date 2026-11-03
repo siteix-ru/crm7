@@ -4,7 +4,7 @@
   import { getLegalDocument, type LegalDocument } from '../lib/api/legal';
   import { router } from '../lib/router.svelte';
   import { formatDate } from '../lib/format';
-  import Button from '../lib/components/ui/Button.svelte';
+  import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
   interface Props {
@@ -46,7 +46,15 @@
 <div class="wrap">
   <div class="card">
     <div class="back-row">
-      <Button variant="ghost" onclick={back}>← Назад</Button>
+      <button
+        type="button"
+        class="page-icon-btn"
+        title="Назад"
+        aria-label="Назад"
+        onclick={back}
+      >
+        <Icon name="arrow-left" size={16} />
+      </button>
     </div>
 
     {#if loading}

@@ -1,22 +1,39 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
+  import { searchLog } from '../lib/api/admin';
   import {
     getReportSummary,
     getSalesLeads,
     getWarehouseReport
   } from '../lib/api/reports';
-  import type { ReportSummary, SalesLeadsReport, WarehouseReport } from '../lib/api/types';
+  import type {
+    ReportSummary,
+    SalesLeadsReport,
+    SearchLogEntry,
+    SearchQueryStat,
+    WarehouseReport
+  } from '../lib/api/types';
   import { clearFilters, countActive, loadFilters, saveFilters } from '../lib/filters';
   import Button from '../lib/components/ui/Button.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import StatusBadge from '../lib/components/StatusBadge.svelte';
-  import { formatMinutes } from '../lib/format';
+  import { formatDateTime, formatMinutes } from '../lib/format';
   import { clampPeriod, daysAgoIso, defaultPeriod, isoDate, todayIso } from '../lib/period';
+  import { auth } from '../lib/stores/auth.svelte';
 
-  type ReportTab = 'statuses' | 'managers' | 'clients' | 'warehouses' | 'leads' | 'dynamics';
+  type ReportTab =
+    | 'statuses'
+    | 'managers'
+    | 'clients'
+    | 'warehouses'
+    | 'leads'
+    | 'searches'
+    | 'dynamics';
+
+  const canViewSearches = $derived(auth.can('audit.view') || auth.can('settings.manage'));
 
   const reportTabs: { code: ReportTab; title: string }[] = [
     { code: 'statuses', title: 'По статусам' },
@@ -24,8 +41,13 @@
     { code: 'clients', title: 'По клиентам' },
     { code: 'warehouses', title: 'По складам' },
     { code: 'leads', title: 'Целевые продажи' },
+    { code: 'searches', title: 'Поиски номенклатуры' },
     { code: 'dynamics', title: 'Динамика' }
   ];
+
+  const visibleReportTabs = $derived(
+    reportTabs.filter((item) => item.code !== 'searches' || canViewSearches)
+  );
 
   const perPageOptions = [10, 20, 50, 100];
 
@@ -40,10 +62,15 @@
   let summary = $state<ReportSummary | null>(null);
   let leads = $state<SalesLeadsReport | null>(null);
   let warehouseReport = $state<WarehouseReport | null>(null);
+  let searchStats = $state({ total: 0, users: 0, unique_queries: 0 });
+  let searchTop = $state<SearchQueryStat[]>([]);
+  let searchRecent = $state<SearchLogEntry[]>([]);
   let loading = $state(true);
   let summaryBusy = $state(false);
   let leadsBusy = $state(false);
   let warehousesBusy = $state(false);
+  let searchesBusy = $state(false);
+  let searchesLoaded = $state(false);
   let error = $state('');
 
   let tab = $state<ReportTab>('statuses');
@@ -128,6 +155,24 @@
     }
   }
 
+  async function loadSearches(): Promise<void> {
+    searchesBusy = true;
+    error = '';
+
+    try {
+      const data = await searchLog();
+      searchStats = data.stats;
+      searchTop = data.top;
+      searchRecent = data.recent;
+      searchesLoaded = true;
+    } catch (cause) {
+      error =
+        cause instanceof ApiError ? cause.message : 'Не удалось загрузить поиски номенклатуры';
+    } finally {
+      searchesBusy = false;
+    }
+  }
+
   async function load(): Promise<void> {
     loading = true;
     await loadSummary();
@@ -138,6 +183,10 @@
 
     if (warehouseReport !== null) {
       await loadWarehouseReport();
+    }
+
+    if (searchesLoaded) {
+      await loadSearches();
     }
   }
 
@@ -157,6 +206,10 @@
     if (next === 'warehouses' && warehouseReport === null) {
       await loadWarehouseReport();
     }
+
+    if (next === 'searches' && !searchesLoaded) {
+      await loadSearches();
+    }
   }
 
   async function refreshTab(): Promise<void> {
@@ -168,6 +221,12 @@
 
     if (tab === 'warehouses') {
       await loadWarehouseReport();
+
+      return;
+    }
+
+    if (tab === 'searches') {
+      await loadSearches();
 
       return;
     }
@@ -220,15 +279,17 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <h1>Отчёты</h1>
-    <div class="actions">
-      <FiltersModal
-        count={countActive(reportFilters, filterDefaults)}
-        onopen={() => (reportDraft = { ...reportFilters })}
-        onapply={applyFilterDraft}
-        onreset={resetFilters}
-      >
+  <div class="page-hero">
+    <div class="head">
+      <h1>Отчёты</h1>
+      <div class="actions">
+        <FiltersModal
+          icon
+          count={countActive(reportFilters, filterDefaults)}
+          onopen={() => (reportDraft = { ...reportFilters })}
+          onapply={applyFilterDraft}
+          onreset={resetFilters}
+        >
         <div class="presets">
           <Button variant="ghost" onclick={() => setPreset('days30')}>30 дней</Button>
           <Button variant="ghost" onclick={() => setPreset('today')}>Сегодня</Button>
@@ -246,6 +307,7 @@
           <input type="date" bind:value={reportDraft.to} min={reportDraft.from} max={todayIso()} />
         </label>
       </FiltersModal>
+      </div>
     </div>
   </div>
 
@@ -280,7 +342,7 @@
     </div>
 
     <div class="report-tabs tab-scroll">
-      {#each reportTabs as item (item.code)}
+      {#each visibleReportTabs as item (item.code)}
         <button
           type="button"
           class="report-tab"
@@ -560,6 +622,64 @@
       </div>
     {/if}
 
+    {#if tab === 'searches'}
+      {#if searchesBusy && !searchesLoaded}
+        <div class="card"><div class="center"><Spinner size={22} /></div></div>
+      {:else}
+        <p class="hint">Статистика по всем поискам номенклатуры, без ограничения периодом.</p>
+
+        <div class="tiles">
+          <div class="tile">
+            <div class="value">{searchStats.total}</div>
+            <div class="label">запросов всего</div>
+          </div>
+          <div class="tile">
+            <div class="value">{searchStats.unique_queries}</div>
+            <div class="label">уникальных запросов</div>
+          </div>
+          <div class="tile">
+            <div class="value">{searchStats.users}</div>
+            <div class="label">пользователей</div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Частые запросы</h2>
+          {#if searchTop.length === 0}
+            <p class="hint">Пока нет данных</p>
+          {:else}
+            <div class="search-table">
+              {#each searchTop as row (row.query)}
+                <div class="search-row">
+                  <span class="query">{row.query}</span>
+                  <span class="count">{row.searches}</span>
+                  <span class="when">{formatDateTime(row.last_at)}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+
+        <div class="card">
+          <h2>Последние поиски</h2>
+          {#if searchRecent.length === 0}
+            <p class="hint">Пока нет данных</p>
+          {:else}
+            <div class="search-table">
+              {#each searchRecent as row (row.id)}
+                <div class="search-row">
+                  <span class="query">{row.query}</span>
+                  <span class="count">{row.results}</span>
+                  <span class="who">{row.user_name}</span>
+                  <span class="when">{formatDateTime(row.created_at)}</span>
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    {/if}
+
     {#if tab === 'dynamics'}
       <div class="card">
         <h2>Динамика</h2>
@@ -706,6 +826,45 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+  }
+
+  .search-table {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .search-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+
+  .search-row:last-child {
+    border-bottom: none;
+  }
+
+  .search-row .query {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .search-row .count {
+    font-weight: 600;
+    color: var(--primary);
+    white-space: nowrap;
+  }
+
+  .search-row .who,
+  .search-row .when {
+    color: var(--muted);
+    font-size: 13px;
+    white-space: nowrap;
   }
 
   .status-table {

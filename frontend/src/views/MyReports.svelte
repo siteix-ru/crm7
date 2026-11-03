@@ -89,15 +89,17 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <h1>Мои отчёты</h1>
-    <div class="actions">
-      <FiltersModal
-        count={countActive(reportFilters, filterDefaults)}
-        onopen={() => (reportDraft = { ...reportFilters })}
-        onapply={applyFilterDraft}
-        onreset={resetFilters}
-      >
+  <div class="page-hero">
+    <div class="head">
+      <h1>Мои отчёты</h1>
+      <div class="actions">
+        <FiltersModal
+          icon
+          count={countActive(reportFilters, filterDefaults)}
+          onopen={() => (reportDraft = { ...reportFilters })}
+          onapply={applyFilterDraft}
+          onreset={resetFilters}
+        >
         <label class="filter-field">
           <span>Период с</span>
           <input type="date" bind:value={reportDraft.from} max={reportDraft.to} />
@@ -137,6 +139,7 @@
           </select>
         </label>
       </FiltersModal>
+      </div>
     </div>
   </div>
 

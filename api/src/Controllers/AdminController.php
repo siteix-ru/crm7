@@ -163,9 +163,14 @@ final class AdminController extends ApiController
     {
         $user = $this->requireSettings($request);
 
-        $type = $this->prices->createType((string) $request->input('title', ''));
+        $type = $this->prices->createType(
+            (string) $request->input('title', ''),
+            (string) $request->input('description', ''),
+            (bool) $request->input('enabled', true)
+        );
         $this->audit($request, $user, 'prices.type.create', 'price_type', $type['id'] ?? null, [
             'title' => $type['title'] ?? '',
+            'enabled' => $type['enabled'] ?? true,
         ]);
 
         return Response::ok(['type' => $type], 201);
@@ -176,9 +181,16 @@ final class AdminController extends ApiController
         $user = $this->requireSettings($request);
 
         $id = (int) ($params['id'] ?? 0);
-        $type = $this->prices->updateType($id, (string) $request->input('title', ''));
+        $enabled = $request->input('enabled');
+        $type = $this->prices->updateType(
+            $id,
+            (string) $request->input('title', ''),
+            (string) $request->input('description', ''),
+            $enabled === null ? null : (bool) $enabled
+        );
         $this->audit($request, $user, 'prices.type.update', 'price_type', $id, [
             'title' => $type['title'] ?? '',
+            'enabled' => $type['enabled'] ?? true,
         ]);
 
         return Response::ok(['type' => $type]);
@@ -232,7 +244,8 @@ final class AdminController extends ApiController
 
         $group = $this->groups->create(
             (string) $request->input('title', ''),
-            (string) $request->input('description', '')
+            (string) $request->input('description', ''),
+            (bool) $request->input('enabled', true)
         );
         $this->audit($request, $user, 'groups.create', 'item_group', $group['id'] ?? null, [
             'title' => $group['title'] ?? '',
@@ -249,7 +262,8 @@ final class AdminController extends ApiController
         $group = $this->groups->update(
             $id,
             (string) $request->input('title', ''),
-            (string) $request->input('description', '')
+            (string) $request->input('description', ''),
+            (bool) $request->input('enabled', true)
         );
         $this->audit($request, $user, 'groups.update', 'item_group', $id, [
             'title' => $group['title'] ?? '',

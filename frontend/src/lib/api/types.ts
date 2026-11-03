@@ -429,7 +429,9 @@ export interface PriceType {
   id: number;
   code: string;
   title: string;
+  description?: string;
   sort: number;
+  enabled?: boolean;
   users_count?: number;
   prices_count?: number;
 }
@@ -443,6 +445,7 @@ export interface ItemGroup {
   id: number;
   title: string;
   description: string;
+  enabled?: boolean;
   sort: number;
   positions_count?: number;
 }

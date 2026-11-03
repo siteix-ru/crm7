@@ -2,11 +2,13 @@
   import { onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
   import {
+    getStaffFacets,
     listStaff,
     staffLevelTitle,
     staffStateTitle,
     type StaffUser
   } from '../lib/api/staff';
+  import { listManagers } from '../lib/api/requests';
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { countActive, loadFilters, saveFilters } from '../lib/filters';
@@ -16,22 +18,58 @@
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import SortDialog from '../lib/components/ui/SortDialog.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+  import Substitutions from './Substitutions.svelte';
+
+  let { initialTab = 'staff' }: { initialTab?: 'staff' | 'substitutions' } = $props();
+
+  function initialTabValue(): 'staff' | 'substitutions' {
+    return initialTab === 'substitutions' ? 'substitutions' : 'staff';
+  }
 
   const filterDefaults = {
-    level: '',
-    state: '',
+    levels: [] as string[],
+    states: [] as string[],
+    cities: [] as string[],
+    departments: [] as string[],
+    offices: [] as string[],
+    positions: [] as string[],
     sort: 'level_desc',
     view: 'list'
   };
 
   const filterCountDefaults = {
-    level: filterDefaults.level,
-    state: filterDefaults.state
+    levels: filterDefaults.levels,
+    states: filterDefaults.states,
+    cities: filterDefaults.cities,
+    departments: filterDefaults.departments,
+    offices: filterDefaults.offices,
+    positions: filterDefaults.positions
   };
+
+  const substFilterDefaults = {
+    statuses: [] as string[],
+    managerIds: [] as string[],
+    substituteIds: [] as string[],
+    periodFrom: '',
+    periodTo: ''
+  };
+
+  function cloneSubstFilters(
+    source: typeof substFilterDefaults = substFilterDefaults
+  ): typeof substFilterDefaults {
+    return {
+      statuses: [...source.statuses],
+      managerIds: [...source.managerIds],
+      substituteIds: [...source.substituteIds],
+      periodFrom: source.periodFrom,
+      periodTo: source.periodTo
+    };
+  }
 
   const roleOptions = [
     { value: '90', label: 'Технический администратор' },
@@ -42,6 +80,11 @@
   const stateOptions = [
     { value: 'active', label: 'Активные' },
     { value: 'blocked', label: 'Заблокированные' }
+  ];
+
+  const substitutionStatusOptions = [
+    { value: 'active', label: 'Активные' },
+    { value: 'finished', label: 'Завершённые' }
   ];
 
   const sortFields = [
@@ -66,22 +109,91 @@
   let searchInput = $state('');
   let filters = $state({ ...initialFilters });
   let draft = $state({
-    level: initialFilters.level,
-    state: initialFilters.state,
+    levels: [...initialFilters.levels],
+    states: [...initialFilters.states],
+    cities: [...initialFilters.cities],
+    departments: [...initialFilters.departments],
+    offices: [...initialFilters.offices],
+    positions: [...initialFilters.positions],
     view: initialFilters.view
   });
+  let facets = $state({
+    cities: [] as string[],
+    departments: [] as string[],
+    offices: [] as string[],
+    positions: [] as string[]
+  });
+  const cityOptions = $derived(facets.cities.map((city) => ({ value: city, label: city })));
+  const departmentOptions = $derived(
+    facets.departments.map((department) => ({ value: department, label: department }))
+  );
+  const officeOptions = $derived(
+    facets.offices.map((office) => ({ value: office, label: office }))
+  );
+  const positionOptions = $derived(
+    facets.positions.map((position) => ({ value: position, label: position }))
+  );
   let viewMode = $state<'list' | 'tiles'>(initialFilters.view === 'tiles' ? 'tiles' : 'list');
   let sortOpen = $state(false);
   let viewOpen = $state(false);
   let helpOpen = $state(false);
+  let tab = $state<'staff' | 'substitutions'>(initialTabValue());
+  let substSearch = $state('');
+  let substSearchInput = $state('');
+  let substSort = $state('date_desc');
+  let substView = $state<'list' | 'tiles'>('list');
+  let substFilters = $state(cloneSubstFilters());
+  let substDraft = $state(cloneSubstFilters());
+  let substManagers = $state<{ id: number; name: string }[]>([]);
 
   const canCreate = $derived(auth.can('users.manage') && !appSettings.demoMode);
+  const canAddSubstitution = $derived(auth.can('requests.view.all'));
   const filtersActive = $derived(countActive(filters, filterCountDefaults) > 0);
+  const substFiltersActive = $derived(countActive(substFilters, substFilterDefaults) > 0);
   const sortActive = $derived(filters.sort !== filterDefaults.sort);
+  const substSortActive = $derived(substSort !== 'date_desc');
+  const substManagerOptions = $derived(
+    substManagers.map((manager) => ({ value: String(manager.id), label: manager.name }))
+  );
+  const showSubstitutionsTab = $derived(
+    auth.can('clients.assign') && appSettings.substitutionsEnabled
+  );
+
+  const substitutionSortFields = [
+    { field: 'date', label: 'Дата начала' },
+    { field: 'manager', label: 'Кто отсутствует' },
+    { field: 'substitute', label: 'Заместитель' },
+    { field: 'status', label: 'Статус' },
+    { field: 'requests', label: 'Заявки' }
+  ];
+
+  $effect(() => {
+    if (!showSubstitutionsTab && tab === 'substitutions') {
+      tab = 'staff';
+    }
+  });
 
   onMount(() => {
     void load();
+    void loadFacets();
+    void loadSubstManagers();
   });
+
+  async function loadSubstManagers(): Promise<void> {
+    try {
+      substManagers = (await listManagers()).items;
+    } catch {
+      substManagers = [];
+    }
+  }
+
+  async function loadFacets(): Promise<void> {
+    try {
+      facets = await getStaffFacets();
+    } catch {
+      facets = { cities: [], departments: [], offices: [], positions: [] };
+    }
+  }
 
   async function load(): Promise<void> {
     loading = true;
@@ -90,8 +202,13 @@
     try {
       const data = await listStaff({
         q: search,
-        level: filters.level !== '' ? Number(filters.level) : undefined,
-        state: filters.state || undefined,
+        levels:
+          filters.levels.length > 0 ? filters.levels.map((value) => Number(value)) : undefined,
+        states: filters.states.length > 0 ? filters.states : undefined,
+        cities: filters.cities.length > 0 ? filters.cities : undefined,
+        departments: filters.departments.length > 0 ? filters.departments : undefined,
+        offices: filters.offices.length > 0 ? filters.offices : undefined,
+        positions: filters.positions.length > 0 ? filters.positions : undefined,
         sort: filters.sort,
         page,
         perPage
@@ -106,6 +223,11 @@
   }
 
   function submitSearch(): void {
+    if (tab === 'substitutions') {
+      substSearch = substSearchInput.trim();
+      return;
+    }
+
     search = searchInput.trim();
 
     if (search !== '') {
@@ -117,6 +239,12 @@
   }
 
   function applySearch(): void {
+    if (tab === 'substitutions') {
+      substSearch = '';
+      substSearchInput = '';
+      return;
+    }
+
     page = 1;
     void load();
   }
@@ -133,20 +261,51 @@
   }
 
   function openView(): void {
-    draft = { level: filters.level, state: filters.state, view: viewMode };
+    if (tab === 'substitutions') {
+      substDraft = cloneSubstFilters(substFilters);
+      draft = {
+        levels: [],
+        states: [],
+        cities: [],
+        departments: [],
+        offices: [],
+        positions: [],
+        view: substView
+      };
+    } else {
+      draft = {
+        levels: [...filters.levels],
+        states: [...filters.states],
+        cities: [...filters.cities],
+        departments: [...filters.departments],
+        offices: [...filters.offices],
+        positions: [...filters.positions],
+        view: viewMode
+      };
+    }
+
     viewOpen = true;
   }
 
-  function toggleRole(value: string): void {
-    draft = { ...draft, level: draft.level === value ? '' : value };
-  }
 
-  function toggleState(value: string): void {
-    draft = { ...draft, state: draft.state === value ? '' : value };
-  }
 
   function applyView(): void {
-    filters = { ...filters, level: draft.level, state: draft.state };
+    if (tab === 'substitutions') {
+      substView = draft.view === 'tiles' ? 'tiles' : 'list';
+      substFilters = cloneSubstFilters(substDraft);
+      viewOpen = false;
+      return;
+    }
+
+    filters = {
+      ...filters,
+      levels: [...draft.levels],
+      states: [...draft.states],
+      cities: [...draft.cities],
+      departments: [...draft.departments],
+      offices: [...draft.offices],
+      positions: [...draft.positions]
+    };
     viewMode = draft.view === 'tiles' ? 'tiles' : 'list';
     filters = { ...filters, view: viewMode };
     saveFilters('staff', filters);
@@ -156,7 +315,21 @@
   }
 
   function resetView(): void {
-    draft = { level: '', state: '', view: 'list' };
+    if (tab === 'substitutions') {
+      substDraft = cloneSubstFilters();
+      draft = { ...draft, view: 'list' };
+      return;
+    }
+
+    draft = {
+      levels: [],
+      states: [],
+      cities: [],
+      departments: [],
+      offices: [],
+      positions: [],
+      view: 'list'
+    };
   }
 
   function resetFilters(): void {
@@ -180,6 +353,12 @@
 
   function applySort(terms: string[]): void {
     sortOpen = false;
+
+    if (tab === 'substitutions') {
+      substSort = terms.length > 0 ? terms.join(',') : 'date_desc';
+      return;
+    }
+
     setSort(terms.length > 0 ? terms.join(',') : filterDefaults.sort);
   }
 
@@ -198,9 +377,21 @@
 </script>
 
 <section class="page">
+  <div class="page-hero">
   <div class="filters">
     <div class="head">
-      <h1>Сотрудники</h1>
+      {#if tab === 'substitutions'}
+        <button
+          type="button"
+          class="back"
+          title="К списку сотрудников"
+          aria-label="К списку сотрудников"
+          onclick={() => router.navigate('/staff')}
+        >
+          <Icon name="arrow-left" size={16} />
+        </button>
+      {/if}
+      <h1>{tab === 'staff' ? 'Сотрудники' : 'Замещения'}</h1>
     </div>
 
     <form
@@ -210,23 +401,33 @@
         submitSearch();
       }}
     >
-      <SearchInput
-        bind:value={searchInput}
-        historyKey="staff"
-        placeholder="Поиск: ФИО, логин, телефон, e-mail, отдел, город, офис"
-        onclear={() => {
-          search = '';
-          applySearch();
-        }}
-        onpick={submitSearch}
-      />
+      {#if tab === 'staff'}
+        <SearchInput
+          bind:value={searchInput}
+          historyKey="staff"
+          placeholder="Поиск: имя, логин, телефон, e-mail, отдел, город, офис"
+          onclear={() => {
+            search = '';
+            applySearch();
+          }}
+          onpick={submitSearch}
+        />
+      {:else}
+        <SearchInput
+          bind:value={substSearchInput}
+          historyKey="substitutions"
+          placeholder="Поиск: кто, заместитель, причина, даты"
+          onclear={applySearch}
+          onpick={submitSearch}
+        />
+      {/if}
     </form>
 
     <div class="filter-icons">
       <button
         type="button"
         class="sort-button"
-        class:active={sortActive}
+        class:active={tab === 'staff' ? sortActive : substSortActive}
         title="Сортировка"
         aria-label="Сортировка"
         onclick={() => (sortOpen = true)}
@@ -237,28 +438,45 @@
       <button
         type="button"
         class="sort-button"
-        class:active={viewMode === 'tiles' || filtersActive}
+        class:active={tab === 'staff'
+          ? viewMode === 'tiles' || filtersActive
+          : substView === 'tiles' || substFiltersActive}
         title="Вид и фильтры"
         aria-label="Вид и фильтры"
         onclick={openView}
       >
         <Icon name="view" size={16} />
-        {#if filtersActive}
+        {#if (tab === 'staff' && filtersActive) || (tab === 'substitutions' && substFiltersActive)}
           <span class="icon-badge" aria-hidden="true"></span>
         {/if}
       </button>
 
       <span class="toolbar-divider" aria-hidden="true"></span>
 
-      {#if canCreate}
+      {#if tab === 'staff' ? canCreate : canAddSubstitution}
         <button
           type="button"
           class="sort-button"
-          title="Добавить сотрудника"
-          aria-label="Добавить сотрудника"
-          onclick={() => router.navigate('/staff/new')}
+          title={tab === 'staff' ? 'Добавить сотрудника' : 'Добавить замещение'}
+          aria-label={tab === 'staff' ? 'Добавить сотрудника' : 'Добавить замещение'}
+          onclick={() =>
+            router.navigate(tab === 'staff' ? '/staff/new' : '/staff/substitutions/new')}
         >
           <Icon name="plus" size={16} />
+        </button>
+
+        <span class="toolbar-divider" aria-hidden="true"></span>
+      {/if}
+
+      {#if showSubstitutionsTab}
+        <button
+          type="button"
+          class="sort-button"
+          title={tab === 'staff' ? 'Замещения' : 'Сотрудники'}
+          aria-label={tab === 'staff' ? 'Замещения' : 'Сотрудники'}
+          onclick={() => router.navigate(tab === 'staff' ? '/substitutions' : '/staff')}
+        >
+          <Icon name={tab === 'staff' ? 'substitutions' : 'staff'} size={16} />
         </button>
 
         <span class="toolbar-divider" aria-hidden="true"></span>
@@ -267,15 +485,29 @@
       <button
         type="button"
         class="sort-button"
-        title="Как пользоваться"
-        aria-label="Как пользоваться страницей"
+        title="Справка по странице"
+        aria-label="Справка по странице"
         onclick={() => (helpOpen = true)}
       >
         <Icon name="help" size={16} />
       </button>
     </div>
   </div>
+  </div>
 
+  {#if tab === 'substitutions'}
+    <Substitutions
+      embedded
+      search={substSearch}
+      sort={substSort}
+      view={substView}
+      statuses={substFilters.statuses}
+      managerIds={substFilters.managerIds}
+      substituteIds={substFilters.substituteIds}
+      periodFrom={substFilters.periodFrom}
+      periodTo={substFilters.periodTo}
+    />
+  {:else}
   {#if error}
     <div class="alert" role="alert">
       <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
@@ -370,83 +602,184 @@
       onperpage={changePerPage}
     />
   {/if}
+  {/if}
 </section>
 
 <SortDialog
   open={sortOpen}
-  fields={sortFields}
-  sort={filters.sort}
-  defaultValue={filterDefaults.sort}
+  fields={tab === 'staff' ? sortFields : substitutionSortFields}
+  sort={tab === 'staff' ? filters.sort : substSort}
+  defaultValue={tab === 'staff' ? filterDefaults.sort : 'date_desc'}
   onclose={() => (sortOpen = false)}
   onapply={applySort}
 />
 
-<Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-  <div class="view-options">
-    <label class="radio">
-      <input type="radio" name="staff-view" value="list" bind:group={draft.view} />
-      <span>Списком</span>
+<Modal
+  open={viewOpen}
+  title="Вид и фильтры"
+  onclose={() => (viewOpen = false)}
+>
+  <div class="filters-form">
+    <div class="view-options">
+      <label class="radio">
+        <input type="radio" name="staff-view" value="list" bind:group={draft.view} />
+      <span>Список</span>
     </label>
     <label class="radio">
       <input type="radio" name="staff-view" value="tiles" bind:group={draft.view} />
-      <span>Плитками</span>
+      <span>Плитка</span>
     </label>
   </div>
 
-  <div class="filter-group">
-    <span class="filter-label">Роль</span>
-    <div class="chips">
-      {#each roleOptions as option (option.value)}
-        <button
-          type="button"
-          class="chip"
-          class:on={draft.level === option.value}
-          aria-pressed={draft.level === option.value}
-          onclick={() => toggleRole(option.value)}
-        >
-          {option.label}
-        </button>
-      {/each}
+  {#if tab === 'staff'}
+    <div class="filter-group">
+      <span class="filter-label">Роль</span>
+      <MultiSelect
+        label="Роль"
+        options={roleOptions}
+        bind:values={draft.levels}
+        allLabel="Все роли"
+      />
     </div>
-  </div>
 
-  <div class="filter-group">
-    <span class="filter-label">Состояние</span>
-    <div class="chips">
-      {#each stateOptions as option (option.value)}
-        <button
-          type="button"
-          class="chip"
-          class:on={draft.state === option.value}
-          aria-pressed={draft.state === option.value}
-          onclick={() => toggleState(option.value)}
-        >
-          {option.label}
-        </button>
-      {/each}
+    <div class="filter-group">
+      <span class="filter-label">Статусы</span>
+      <MultiSelect
+        label="Статусы"
+        options={stateOptions}
+        bind:values={draft.states}
+        allLabel="Все статусы"
+      />
     </div>
-  </div>
 
-  <div class="modal-actions">
-    <Button variant="ghost" onclick={resetView}>Сбросить</Button>
-    <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-    <Button onclick={applyView}>Применить</Button>
+    <div class="filter-fields">
+      <div class="filter-field">
+        <span>Город</span>
+        <MultiSelect
+          label="Город"
+          options={cityOptions}
+          bind:values={draft.cities}
+          allLabel="Все города"
+          emptyLabel="Нет городов"
+          maxHeight="280px"
+        />
+      </div>
+      <div class="filter-field">
+        <span>Отдел</span>
+        <MultiSelect
+          label="Отдел"
+          options={departmentOptions}
+          bind:values={draft.departments}
+          allLabel="Все отделы"
+          emptyLabel="Нет отделов"
+          maxHeight="260px"
+        />
+      </div>
+      <div class="filter-field">
+        <span>Офис</span>
+        <MultiSelect
+          label="Офис"
+          options={officeOptions}
+          bind:values={draft.offices}
+          allLabel="Все офисы"
+          emptyLabel="Нет офисов"
+          maxHeight="260px"
+        />
+      </div>
+      <div class="filter-field">
+        <span>Должность</span>
+        <MultiSelect
+          label="Должность"
+          options={positionOptions}
+          bind:values={draft.positions}
+          allLabel="Все должности"
+          emptyLabel="Нет должностей"
+          maxHeight="260px"
+        />
+      </div>
+    </div>
+  {:else}
+    <div class="filter-group">
+      <span class="filter-label">Статусы</span>
+      <MultiSelect
+        label="Статусы"
+        options={substitutionStatusOptions}
+        bind:values={substDraft.statuses}
+        allLabel="Все статусы"
+      />
+    </div>
+
+    <div class="filter-group">
+      <span class="filter-label">Кто отсутствует</span>
+      <MultiSelect
+        label="Кто отсутствует"
+        options={substManagerOptions}
+        bind:values={substDraft.managerIds}
+        allLabel="Все сотрудники"
+        emptyLabel="Нет сотрудников"
+        maxHeight="280px"
+      />
+    </div>
+
+    <div class="filter-group">
+      <span class="filter-label">Заместитель</span>
+      <MultiSelect
+        label="Заместитель"
+        options={substManagerOptions}
+        bind:values={substDraft.substituteIds}
+        allLabel="Все заместители"
+        emptyLabel="Нет сотрудников"
+        maxHeight="280px"
+      />
+    </div>
+
+    <div class="filter-fields">
+      <label class="filter-field">
+        <span>Период с</span>
+        <input type="date" bind:value={substDraft.periodFrom} max={substDraft.periodTo || undefined} />
+      </label>
+      <label class="filter-field">
+        <span>Период по</span>
+        <input type="date" bind:value={substDraft.periodTo} min={substDraft.periodFrom || undefined} />
+      </label>
+    </div>
+  {/if}
+
+    <div class="modal-actions">
+      <Button variant="ghost" onclick={resetView}>Сбросить</Button>
+      <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+      <Button onclick={applyView}>Применить</Button>
+    </div>
   </div>
 </Modal>
 
-<Modal open={helpOpen} title="Как пользоваться" onclose={() => (helpOpen = false)}>
-  <p class="help-text">
-    Здесь собраны сотрудники: менеджеры, администраторы и технические администраторы. Поиск ищет по ФИО, логину,
-    телефону, e-mail, компании и ИНН.
-  </p>
-  <p class="help-text">
-    Нажмите на строку, чтобы открыть карточку. В карточке можно изменить данные, роль, типы цен,
-    заблокировать сотрудника или сбросить пароль.
-  </p>
-  <p class="help-text">
-    Добавлять сотрудников может технический администратор. Администратор видит список и может редактировать
-    сотрудников, но не назначает роли.
-  </p>
+<Modal open={helpOpen} title="Справка по странице" onclose={() => (helpOpen = false)}>
+  {#if tab === 'staff'}
+    <p class="help-text">
+      Здесь собраны сотрудники: менеджеры, руководители и технические администраторы. Видны имя, роль,
+      контакты, отдел, город и офис.
+    </p>
+    <p class="help-text">
+      Нажмите на строку, чтобы открыть карточку. В карточке можно изменить данные, роль, типы цен,
+      заблокировать сотрудника или выдать пароль.
+    </p>
+    <p class="help-text">
+      Сотрудники с ролью технического администратора управляют правами других пользователей, но не
+      меняют свою роль.
+    </p>
+  {:else}
+    <p class="help-text">
+      Здесь оформляются замещения: кто уходит, кто замещает, период и причина. На время замещения
+      заявки сотрудника передаются заместителю.
+    </p>
+    <p class="help-text">
+      Нажмите «Добавить замещение», чтобы открыть форму. Поиск ищет по участникам, причине и датам.
+      Сортировка и вид работают так же, как в списке сотрудников.
+    </p>
+    <p class="help-text">
+      Активное замещение можно завершить досрочно — заявки вернутся сотруднику.
+    </p>
+  {/if}
   <div class="modal-actions">
     <Button onclick={() => (helpOpen = false)}>Понятно</Button>
   </div>
@@ -466,11 +799,37 @@
     flex-wrap: wrap;
   }
 
+  .head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
   .head h1 {
     margin: 0;
     font-size: 20px;
     font-weight: 600;
     line-height: 1.4;
+  }
+
+  .back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .back:hover {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
   }
 
   .search {
@@ -769,60 +1128,6 @@
 
   .tile-footer {
     margin-top: var(--space-1);
-  }
-
-  .view-options {
-    display: flex;
-    gap: var(--space-4);
-    margin-bottom: var(--space-4);
-  }
-
-  .radio {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    cursor: pointer;
-  }
-
-  .filter-group {
-    margin-bottom: var(--space-3);
-  }
-
-  .filter-label {
-    display: block;
-    margin-bottom: var(--space-2);
-    color: var(--muted);
-    font-size: 13px;
-  }
-
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .chip {
-    padding: 5px 11px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    color: var(--text-description);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
-  }
-
-  .chip:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .chip.on {
-    border-color: var(--primary);
-    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
-    color: var(--primary);
-    font-weight: 500;
   }
 
   .modal-actions {

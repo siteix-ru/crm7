@@ -4,11 +4,9 @@ declare(strict_types=1);
 
 namespace App\Groups;
 
-use App\Core\Database;
 use App\Http\HttpException;
 use App\Repositories\ItemGroupRepository;
 use App\Repositories\SettingsRepository;
-use Throwable;
 
 final class ItemGroupService
 {
@@ -23,9 +21,9 @@ final class ItemGroupService
         return $this->settings->groupsEnabled();
     }
 
-    public function list(): array
+    public function list(bool $onlyEnabled = false): array
     {
-        return $this->groups->all();
+        return $this->groups->all($onlyEnabled);
     }
 
     public function hasUngrouped(): bool
@@ -47,7 +45,7 @@ final class ItemGroupService
         return $this->groups->items($id);
     }
 
-    public function create(string $title, string $description = ''): array
+    public function create(string $title, string $description = '', bool $enabled = true): array
     {
         $title = $this->normalizeTitle($title);
         $description = $this->normalizeDescription($description);
@@ -56,12 +54,12 @@ final class ItemGroupService
             throw new HttpException(422, 'duplicate_group', 'Группа с таким названием уже есть');
         }
 
-        $id = $this->groups->create($title, $description, $this->groups->nextSort());
+        $id = $this->groups->create($title, $description, $enabled, $this->groups->nextSort());
 
         return $this->groups->find($id) ?? [];
     }
 
-    public function update(int $id, string $title, string $description = ''): array
+    public function update(int $id, string $title, string $description = '', bool $enabled = true): array
     {
         if ($this->groups->find($id) === null) {
             throw new HttpException(404, 'not_found', 'Группа не найдена');
@@ -74,7 +72,7 @@ final class ItemGroupService
             throw new HttpException(422, 'duplicate_group', 'Группа с таким названием уже есть');
         }
 
-        $this->groups->update($id, $title, $description);
+        $this->groups->update($id, $title, $description, $enabled);
 
         return $this->groups->find($id) ?? [];
     }
@@ -85,17 +83,17 @@ final class ItemGroupService
             throw new HttpException(404, 'not_found', 'Группа не найдена');
         }
 
-        $pdo = Database::pdo();
-        $pdo->beginTransaction();
+        $positions = $this->groups->countItems($id);
 
-        try {
-            $this->groups->clearAssignments($id);
-            $this->groups->delete($id);
-            $pdo->commit();
-        } catch (Throwable $exception) {
-            $pdo->rollBack();
-            throw $exception;
+        if ($positions > 0) {
+            throw new HttpException(
+                422,
+                'group_not_empty',
+                "В группе есть позиции номенклатуры ($positions). Сначала уберите их из группы."
+            );
         }
+
+        $this->groups->delete($id);
     }
 
     private function normalizeTitle(string $title): string

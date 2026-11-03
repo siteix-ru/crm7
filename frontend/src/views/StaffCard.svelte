@@ -6,6 +6,7 @@
     changeStaffLogin,
     convertUser,
     getStaff,
+    getStaffClients,
     getStaffHistory,
     getUserConversion,
     resetStaffPassword,
@@ -15,6 +16,7 @@
     STAFF_LEVELS,
     unblockStaff,
     updateStaff,
+    type StaffClient,
     type StaffHistoryItem,
     type StaffUser,
     type UserConversionPreview
@@ -76,6 +78,10 @@
   let history = $state<StaffHistoryItem[]>([]);
   let historyLoading = $state(false);
   let historyError = $state('');
+  let clients = $state<StaffClient[]>([]);
+  let clientsLoading = $state(true);
+  let clientsError = $state('');
+  let clientsOpen = $state(false);
   let confirmKind = $state<'' | 'block' | 'unblock' | 'reset' | 'sessions'>('');
   let busy = $state(false);
   let password = $state('');
@@ -119,6 +125,7 @@
     && auth.level >= 90
     && !appSettings.demoMode
   );
+  const previewClients = $derived(clients.slice(0, 20));
   const hasSecurity = $derived(canChangeLogin || canReset || canRevokeSessions);
   const adminHint = $derived(
     staff?.is_last_superadmin
@@ -163,6 +170,7 @@
   onMount(() => {
     void load();
     void loadHistory();
+    void loadClients();
   });
 
   async function load(): Promise<void> {
@@ -199,6 +207,19 @@
   async function openHistory(): Promise<void> {
     historyOpen = true;
     await loadHistory();
+  }
+
+  async function loadClients(): Promise<void> {
+    clientsLoading = true;
+    clientsError = '';
+
+    try {
+      clients = (await getStaffClients(id)).items;
+    } catch (cause) {
+      clientsError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить клиентов';
+    } finally {
+      clientsLoading = false;
+    }
   }
 
   function openField(key: EditableFieldKey): void {
@@ -582,9 +603,7 @@
             </div>
           </div>
         </section>
-      </div>
 
-      <aside class="side">
         {#if hasSecurity}
           <section class="card">
             <h2>Безопасность</h2>
@@ -637,6 +656,43 @@
             </div>
           </section>
         {/if}
+      </div>
+
+      <aside class="side">
+        <section class="card">
+          <div class="card-head">
+            <h2>Клиенты менеджера</h2>
+            {#if clients.length > 0}
+              <button type="button" class="link-btn" onclick={() => (clientsOpen = true)}>
+                Все клиенты ({clients.length}) →
+              </button>
+            {/if}
+          </div>
+
+          {#if clientsLoading}
+            <div class="center"><Spinner size={18} /></div>
+          {:else if clientsError}
+            <p class="form-error">{clientsError}</p>
+          {:else if clients.length === 0}
+            <p class="empty-text">Закреплённых клиентов нет</p>
+          {:else}
+            <div class="clients-list">
+              {#each previewClients as client (client.id)}
+                <a class="client-row" href={`#/clients/${client.id}`}>
+                  <span class="client-main">
+                    <span class="client-name">{client.name}</span>
+                    <span class="client-company">{client.company || client.login}</span>
+                  </span>
+                  <span class="client-contact">{client.email || client.phone || '—'}</span>
+                  <span class="client-requests">{client.requests_total} заявок</span>
+                  <span class="state" class:on={client.active}>
+                    {client.active ? 'Активен' : 'Заблокирован'}
+                  </span>
+                </a>
+              {/each}
+            </div>
+          {/if}
+        </section>
 
         <section class="card">
           <div class="card-head">
@@ -740,6 +796,28 @@
     >
       Сделать клиентом
     </Button>
+  </div>
+</Modal>
+
+<Modal open={clientsOpen} title="Клиенты менеджера" wide onclose={() => (clientsOpen = false)}>
+  <p class="hint">Всего клиентов: {clients.length}</p>
+  <div class="clients-list modal-list">
+    {#each clients as client (client.id)}
+      <a class="client-row" href={`#/clients/${client.id}`}>
+        <span class="client-main">
+          <span class="client-name">{client.name}</span>
+          <span class="client-company">{client.company || client.login}</span>
+        </span>
+        <span class="client-contact">{client.email || client.phone || '—'}</span>
+        <span class="client-requests">{client.requests_total} заявок</span>
+        <span class="state" class:on={client.active}>
+          {client.active ? 'Активен' : 'Заблокирован'}
+        </span>
+      </a>
+    {/each}
+  </div>
+  <div class="modal-actions">
+    <Button variant="ghost" onclick={() => (clientsOpen = false)}>Закрыть</Button>
   </div>
 </Modal>
 
@@ -1077,6 +1155,87 @@
   .rows {
     display: flex;
     flex-direction: column;
+  }
+
+  .clients-list {
+    display: flex;
+    flex-direction: column;
+    max-height: 360px;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  .clients-list.modal-list {
+    max-height: 60vh;
+  }
+
+  .client-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(140px, 1fr) 90px 110px;
+    gap: var(--space-3);
+    align-items: center;
+    padding: 9px 8px;
+    border-bottom: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    text-decoration: none;
+    transition: background 0.12s ease;
+  }
+
+  .client-row:last-child {
+    border-bottom: none;
+  }
+
+  .client-row:hover {
+    background: var(--fill-hover);
+  }
+
+  .client-main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .client-name {
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .client-company,
+  .client-contact {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .client-requests {
+    color: var(--text-description);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .side .client-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .side .client-contact,
+  .side .client-requests {
+    display: none;
+  }
+
+  @media (max-width: 720px) {
+    .client-row {
+      grid-template-columns: minmax(0, 1fr) 100px;
+    }
+
+    .client-contact,
+    .client-requests {
+      display: none;
+    }
   }
 
   .row {

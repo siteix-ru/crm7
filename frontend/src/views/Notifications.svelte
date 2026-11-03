@@ -4,8 +4,8 @@
   import { listNotifications, markRead } from '../lib/api/notifications';
   import type { NotificationItem } from '../lib/api/types';
   import { router } from '../lib/router.svelte';
-  import Button from '../lib/components/ui/Button.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
+  import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { formatDateTime, formatRelative } from '../lib/format';
 
@@ -128,11 +128,26 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <h1>Уведомления {#if unread > 0}<span class="unread-count">{unread}</span>{/if}</h1>
-    <Button variant="ghost" loading={busy} disabled={unread === 0} onclick={markAll}>
-      Отметить все прочитанными
-    </Button>
+  <div class="page-hero">
+    <div class="head">
+      <h1>Уведомления {#if unread > 0}<span class="unread-count">{unread}</span>{/if}</h1>
+      <div class="head-actions">
+        <button
+          type="button"
+          class="page-icon-btn"
+          title="Отметить все прочитанными"
+          aria-label="Отметить все прочитанными"
+          disabled={busy || unread === 0}
+          onclick={markAll}
+        >
+          {#if busy}
+            <Spinner size={16} />
+          {:else}
+            <Icon name="check" size={16} />
+          {/if}
+        </button>
+      </div>
+    </div>
   </div>
 
   <div class="tabs">

@@ -150,6 +150,119 @@ final class SubstitutionService
         ];
     }
 
+    public function update(array $user, array $capabilities, int $id, array $input): array
+    {
+        $this->requireAssign($capabilities);
+
+        $row = $this->substitutions->findById($id);
+
+        if ($row === null) {
+            throw new HttpException(404, 'not_found', 'Замещение не найдено');
+        }
+
+        if (!(bool) $row['is_active']) {
+            throw new HttpException(422, 'substitution_inactive', 'Замещение завершено — редактирование недоступно');
+        }
+
+        $managerId = (int) ($input['manager_id'] ?? 0);
+        $substituteId = (int) ($input['substitute_id'] ?? 0);
+        $from = trim((string) ($input['date_from'] ?? ''));
+        $to = trim((string) ($input['date_to'] ?? ''));
+        $reason = trim((string) ($input['reason'] ?? ''));
+
+        if ($managerId === $substituteId) {
+            throw new HttpException(422, 'validation_error', 'Заместитель должен отличаться от сотрудника');
+        }
+
+        $this->assertManager($managerId, 'Сотрудник не найден');
+        $this->assertManager($substituteId, 'Заместитель не найден');
+
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $from) !== 1 || preg_match('/^\d{4}-\d{2}-\d{2}$/', $to) !== 1) {
+            throw new HttpException(422, 'validation_error', 'Укажите даты в формате ГГГГ-ММ-ДД');
+        }
+
+        if ($from > $to) {
+            throw new HttpException(422, 'validation_error', 'Дата начала должна быть не позже даты окончания');
+        }
+
+        $today = date('Y-m-d');
+
+        if ($to < $today) {
+            throw new HttpException(422, 'validation_error', 'Нельзя сохранить замещение с прошедшей датой окончания');
+        }
+
+        $oldManagerId = (int) $row['manager_id'];
+        $oldSubstituteId = (int) $row['substitute_id'];
+        $wasActive = (string) $row['date_from'] <= $today && (string) $row['date_to'] >= $today;
+        $willBeActive = $from <= $today && $to >= $today;
+        $participantsChanged = $managerId !== $oldManagerId || $substituteId !== $oldSubstituteId;
+
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+
+        try {
+            $this->substitutions->lockForManager($oldManagerId);
+
+            if ($managerId !== $oldManagerId) {
+                $this->substitutions->lockForManager($managerId);
+            }
+
+            if ($this->substitutions->hasOverlap($managerId, $from, $to, $id)) {
+                throw new HttpException(409, 'substitution_overlap', 'У сотрудника уже есть замещение на пересекающийся период');
+            }
+
+            if ($wasActive && (!$willBeActive || $participantsChanged)) {
+                $this->returnRequests($row);
+            }
+
+            $this->substitutions->update($id, [
+                'manager_id' => $managerId,
+                'substitute_id' => $substituteId,
+                'date_from' => $from,
+                'date_to' => $to,
+                'reason' => $reason !== '' ? mb_substr($reason, 0, 500) : null,
+            ]);
+
+            if ($willBeActive && (!$wasActive || $participantsChanged)) {
+                $this->moveOpenRequests($id, $managerId, $substituteId);
+            }
+
+            if ($willBeActive) {
+                $this->syncClientChats($managerId, $substituteId);
+            }
+
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            $pdo->rollBack();
+
+            throw $exception;
+        }
+
+        $manager = $this->users->findById($managerId);
+        $substitute = $this->users->findById($substituteId);
+        $managerName = (string) ($manager['FULL_NAME'] ?? '');
+        $substituteName = (string) ($substitute['FULL_NAME'] ?? '');
+
+        $this->notifications->notify(
+            $managerId,
+            'substitution.updated',
+            'Замещение изменено',
+            'Замещает ' . $substituteName . ' с ' . $from . ' по ' . $to,
+            null
+        );
+        $this->notifications->notify(
+            $substituteId,
+            'substitution.updated',
+            'Замещение изменено',
+            'Вы замещаете ' . $managerName . ' с ' . $from . ' по ' . $to,
+            null
+        );
+
+        return [
+            'item' => $this->present($this->substitutions->findById($id) ?? []),
+        ];
+    }
+
     public function end(array $user, array $capabilities, int $id): array
     {
         $this->requireAssign($capabilities);

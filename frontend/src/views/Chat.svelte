@@ -17,6 +17,7 @@
   import { auth } from '../lib/stores/auth.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { formatDateTime, formatRelative, formatSize } from '../lib/format';
 
@@ -332,9 +333,30 @@
       <h1>Чат</h1>
       <div class="head-actions">
         {#if isStaff}
-          <Button variant="ghost" onclick={() => void openPicker()}>Новый чат</Button>
+          <button
+            type="button"
+            class="page-icon-btn"
+            title="Новый чат"
+            aria-label="Новый чат"
+            onclick={() => void openPicker()}
+          >
+            <Icon name="chat" size={16} />
+          </button>
         {/if}
-        <Button variant="ghost" loading={loading} onclick={() => void pollThreads()}>Обновить</Button>
+        <button
+          type="button"
+          class="page-icon-btn"
+          title="Обновить"
+          aria-label="Обновить"
+          disabled={loading}
+          onclick={() => void pollThreads()}
+        >
+          {#if loading}
+            <Spinner size={16} />
+          {:else}
+            <Icon name="refresh" size={16} />
+          {/if}
+        </button>
       </div>
     </div>
 
@@ -587,7 +609,9 @@
 
   h1 {
     margin: 0;
-    font-size: 22px;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 1.4;
   }
 
   .thread-filter {

@@ -34,25 +34,35 @@
 </script>
 
 <section class="page">
-  <div class="head">
-    <button
-      type="button"
-      class="back"
-      title="Назад к номенклатуре"
-      aria-label="Назад к номенклатуре"
-      onclick={() => router.navigate('/stocks')}
-    >
-      <Icon name="arrow-left" size={16} />
-    </button>
-    <div class="head-text">
-      <h1>Группы номенклатуры</h1>
-      <p class="sub">
-        Группа назначается номенклатуре при редактировании; по группам можно фильтровать остатки и выбор
-        номенклатуры в заявке.
-      </p>
-    </div>
-    <div class="head-actions">
-      <Button onclick={() => router.navigate('/stocks/groups/new')}>Добавить группу</Button>
+  <div class="hero page-hero">
+    <div class="head">
+      <button
+        type="button"
+        class="back"
+        title="Назад к номенклатуре"
+        aria-label="Назад к номенклатуре"
+        onclick={() => router.navigate('/stocks')}
+      >
+        <Icon name="arrow-left" size={16} />
+      </button>
+      <div class="head-text">
+        <h1>Группы номенклатуры</h1>
+        <p class="sub">
+          Группа назначается номенклатуре при редактировании; по группам можно фильтровать остатки и выбор
+          номенклатуры в заявке.
+        </p>
+      </div>
+      <div class="head-actions">
+        <button
+          type="button"
+          class="icon-btn"
+          title="Добавить группу"
+          aria-label="Добавить группу"
+          onclick={() => router.navigate('/stocks/groups/new')}
+        >
+          <Icon name="plus" size={16} />
+        </button>
+      </div>
     </div>
   </div>
 
@@ -103,12 +113,15 @@
                   <td class="count">{group.positions_count ?? 0}</td>
                   <td>
                     <div class="actions">
-                      <Button
-                        variant="ghost"
+                      <button
+                        type="button"
+                        class="icon-btn"
+                        title="Редактировать группу"
+                        aria-label="Редактировать группу"
                         onclick={() => router.navigate(`/stocks/groups/${group.id}`)}
                       >
-                        Редактировать
-                      </Button>
+                        <Icon name="edit" size={16} />
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -131,11 +144,39 @@
     margin-inline: auto;
   }
 
+  .hero {
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
   .head {
     display: flex;
     flex-wrap: wrap;
-    align-items: flex-start;
+    align-items: center;
     gap: var(--space-3);
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-description);
+    cursor: pointer;
+    transition: color 0.12s ease, border-color 0.12s ease;
+  }
+
+  .icon-btn:hover {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
   }
 
   .back {
