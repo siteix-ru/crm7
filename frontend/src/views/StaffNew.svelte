@@ -8,6 +8,7 @@
     type StaffCreateResult
   } from '../lib/api/staff';
   import { auth } from '../lib/stores/auth.svelte';
+  import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
@@ -326,7 +327,9 @@
         Сотрудник создан. Логин сгенерирован из e-mail, пароль — автоматически. Передайте данные
         для входа.
       </p>
-      <HelpTip text="Письмо с логином и паролем можно отправить на e-mail сотрудника. После закрытия окна пароль не сохранится, поэтому отправить его можно только сейчас." />
+      {#if appSettings.mailConfigured}
+        <HelpTip text="Письмо с логином и паролем можно отправить на e-mail сотрудника. После закрытия окна пароль не сохранится, поэтому отправить его можно только сейчас." />
+      {/if}
     </div>
 
     <div class="credentials">
@@ -363,7 +366,7 @@
     {/if}
 
     <div class="modal-actions">
-      {#if form.email.trim() !== '' && created.password}
+      {#if form.email.trim() !== '' && created.password && appSettings.mailConfigured && auth.can('mail.recovery')}
         <Button
           variant="ghost"
           loading={sendingCredentials}

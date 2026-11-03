@@ -26,6 +26,8 @@
   import { clearFilters, countActive, loadFilters, saveFilters } from '../lib/filters';
   import Button from '../lib/components/ui/Button.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
+  import HelpTip from '../lib/components/ui/HelpTip.svelte';
+  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import PriceTypesPicker from '../lib/components/ui/PriceTypesPicker.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
@@ -34,7 +36,8 @@
 
   type AdminSection = 'modules' | 'roles' | 'docs';
 
-  let { section = null }: { section?: AdminSection | null } = $props();
+  let { section = null, onsaved }: { section?: AdminSection | null; onsaved?: () => void } =
+    $props();
 
   const embedded = $derived(section !== null);
 
@@ -42,7 +45,7 @@
     90: 'Технический администратор',
     50: 'Администратор',
     10: 'Менеджер',
-    5: appSettings.clientLabel,
+    5: 'Клиент',
     1: 'Гость'
   });
 
@@ -100,6 +103,33 @@ let usersPerPage = $state(20);
 
   let modules = $state<ModuleItem[]>([]);
   let moduleRoles = $state<ModuleRole[]>([]);
+
+  const moduleOrder = [
+    'requests',
+    'clients',
+    'manager_assign',
+    'staff',
+    'substitutions',
+    'registration',
+    'chat',
+    'notifications',
+    'mail',
+    'stock_edit',
+    'warehouses',
+    'reports'
+  ];
+
+  const sortedModules = $derived(
+    [...modules].sort((a, b) => {
+      const ai = moduleOrder.indexOf(a.code);
+      const bi = moduleOrder.indexOf(b.code);
+
+      return (ai === -1 ? moduleOrder.length : ai) - (bi === -1 ? moduleOrder.length : bi);
+    })
+  );
+  const moduleRoleOptions = $derived(
+    moduleRoles.map((role) => ({ value: String(role.level), label: role.title }))
+  );
   let modulesLoading = $state(false);
   let modulesBusy = $state(false);
   let modulesNotice = $state('');
@@ -350,23 +380,52 @@ let usersPerPage = $state(20);
   }
 
   function toggleModuleEnabled(code: string): void {
+    const current = modules.find((module) => module.code === code);
+
+    if (
+      code === 'warehouses' &&
+      current?.enabled &&
+      !confirm(
+        'Отключение модуля «Склады» необратимо: остатки и цены будут объединены по номенклатуре, остальные склады удалены. Продолжить?'
+      )
+    ) {
+      return;
+    }
+
     modules = modules.map((module) =>
       module.code === code ? { ...module, enabled: !module.enabled } : module
     );
     modulesNotice = '';
   }
 
-  function toggleModuleLevel(code: string, level: number): void {
+  function setModuleLevels(code: string, values: string[]): void {
+    const levels = values
+      .map(Number)
+      .filter((level) => Number.isFinite(level));
+
     modules = modules.map((module) =>
-      module.code === code
-        ? {
-            ...module,
-            levels: module.levels.includes(level)
-              ? module.levels.filter((item) => item !== level)
-              : [...module.levels, level]
-          }
-        : module
+      module.code === code ? { ...module, levels } : module
     );
+    modulesNotice = '';
+  }
+
+  function setModuleGroupLevels(code: string, groupCode: string, values: string[]): void {
+    const levels = values
+      .map(Number)
+      .filter((level) => Number.isFinite(level));
+
+    modules = modules.map((module) => {
+      if (module.code !== code) {
+        return module;
+      }
+
+      const groups = module.groups.map((group) =>
+        group.code === groupCode ? { ...group, levels } : group
+      );
+      const allLevels = [...new Set(groups.flatMap((group) => group.levels))].sort((a, b) => a - b);
+
+      return { ...module, groups, levels: allLevels };
+    });
     modulesNotice = '';
   }
 
@@ -381,6 +440,7 @@ let usersPerPage = $state(20);
       moduleRoles = data.roles;
       modulesNotice = 'Сохранено';
       await appSettings.load();
+      onsaved?.();
     } catch (cause) {
       modulesError = cause instanceof ApiError ? cause.message : 'Не удалось сохранить модули';
     } finally {
@@ -434,6 +494,8 @@ let usersPerPage = $state(20);
     stocks: 'Склады',
     reports: 'Отчёты',
     chat: 'Чат',
+    notifications: 'Уведомления',
+    mail: 'Почта',
     users: 'Пользователи',
     roles: 'Роли',
     audit: 'Аудит',
@@ -553,48 +615,93 @@ let usersPerPage = $state(20);
       <div class="center"><Spinner /></div>
     {:else}
       <p class="hint">
-        Выключенный модуль скрывается в интерфейсе и блокируется на сервере. «Доступно ролям» выдаёт
-        роли права модуля; тонкая настройка прав — на вкладке «Роли».
+        Выключенный модуль скрывается в интерфейсе и блокируется на сервере. В группах доступа выберите
+        роли, которым доступны отдельные возможности модуля. Изменения применяются после сохранения.
       </p>
 
       <div class="modules">
-        {#each modules as module (module.code)}
-          <div class="module-card">
+        {#each sortedModules as module (module.code)}
+          <div
+            class="module-card"
+            class:off={!module.enabled}
+            class:has-groups={module.groups.length > 1}
+          >
             <div class="module-head">
-              <label class="checkbox module-toggle">
-                <input
-                  type="checkbox"
-                  checked={module.enabled}
-                  onchange={() => toggleModuleEnabled(module.code)}
-                />
-                <span class="module-title">{module.title}</span>
-              </label>
-              <code>{module.code}</code>
+              <span class="module-title">{module.title}</span>
+              <div class="module-actions">
+                {#if module.capabilities.length > 0}
+                  <HelpTip
+                    text="Выберите роли для каждой группы доступа. Пустой список скрывает возможность у всех. Изменения применяются после сохранения."
+                  />
+                {/if}
+                <label
+                  class="switch"
+                  title={module.enabled ? 'Выключить модуль' : 'Включить модуль'}
+                >
+                  <input
+                    type="checkbox"
+                    checked={module.enabled}
+                    aria-label={module.enabled ? `Выключить модуль «${module.title}»` : `Включить модуль «${module.title}»`}
+                    onchange={() => toggleModuleEnabled(module.code)}
+                  />
+                  <span class="switch-track" aria-hidden="true"></span>
+                </label>
+              </div>
             </div>
 
             <p class="module-desc">{module.description}</p>
 
-            <div class="module-roles">
-              <span class="module-roles-label">Доступно ролям:</span>
-              {#each moduleRoles as role (role.level)}
-                <label class="checkbox" class:disabled={!canManageRoles}>
-                  <input
-                    type="checkbox"
-                    checked={module.levels.includes(role.level)}
-                    disabled={!canManageRoles}
-                    onchange={() => toggleModuleLevel(module.code, role.level)}
-                  />
-                  {role.title}
-                </label>
-              {/each}
-            </div>
+            {#if module.groups.length > 1}
+              <div class="module-groups" class:off={!module.enabled}>
+                {#each module.groups as group (group.code)}
+                  <div class="module-group">
+                    <span class="module-group-title">{group.title}</span>
+                    {#if group.description}
+                      <p class="module-group-desc">{group.description}</p>
+                    {/if}
+                    <MultiSelect
+                      label={group.title}
+                      options={moduleRoleOptions}
+                      values={group.levels.map(String)}
+                      onchange={(values) => setModuleGroupLevels(module.code, group.code, values)}
+                      allLabel="Все роли"
+                      emptyLabel="Нет ролей"
+                      emptyValuesLabel="Никому"
+                      maxHeight="240px"
+                      showCount
+                      disabled={!canManageRoles || !module.enabled}
+                    />
+                  </div>
+                {/each}
+              </div>
+            {:else if module.capabilities.length > 0}
+              <div class="module-roles" class:off={!module.enabled}>
+                <span class="module-roles-label">Доступные роли</span>
+                <MultiSelect
+                  label="Доступные роли"
+                  options={moduleRoleOptions}
+                  values={module.levels.map(String)}
+                  onchange={(values) => setModuleLevels(module.code, values)}
+                  allLabel="Все роли"
+                  emptyLabel="Нет ролей"
+                  emptyValuesLabel="Никому"
+                  maxHeight="240px"
+                  showCount
+                  disabled={!canManageRoles || !module.enabled}
+                />
+              </div>
+            {/if}
           </div>
         {/each}
       </div>
 
       {#if !canManageRoles}
-        <p class="hint">Менять доступ ролей может только технический администратор.</p>
+        <p class="hint">Менять права ролей может только технический администратор.</p>
       {/if}
+
+      <p class="hint">
+        Настройки системы и журнал закреплены за техническим администратором и не входят в модули.
+      </p>
 
       <div class="actions">
         <Button loading={modulesBusy} onclick={() => void saveModulesDraft()}>Сохранить</Button>
@@ -637,7 +744,7 @@ let usersPerPage = $state(20);
             <option value={90}>Технический администратор</option>
             <option value={50}>Администратор</option>
             <option value={10}>Менеджер</option>
-                <option value={5}>{appSettings.clientLabel}</option>
+                <option value={5}>Клиент</option>
           </select>
         </label>
 
@@ -675,7 +782,7 @@ let usersPerPage = $state(20);
             <span>Роль</span>
             {#if canManageRoles}
               <select bind:value={form.level}>
-                <option value={5}>{appSettings.clientLabel}</option>
+                <option value={5}>Клиент</option>
                 <option value={10}>Менеджер</option>
                 <option value={50}>Администратор</option>
                 <option value={90}>Технический администратор</option>
@@ -704,7 +811,7 @@ let usersPerPage = $state(20);
             <span>Роль</span>
             {#if canManageRoles}
               <select bind:value={editForm.level}>
-                <option value={5}>{appSettings.clientLabel}</option>
+                <option value={5}>Клиент</option>
                 <option value={10}>Менеджер</option>
                 <option value={50}>Администратор</option>
                 <option value={90}>Технический администратор</option>
@@ -919,23 +1026,9 @@ let usersPerPage = $state(20);
     gap: var(--space-4);
   }
 
-  .checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text);
-    cursor: pointer;
-  }
-
-  .checkbox.disabled {
-    color: var(--text-description);
-    cursor: not-allowed;
-  }
-
   .modules {
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-3);
   }
 
@@ -947,45 +1040,161 @@ let usersPerPage = $state(20);
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
+    transition: opacity 0.15s ease, background 0.15s ease;
+  }
+
+  .module-card.off {
+    background: var(--fill-tertiary);
+    border-color: var(--border-secondary);
+  }
+
+  .module-card.has-groups {
+    grid-column: 1 / -1;
   }
 
   .module-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-3);
+    gap: var(--space-2);
   }
 
   .module-title {
     font-size: 16px;
     font-weight: 600;
     color: var(--text);
+    transition: color 0.15s ease;
   }
 
-  .module-head code {
-    font-size: 12px;
+  .module-card.off .module-title {
     color: var(--text-description);
-    background: var(--fill-tertiary);
-    border-radius: 4px;
-    padding: 1px 6px;
+  }
+
+  .module-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex: 0 0 auto;
   }
 
   .module-desc {
     margin: 0;
     font-size: 13px;
+    line-height: 1.45;
     color: var(--text-description);
   }
 
   .module-roles {
     display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3);
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-top: auto;
+  }
+
+  .module-roles.off,
+  .module-groups.off {
+    opacity: 0.55;
   }
 
   .module-roles-label {
     font-size: 13px;
     color: var(--text-description);
+  }
+
+  .module-groups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--space-3);
+    margin-top: auto;
+  }
+
+  .module-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    min-width: 0;
+  }
+
+  .module-group-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+    transition: color 0.15s ease;
+  }
+
+  .module-card.off .module-group-title {
+    color: var(--text-description);
+  }
+
+  .module-group-desc {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--text-description);
+  }
+
+  .switch {
+    position: relative;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 22px;
+  }
+
+  .switch input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .switch-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--border);
+    transition: background 0.15s ease;
+  }
+
+  .switch-track::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.15s ease;
+  }
+
+  .switch input:checked + .switch-track {
+    background: var(--primary);
+  }
+
+  .switch input:checked + .switch-track::after {
+    transform: translateX(18px);
+  }
+
+  .switch input:focus-visible + .switch-track {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  .switch input:disabled {
+    cursor: not-allowed;
+  }
+
+  .switch input:disabled + .switch-track {
+    opacity: 0.55;
+  }
+
+  @media (max-width: 980px) {
+    .modules {
+      grid-template-columns: 1fr;
+    }
   }
 
   h1 {

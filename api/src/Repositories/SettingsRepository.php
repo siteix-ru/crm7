@@ -43,9 +43,43 @@ final class SettingsRepository
         return $this->get('mail.export_enabled') !== '0';
     }
 
+    public function moduleEnabled(string $setting): bool
+    {
+        if ($setting === 'module.mail') {
+            return $this->mailEnabled();
+        }
+
+        return $this->get($setting) !== '0';
+    }
+
+    public function mailEnabled(): bool
+    {
+        $module = $this->get('module.mail');
+
+        if ($module === null) {
+            return $this->get('mail.enabled') !== '0';
+        }
+
+        return $module !== '0';
+    }
+
     public function mailConfigured(): bool
     {
-        return $this->get('mail.enabled') === '1' && trim((string) $this->get('mail.host')) !== '';
+        if (!$this->mailEnabled()) {
+            return false;
+        }
+
+        $host = trim((string) $this->get('mail.host'));
+        $port = (int) ($this->get('mail.port') ?: 465);
+        $username = trim((string) $this->get('mail.username'));
+        $password = trim((string) $this->get('mail.password'));
+        $from = trim((string) $this->get('mail.from')) ?: $username;
+
+        return $host !== ''
+            && $port > 0
+            && $username !== ''
+            && $password !== ''
+            && $from !== '';
     }
 
     public function stockReserveEnabled(): bool
@@ -75,7 +109,37 @@ final class SettingsRepository
 
     public function cartEnabled(): bool
     {
-        return $this->get('module.cart') !== '0';
+        return $this->requestsEnabled();
+    }
+
+    public function clientsEnabled(): bool
+    {
+        return $this->get('module.clients') !== '0';
+    }
+
+    public function chatEnabled(): bool
+    {
+        return $this->get('module.chat') !== '0';
+    }
+
+    public function notificationsEnabled(): bool
+    {
+        return $this->get('module.notifications') !== '0';
+    }
+
+    public function staffEnabled(): bool
+    {
+        return $this->get('module.staff') !== '0';
+    }
+
+    public function registrationEnabled(): bool
+    {
+        return $this->get('module.registration') !== '0';
+    }
+
+    public function stockEditEnabled(): bool
+    {
+        return $this->get('module.stock_edit') !== '0';
     }
 
     public function substitutionsEnabled(): bool
@@ -112,11 +176,21 @@ final class SettingsRepository
         return $title !== '' ? $title : 'CRM7';
     }
 
-    public function clientLabel(): string
+    public function appDescription(): string
     {
-        $label = trim((string) $this->get('branding.client_label'));
+        return trim((string) $this->get('branding.description'));
+    }
 
-        return $label !== '' ? $label : 'Клиент';
+    public function legalRequisites(): array
+    {
+        return [
+            'organization' => trim((string) $this->get('branding.organization')),
+            'legal_address' => trim((string) $this->get('branding.legal_address')),
+            'requisites' => trim((string) $this->get('branding.requisites')),
+            'contact_email' => trim((string) $this->get('branding.contact_email')),
+            'contact_phone' => trim((string) $this->get('branding.contact_phone')),
+            'responsible' => trim((string) $this->get('branding.responsible')),
+        ];
     }
 
     public function photoRatio(): string

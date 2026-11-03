@@ -239,16 +239,26 @@ final class UserRepository
         $stmt->execute([$name, $id]);
     }
 
-    public function updateProfileContacts(int $id, array $data): void
+    public function updateProfile(int $id, array $data): void
     {
         $stmt = Database::pdo()->prepare(
-            'UPDATE users SET FULL_NAME = ?, DOLGNOST = ?, PHONE = ?, EMAIL = ? WHERE ID = ?'
+            'UPDATE users
+             SET FULL_NAME = ?, DOLGNOST = ?, DEPARTMENT = ?, CITY = ?, OFFICE = ?,
+                 COMPANY = ?, INN = ?, ADDRESS = ?, PHONE = ?, EMAIL = ?
+             WHERE ID = ?'
         );
+        $nullable = static fn (string $value): ?string => $value !== '' ? $value : null;
         $stmt->execute([
             $data['name'],
-            $data['position'] !== '' ? $data['position'] : null,
-            $data['phone'] !== '' ? $data['phone'] : null,
-            $data['email'] !== '' ? $data['email'] : null,
+            $nullable((string) $data['position']),
+            $nullable((string) $data['department']),
+            $nullable((string) $data['city']),
+            $nullable((string) $data['office']),
+            $nullable((string) $data['company']),
+            $nullable((string) $data['inn']),
+            $nullable((string) $data['address']),
+            $nullable((string) $data['phone']),
+            $nullable((string) $data['email']),
             $id,
         ]);
     }
@@ -614,6 +624,11 @@ final class UserRepository
             'phone' => (string) ($row['PHONE'] ?? ''),
             'company' => (string) ($row['COMPANY'] ?? ''),
             'position' => (string) ($row['DOLGNOST'] ?? ''),
+            'department' => (string) ($row['DEPARTMENT'] ?? ''),
+            'city' => (string) ($row['CITY'] ?? ''),
+            'office' => (string) ($row['OFFICE'] ?? ''),
+            'inn' => (string) ($row['INN'] ?? ''),
+            'address' => (string) ($row['ADDRESS'] ?? ''),
         ];
     }
 }

@@ -10,6 +10,7 @@ use App\Clients\ClientService;
 use App\Http\HttpException;
 use App\Http\Request;
 use App\Http\Response;
+use App\Repositories\SettingsRepository;
 use App\Repositories\UserHistoryRepository;
 use App\Repositories\UserRepository;
 
@@ -20,7 +21,8 @@ final class ClientController extends ApiController
         private readonly ClientService $service = new ClientService(),
         private readonly ClientManagerService $managers = new ClientManagerService(),
         private readonly UserHistoryRepository $history = new UserHistoryRepository(),
-        private readonly ClientProvisioningService $provisioning = new ClientProvisioningService()
+        private readonly ClientProvisioningService $provisioning = new ClientProvisioningService(),
+        private readonly SettingsRepository $settings = new SettingsRepository()
     ) {
         parent::__construct();
     }
@@ -28,6 +30,7 @@ final class ClientController extends ApiController
     public function create(Request $request): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireClientsModule();
 
         $result = $this->provisioning->createManual($request->bodyAll(), $user, $capabilities);
 
@@ -98,6 +101,7 @@ final class ClientController extends ApiController
     public function history(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireClientsModule();
 
         return Response::ok($this->service->history($user, $capabilities, (int) ($params['id'] ?? 0)));
     }
@@ -105,6 +109,7 @@ final class ClientController extends ApiController
     public function interests(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireClientsModule();
 
         $sort = trim($request->queryParam('sort'));
         $sortTerms = array_values(array_filter(
@@ -170,6 +175,7 @@ final class ClientController extends ApiController
     public function update(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireClientsModule();
         $clientId = (int) ($params['id'] ?? 0);
 
         $result = $this->service->updateContacts($user, $capabilities, $clientId, $request->bodyAll());
@@ -226,6 +232,7 @@ final class ClientController extends ApiController
     public function sendPasswordReset(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireMailRecovery($capabilities);
         $clientId = (int) ($params['id'] ?? 0);
 
         $result = $this->service->sendPasswordResetLink($user, $capabilities, $clientId);
@@ -337,9 +344,12 @@ final class ClientController extends ApiController
 
     public function facets(Request $request): Response
     {
-        [$user] = $this->context($request);
+        [$user, $capabilities] = $this->context($request);
 
-        if ((int) $user['LEVEL'] < 10) {
+        if (
+            (int) $user['LEVEL'] < 10 ||
+            (!in_array('clients.view.all', $capabilities, true) && !in_array('clients.view.own', $capabilities, true))
+        ) {
             throw new HttpException(403, 'forbidden', 'Нет доступа к списку клиентов');
         }
 
@@ -350,7 +360,10 @@ final class ClientController extends ApiController
     {
         [$user, $capabilities] = $this->context($request);
 
-        if ((int) $user['LEVEL'] < 10) {
+        if (
+            (int) $user['LEVEL'] < 10 ||
+            (!in_array('clients.view.all', $capabilities, true) && !in_array('clients.view.own', $capabilities, true))
+        ) {
             throw new HttpException(403, 'forbidden', 'Нет доступа к списку клиентов');
         }
 
@@ -528,5 +541,19 @@ final class ClientController extends ApiController
         }
 
         return $parts === [] ? 'name_asc' : implode(',', $parts);
+    }
+
+    private function requireClientsModule(): void
+    {
+        if (!$this->settings->clientsEnabled()) {
+            throw new HttpException(403, 'module_disabled', 'Модуль клиентов отключён');
+        }
+    }
+
+    private function requireMailRecovery(array $capabilities): void
+    {
+        if (!in_array('mail.recovery', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для отправки доступа');
+        }
     }
 }

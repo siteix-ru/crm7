@@ -17,11 +17,13 @@ final class ExportMailer
      */
     public static function send(array $user, array $file): array
     {
-        if (!(new SettingsRepository())->emailExportEnabled()) {
+        $settings = new SettingsRepository();
+
+        if (!$settings->emailExportEnabled() || !$settings->mailConfigured()) {
             throw new HttpException(
                 403,
                 'email_export_disabled',
-                'Отправка отчётов на e-mail отключена администратором'
+                'Отправка писем отключена или SMTP не настроен'
             );
         }
 

@@ -6,6 +6,7 @@ namespace App\Controllers;
 
 use App\Chat\ChatService;
 use App\Http\FileResponse;
+use App\Http\HttpException;
 use App\Http\Request;
 use App\Http\Response;
 
@@ -18,14 +19,14 @@ final class ChatController extends ApiController
 
     public function index(Request $request): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user, $capabilities] = $this->requireChat($request);
 
         return Response::ok($this->service->threads($user, $capabilities));
     }
 
     public function start(Request $request): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user, $capabilities] = $this->requireChat($request);
 
         return Response::ok($this->service->start(
             $user,
@@ -36,7 +37,7 @@ final class ChatController extends ApiController
 
     public function messages(Request $request, array $params): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user, $capabilities] = $this->requireChat($request);
 
         return Response::ok($this->service->messages(
             $user,
@@ -49,7 +50,7 @@ final class ChatController extends ApiController
 
     public function post(Request $request, array $params): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user, $capabilities] = $this->requireChat($request);
 
         $attachmentIds = $request->input('attachment_ids', []);
         $requestId = (int) $request->input('request_id', 0);
@@ -66,7 +67,7 @@ final class ChatController extends ApiController
 
     public function uploadAttachment(Request $request, array $params): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user, $capabilities] = $this->requireChat($request);
 
         return Response::ok(
             $this->service->uploadAttachment(
@@ -81,7 +82,7 @@ final class ChatController extends ApiController
 
     public function downloadAttachment(Request $request, array $params): FileResponse
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user, $capabilities] = $this->requireChat($request);
 
         $file = $this->service->downloadAttachment($user, $capabilities, (int) ($params['id'] ?? 0));
 
@@ -90,7 +91,7 @@ final class ChatController extends ApiController
 
     public function read(Request $request, array $params): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user, $capabilities] = $this->requireChat($request);
 
         $upTo = (int) ($request->bodyAll()['up_to'] ?? 0);
 
@@ -104,15 +105,26 @@ final class ChatController extends ApiController
 
     public function unread(Request $request): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user, $capabilities] = $this->requireChat($request);
 
         return Response::ok($this->service->unread($user, $capabilities));
     }
 
     public function quickReplies(Request $request): Response
     {
-        [$user] = $this->context($request);
+        [$user] = $this->requireChat($request);
 
         return Response::ok($this->service->quickReplies($user));
+    }
+
+    private function requireChat(Request $request): array
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        if (!in_array('chat.use', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для работы с чатом');
+        }
+
+        return [$user, $capabilities];
     }
 }

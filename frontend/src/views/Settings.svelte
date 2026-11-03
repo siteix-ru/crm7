@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
   import {
+    clearQueue,
     getDatabaseSettings,
     getEmailSettings,
     getSystemSettings,
@@ -48,6 +49,7 @@
   let error = $state('');
   let notice = $state('');
   let busy = $state(false);
+  let queueBusy = $state(false);
 
   let password = $state('');
   let portInput = $state('465');
@@ -66,15 +68,15 @@
   let stockAllowZero = $state(false);
   let pricesEnabled = $state(false);
   let groupsEnabled = $state(false);
-  let requestsEnabled = $state(true);
-  let cartEnabled = $state(true);
-  let substitutionsEnabled = $state(true);
-  let managerAssignEnabled = $state(true);
-  let warehousesEnabled = $state(true);
-  let reportsEnabled = $state(true);
-  let singleName = $state('Основной склад');
+  let mailEnabled = $state(true);
   let appTitle = $state('CRM7');
-  let clientLabel = $state('Клиент');
+  let appDescription = $state('');
+  let organization = $state('');
+  let legalAddress = $state('');
+  let requisites = $state('');
+  let contactEmail = $state('');
+  let contactPhone = $state('');
+  let responsible = $state('');
   let photoRatio = $state('square');
   let photoFit = $state('contain');
   let photoSizePreview = $state('160');
@@ -98,50 +100,55 @@
   let scheduleExtra = $state('');
   let scheduleActive = $state(true);
 
-  type SettingsTab =
-    | 'database'
-    | 'smtp'
-    | 'interface'
-    | 'system'
-    | 'modules'
-    | 'roles'
-    | 'docs'
-    | 'templates'
-    | 'schedules'
-    | 'queue';
+  type SettingsTab = 'general' | 'modules' | 'mail' | 'docs' | 'database';
+
+  type MailTab = 'smtp' | 'templates' | 'schedules' | 'queue';
 
   const settingsTabs: { code: SettingsTab; title: string; icon: string }[] = [
-    { code: 'database', title: 'База данных', icon: 'database' },
-    { code: 'smtp', title: 'SMTP', icon: 'mail' },
-    { code: 'interface', title: 'Брендинг и модули', icon: 'types' },
-    { code: 'system', title: 'Система', icon: 'settings' },
+    { code: 'general', title: 'Общие', icon: 'settings' },
     { code: 'modules', title: 'Модули', icon: 'types' },
-    { code: 'roles', title: 'Роли', icon: 'key' },
+    { code: 'mail', title: 'Почта', icon: 'mail' },
     { code: 'docs', title: 'Документы', icon: 'requests' },
-    { code: 'templates', title: 'Шаблоны писем', icon: 'mail' },
+    { code: 'database', title: 'База данных', icon: 'database' }
+  ];
+
+  const mailTabs: { code: MailTab; title: string; icon: string }[] = [
+    { code: 'smtp', title: 'SMTP', icon: 'mail' },
+    { code: 'templates', title: 'Шаблоны писем', icon: 'requests' },
     { code: 'schedules', title: 'Расписание отчётов', icon: 'calendar' },
     { code: 'queue', title: 'Очередь отправки', icon: 'send' }
   ];
 
-  let tab = $state<SettingsTab>('database');
+  let tab = $state<SettingsTab>('general');
+  let mailTab = $state<MailTab>('smtp');
+
+  const canManageSettings = $derived(auth.can('settings.manage'));
+  const canManageMail = $derived(auth.can('mail.manage'));
+  const canSendMail = $derived(auth.can('mail.send'));
+
+  const visibleMailTabs = $derived(
+    mailTabs.filter((item) => (item.code === 'smtp' ? canManageMail : canSendMail))
+  );
 
   const visibleSettingsTabs = $derived(
     settingsTabs.filter((item) => {
-      if (item.code === 'modules' || item.code === 'docs') {
-        return auth.can('settings.manage');
+      if (item.code === 'mail') {
+        return mailEnabled && (canManageMail || canSendMail);
       }
 
-      if (item.code === 'roles') {
-        return auth.can('roles.manage');
-      }
-
-      return true;
+      return canManageSettings;
     })
   );
 
   $effect(() => {
     if (!visibleSettingsTabs.some((item) => item.code === tab)) {
-      tab = 'database';
+      tab = visibleSettingsTabs[0]?.code ?? 'general';
+    }
+  });
+
+  $effect(() => {
+    if (tab === 'mail' && !visibleMailTabs.some((item) => item.code === mailTab)) {
+      mailTab = visibleMailTabs[0]?.code ?? 'smtp';
     }
   });
 
@@ -154,47 +161,70 @@
     error = '';
 
     try {
-      settings = await getEmailSettings();
-      portInput = String(settings.port);
+      const canSettings = auth.can('settings.manage');
+      const canSmtp = auth.can('mail.manage');
+      const canSend = auth.can('mail.send');
 
-      system = await getSystemSettings();
-      slaReaction = String(system.sla_reaction_hours);
-      slaResolution = String(system.sla_resolution_hours);
-      spfDone = system.spf_checklist;
-      salesEnabled = system.sales_enabled;
-      emailExportEnabled = system.email_export_enabled;
-      stockReserveEnabled = system.stock_reserve_enabled;
-      stockAllowZero = system.stock_allow_zero;
-      pricesEnabled = system.prices_enabled;
-      groupsEnabled = system.groups_enabled;
-      requestsEnabled = system.requests_enabled;
-      cartEnabled = system.cart_enabled;
-      substitutionsEnabled = system.substitutions_enabled;
-      managerAssignEnabled = system.manager_assign_enabled;
-      warehousesEnabled = system.warehouses_enabled;
-      reportsEnabled = system.reports_enabled;
-      singleName = system.single_name || 'Основной склад';
-      appTitle = system.app_title;
-      clientLabel = system.client_label;
-      photoRatio = system.photo_ratio || 'square';
-      photoFit = system.photo_fit || 'contain';
-      photoSizePreview = String(system.photo_size_preview);
-      photoSizeCard = String(system.photo_size_card);
-      photoSizeMax = String(system.photo_size_max);
+      if (canSettings) {
+        system = await getSystemSettings();
+        mailEnabled = system.mail_enabled;
+        slaReaction = String(system.sla_reaction_hours);
+        slaResolution = String(system.sla_resolution_hours);
+        spfDone = system.spf_checklist;
+        salesEnabled = system.sales_enabled;
+        emailExportEnabled = system.email_export_enabled;
+        stockReserveEnabled = system.stock_reserve_enabled;
+        stockAllowZero = system.stock_allow_zero;
+        pricesEnabled = system.prices_enabled;
+        groupsEnabled = system.groups_enabled;
+        appTitle = system.app_title;
+        appDescription = system.app_description;
+        organization = system.organization;
+        legalAddress = system.legal_address;
+        requisites = system.requisites;
+        contactEmail = system.contact_email;
+        contactPhone = system.contact_phone;
+        responsible = system.responsible;
+        photoRatio = system.photo_ratio || 'square';
+        photoFit = system.photo_fit || 'contain';
+        photoSizePreview = String(system.photo_size_preview);
+        photoSizeCard = String(system.photo_size_card);
+        photoSizeMax = String(system.photo_size_max);
 
-      db = await getDatabaseSettings();
+        db = await getDatabaseSettings();
 
-      if (db) {
-        dbPort = String(db.port);
+        if (db) {
+          dbPort = String(db.port);
+        }
+      } else {
+        if (!appSettings.loaded) {
+          await appSettings.load();
+        }
+
+        mailEnabled = appSettings.mailEnabled;
       }
 
-      templates = await listTemplates();
-      queue = await listQueue();
-      schedules = await listSchedules();
       managers = (await listManagers()).items;
 
-      if (templates.length > 0) {
-        selectTemplate(templates[0]);
+      if (mailEnabled && canSmtp) {
+        settings = await getEmailSettings();
+        portInput = String(settings.port);
+      } else {
+        settings = null;
+      }
+
+      if (mailEnabled && canSend) {
+        templates = await listTemplates();
+        queue = await listQueue();
+        schedules = await listSchedules();
+
+        if (templates.length > 0) {
+          selectTemplate(templates[0]);
+        }
+      } else {
+        templates = [];
+        queue = [];
+        schedules = [];
       }
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить настройки';
@@ -203,20 +233,62 @@
     }
   }
 
-  function applyPreset(code: string): void {
-    if (!settings) return;
+  async function onModulesSaved(): Promise<void> {
+    try {
+      const data = await getSystemSettings();
+      system = data;
+      mailEnabled = data.mail_enabled;
 
-    const preset = settings.presets.find((item) => item.code === code);
+      if (!mailEnabled) {
+        settings = null;
+        templates = [];
+        queue = [];
+        schedules = [];
+        return;
+      }
 
-    if (!preset) return;
+      if (auth.can('mail.manage') && settings === null) {
+        settings = await getEmailSettings();
+        portInput = String(settings.port);
+      }
 
-    settings = {
-      ...settings,
-      host: preset.host,
-      port: preset.port,
-      encryption: preset.encryption
-    };
-    portInput = String(preset.port);
+      if (auth.can('mail.send')) {
+        templates = await listTemplates();
+        queue = await listQueue();
+        schedules = await listSchedules();
+
+        if (templates.length > 0) {
+          selectTemplate(templates[0]);
+        }
+      } else {
+        templates = [];
+        queue = [];
+        schedules = [];
+      }
+    } catch {}
+  }
+
+  async function clearQueueAction(): Promise<void> {
+    if (!confirm('Очистить очередь отправки? Все записи будут удалены.')) {
+      return;
+    }
+
+    queueBusy = true;
+    error = '';
+    notice = '';
+
+    try {
+      const result = await clearQueue();
+      queue = [];
+      notice =
+        result.cleared > 0
+          ? `Очередь очищена: удалено записей — ${result.cleared}`
+          : 'Очередь уже пуста';
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : 'Не удалось очистить очередь';
+    } finally {
+      queueBusy = false;
+    }
   }
 
   function selectTemplate(template: EmailTemplate): void {
@@ -241,15 +313,14 @@ async function saveSystem(): Promise<void> {
       stock_allow_zero: stockAllowZero,
       prices_enabled: pricesEnabled,
       groups_enabled: groupsEnabled,
-      requests_enabled: requestsEnabled,
-      cart_enabled: cartEnabled,
-      substitutions_enabled: substitutionsEnabled,
-      manager_assign_enabled: managerAssignEnabled,
-      warehouses_enabled: warehousesEnabled,
-      reports_enabled: reportsEnabled,
-      single_name: singleName,
       app_title: appTitle,
-      client_label: clientLabel,
+      app_description: appDescription,
+      organization,
+      legal_address: legalAddress,
+      requisites,
+      contact_email: contactEmail,
+      contact_phone: contactPhone,
+      responsible,
       photo_ratio: photoRatio,
       photo_fit: photoFit,
       photo_size_preview: Number(photoSizePreview) || 160,
@@ -265,14 +336,15 @@ async function saveSystem(): Promise<void> {
     stockAllowZero = system.stock_allow_zero;
     pricesEnabled = system.prices_enabled;
     groupsEnabled = system.groups_enabled;
-    requestsEnabled = system.requests_enabled;
-    cartEnabled = system.cart_enabled;
-    substitutionsEnabled = system.substitutions_enabled;
-    managerAssignEnabled = system.manager_assign_enabled;
-    warehousesEnabled = system.warehouses_enabled;
-    singleName = system.single_name || 'Основной склад';
+    mailEnabled = system.mail_enabled;
     appTitle = system.app_title;
-    clientLabel = system.client_label;
+    appDescription = system.app_description;
+    organization = system.organization;
+    legalAddress = system.legal_address;
+    requisites = system.requisites;
+    contactEmail = system.contact_email;
+    contactPhone = system.contact_phone;
+    responsible = system.responsible;
     photoRatio = system.photo_ratio || 'square';
     photoFit = system.photo_fit || 'contain';
     photoSizePreview = String(system.photo_size_preview);
@@ -287,13 +359,12 @@ async function saveSystem(): Promise<void> {
       system.prices_enabled,
       system.groups_enabled,
       system.requests_enabled,
-      system.cart_enabled,
       system.substitutions_enabled,
       system.manager_assign_enabled,
       system.warehouses_enabled,
       system.single_name,
       system.app_title,
-      system.client_label,
+      system.app_description,
       system.photo_ratio,
       system.photo_fit
     );
@@ -314,7 +385,6 @@ async function saveSettings(): Promise<void> {
 
     try {
       settings = await saveEmailSettings({
-        enabled: settings.enabled,
         host: settings.host,
         port: Number(portInput) || 0,
         encryption: settings.encryption,
@@ -559,13 +629,31 @@ async function saveSettings(): Promise<void> {
     <div class="notice">{notice}</div>
   {/if}
 
-  {#if loading}
+  {#if visibleSettingsTabs.length === 0}
+    <div class="card">
+      <h2>Нет доступных настроек</h2>
+      <p class="hint">Для вашей роли не настроен доступ ни к одному разделу.</p>
+    </div>
+  {:else if loading}
     <div class="center"><Spinner size={26} /></div>
-  {:else if settings}
+  {:else}
+    {#if tab === 'mail' && visibleMailTabs.length > 0}
+      <div class="subtabs tab-scroll">
+        {#each visibleMailTabs as item (item.code)}
+          <button
+            type="button"
+            class:active={mailTab === item.code}
+            onclick={() => (mailTab = item.code)}
+          >
+            <Icon name={item.icon} size={16} />
+            <span>{item.title}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+
     {#if tab === 'modules'}
-      <Admin section="modules" />
-    {:else if tab === 'roles'}
-      <Admin section="roles" />
+      <Admin section="modules" onsaved={onModulesSaved} />
     {:else if tab === 'docs'}
       <Admin section="docs" />
     {/if}
@@ -587,9 +675,10 @@ async function saveSettings(): Promise<void> {
           <Input label="База данных" bind:value={db.database} placeholder="crm_prod" />
           <Input label="Пользователь" bind:value={db.user} placeholder="crm_app" />
           <Input
-            label={db.has_password ? 'Пароль (задан, оставьте пустым чтобы не менять)' : 'Пароль'}
+            label={db.has_password ? 'Пароль (задан)' : 'Пароль'}
             type="password"
             bind:value={dbPassword}
+            placeholder={db.has_password ? 'Оставьте пустым, чтобы не менять' : ''}
             autocomplete="new-password"
           />
         </div>
@@ -607,20 +696,15 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'smtp'}
+    {#if tab === 'mail' && mailTab === 'smtp' && settings}
       <div class="card">
         <h2>SMTP</h2>
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={settings.enabled} />
-        Отправлять письма (уведомления по заявкам)
-      </label>
-
-      <div class="presets">
-        {#each settings.presets as preset}
-          <Button variant="ghost" onclick={() => applyPreset(preset.code)}>{preset.title}</Button>
-        {/each}
-      </div>
+      <p class="hint">
+        {settings.enabled
+          ? 'SMTP настроен — отправка писем доступна.'
+          : 'SMTP не настроен — отправка писем недоступна. Заполните параметры и сохраните.'}
+      </p>
 
       <div class="grid">
         <Input label="SMTP-хост" bind:value={settings.host} placeholder="smtp.yandex.ru" />
@@ -635,9 +719,10 @@ async function saveSettings(): Promise<void> {
         </label>
         <Input label="Логин" bind:value={settings.username} placeholder="user@yandex.ru" />
         <Input
-          label={settings.has_password ? 'Пароль (задан, оставьте пустым чтобы не менять)' : 'Пароль'}
+          label={settings.has_password ? 'Пароль (задан)' : 'Пароль'}
           type="password"
           bind:value={password}
+          placeholder={settings.has_password ? 'Оставьте пустым, чтобы не менять' : ''}
           autocomplete="new-password"
         />
         <Input label="Адрес отправителя" bind:value={settings.from} placeholder="user@yandex.ru" />
@@ -651,7 +736,12 @@ async function saveSettings(): Promise<void> {
 
       <div class="test">
         <Input label="Тестовое письмо на адрес" bind:value={testTo} placeholder="you@example.com" />
-        <Button variant="ghost" loading={busy} disabled={!testTo.trim()} onclick={sendTest}>
+        <Button
+          variant="ghost"
+          loading={busy}
+          disabled={!testTo.trim() || !settings.enabled}
+          onclick={sendTest}
+        >
           Отправить тест
         </Button>
       </div>
@@ -662,75 +752,69 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'interface'}
+    {#if tab === 'general'}
       <div class="card">
-        <h2>Брендинг и модули</h2>
+        <h2>Брендинг и реквизиты</h2>
 
-      <div class="grid">
-        <Input label="Название CRM (в шапке и на входе)" bind:value={appTitle} placeholder="CRM7" />
-        <Input label="Название роли «Клиент»" bind:value={clientLabel} placeholder="Клиент" />
-      </div>
+        <h3>Оформление</h3>
+        <div class="grid">
+          <Input label="Название CRM (в шапке и на входе)" bind:value={appTitle} placeholder="CRM7" />
+        </div>
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={requestsEnabled} />
-        Модуль «Заявки» (создание и ведение заявок)
-      </label>
+        <label class="field">
+          <span class="label">Описание системы (подсказка при наведении на логотип и название)</span>
+          <textarea
+            bind:value={appDescription}
+            rows="3"
+            maxlength="300"
+            placeholder="Кратко о системе и её назначении"
+          ></textarea>
+        </label>
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={cartEnabled} />
-        Корзина (добавление номенклатуры и оформление)
-      </label>
+        <h3>Реквизиты для документов</h3>
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={substitutionsEnabled} />
-        Модуль «Замещения»
-      </label>
+        <div class="grid">
+          <Input label="Наименование организации" bind:value={organization} />
+          <Input label="E-mail" type="email" bind:value={contactEmail} />
+          <Input label="Телефон" type="tel" bind:value={contactPhone} />
+          <Input label="Реквизиты (ИНН, ОГРН и др.)" bind:value={requisites} />
+        </div>
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={managerAssignEnabled} />
-        Назначение менеджера клиенту
-      </label>
+        <label class="field">
+          <span class="label">Адрес</span>
+          <textarea bind:value={legalAddress} rows="2" maxlength="500"></textarea>
+        </label>
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={warehousesEnabled} />
-        Модуль «Склады» (несколько складов, страница складов)
-      </label>
+        <label class="field">
+          <span class="label">ФИО, должность и контакты руководителя и ответственного за работу сайта</span>
+          <textarea bind:value={responsible} rows="3" maxlength="500"></textarea>
+        </label>
 
-      {#if !warehousesEnabled}
-        <Input
-          label="Название единственного склада (режим без складов)"
-          bind:value={singleName}
-          placeholder="Основной склад"
-        />
         <p class="hint">
-          Отключение модуля «Склады» объединяет остатки в один склад: количество — сумма по складам,
-          цена по типу — максимум; остальные склады удаляются. Действие необратимо.
+          Эти данные подставляются в политику обработки персональных данных, согласие и другие
+          юридические документы вместо полей в квадратных скобках.
         </p>
-      {/if}
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={reportsEnabled} />
-        Модуль «Отчёты» (страница отчётов и выгрузки)
-      </label>
-
-      <p class="hint">
-        Отключённые модули скрываются в интерфейсе и блокируются на сервере. Данные при этом сохраняются.
-      </p>
+        <div class="actions">
+          <Button loading={busy} onclick={() => void saveSystem()}>Сохранить</Button>
+        </div>
       </div>
     {/if}
 
-    {#if tab === 'system'}
+    {#if tab === 'general'}
       <div class="card">
-        <h2>Система</h2>
+        <h2>Параметры работы</h2>
 
+      <h3>Сроки SLA</h3>
       <div class="grid">
         <Input label="SLA: срок реакции, часов" type="number" bind:value={slaReaction} />
         <Input label="SLA: срок решения, часов" type="number" bind:value={slaResolution} />
       </div>
 
+      <h3>Фото номенклатуры</h3>
       <div class="grid">
         <label class="field">
-          <span class="label">Формат фото номенклатуры</span>
+          <span class="label">Формат фото</span>
           <select bind:value={photoRatio}>
             <option value="dynamic">По фото (динамический)</option>
             <option value="square">Квадрат (1:1)</option>
@@ -754,29 +838,18 @@ async function saveSettings(): Promise<void> {
       </div>
 
       <p class="hint">
-        Размер по длинной стороне. При загрузке фото уменьшается до «максимума» (без увеличения) и
-        создаются варианты «карточка» и «превью». Допустимо 80–4000 px; значения выравниваются:
-        максимум ≥ карточка ≥ превью.
+        Размер по длинной стороне, 80–4000 px. Значения выравниваются: максимум ≥ карточка ≥ превью.
       </p>
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={spfDone} />
-        SPF/DKIM/DMARC для домена настроены
-      </label>
-
+      <h3>Продажи и склад</h3>
       <label class="checkbox">
         <input type="checkbox" bind:checked={salesEnabled} />
         Продажи включены (оформление заявок и черновиков)
       </label>
 
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={emailExportEnabled} />
-        Разрешить экспорт на электронную почту
-      </label>
-
-      {#if !emailExportEnabled}
+      {#if !salesEnabled}
         <p class="hint">
-          В модалках экспорта не будет варианта «Отправить на почту» — доступно только скачивание файла.
+          Сотрудники и клиенты могут только просматривать остатки; создание и правка заявок недоступны.
         </p>
       {/if}
 
@@ -787,8 +860,7 @@ async function saveSettings(): Promise<void> {
 
       {#if stockReserveEnabled}
         <p class="hint">
-          Остатки складов уменьшаются при создании заявки и изменении состава; при удалении номенклатуры
-          или отмене заявки остаток возвращается.
+          При отмене заявки или удалении номенклатуры остаток возвращается.
         </p>
       {/if}
 
@@ -797,64 +869,63 @@ async function saveSettings(): Promise<void> {
         Разрешать номенклатуру с нулевым или отрицательным остатком
       </label>
 
-      {#if stockAllowZero}
-        <p class="hint">
-          В списках остатков и в выборе номенклатуры показывается номенклатура с нулевым остатком; номенклатура с
-          отрицательным остатком показывается с пометкой «поз заказ» вместо минусового количества.
-        </p>
-      {:else}
-        <p class="hint">
-          Номенклатура с нулевым остатком скрыта в выборе; нельзя запросить больше, чем есть на складе.
-        </p>
-      {/if}
+      <p class="hint">
+        {stockAllowZero
+          ? 'Нулевой остаток показывается в списках; отрицательный — с пометкой «поз заказ».'
+          : 'Нулевой остаток скрыт в выборе; нельзя запросить больше, чем есть на складе.'}
+      </p>
 
+      <h3>Цены и группы</h3>
       <label class="checkbox">
         <input type="checkbox" bind:checked={pricesEnabled} />
         Использовать цены для номенклатуры
       </label>
 
-      {#if pricesEnabled}
-        <p class="hint">
-          Клиент видит цену номенклатуры по своему типу профиля — в остатках, корзине и заявке; в корзине и
-          заявке считается итоговая сумма. Тип профиля задаётся в карточке пользователя (Админ →
-          Пользователи), цены — при редактировании номенклатуры на складе (для каждого склада свои).
-        </p>
-      {:else}
-        <p class="hint">
-          Цены не показываются: клиент добавляет номенклатуру в заявку без стоимости. Цены типов хранятся,
-          но скрыты до включения.
-        </p>
-      {/if}
+      <p class="hint">
+        {pricesEnabled
+          ? 'Клиент видит цену по своему типу профиля; тип задаётся в карточке сотрудника, цены — в номенклатуре.'
+          : 'Цены скрыты: клиент добавляет номенклатуру в заявку без стоимости.'}
+      </p>
 
       <label class="checkbox">
         <input type="checkbox" bind:checked={groupsEnabled} />
         Разрешить использовать группы номенклатуры
       </label>
 
-      {#if groupsEnabled}
-        <p class="hint">
-          Группы номенклатуры создаются в разделе «Номенклатура» (иконка групп), назначаются номенклатуре
-          при редактировании; по группам можно фильтровать остатки и выбор номенклатуры в заявке.
-        </p>
-      {:else}
-        <p class="hint">
-          Группы скрыты в интерфейсе; созданные группы и привязки номенклатуры сохраняются.
-        </p>
-      {/if}
+      <p class="hint">
+        {groupsEnabled
+          ? 'Группы создаются в разделе «Номенклатура» и используются в фильтрах остатков и выбора позиций.'
+          : 'Группы скрыты в интерфейсе; созданные группы и привязки сохраняются.'}
+      </p>
 
-      {#if !salesEnabled}
-        <p class="hint">
-          При выключенных продажах сотрудники и клиенты могут только просматривать остатки складов;
-          создание и правка заявок и черновиков недоступны.
-        </p>
+      <h3>Почта</h3>
+      <label class="checkbox">
+        <input type="checkbox" bind:checked={spfDone} />
+        SPF/DKIM/DMARC для домена настроены
+      </label>
+
+      {#if mailEnabled}
+        <label class="checkbox">
+          <input type="checkbox" bind:checked={emailExportEnabled} />
+          Разрешить экспорт на электронную почту
+        </label>
+
+        {#if !emailExportEnabled}
+          <p class="hint">
+            В модалках экспорта останется только скачивание файла.
+          </p>
+        {/if}
       {/if}
 
       {#if system}
-        <ul class="steps">
-          {#each system.spf_steps as step}
-            <li>{step}</li>
-          {/each}
-        </ul>
+        <details class="advanced">
+          <summary>Как настроить SPF/DKIM/DMARC</summary>
+          <ul class="steps">
+            {#each system.spf_steps as step}
+              <li>{step}</li>
+            {/each}
+          </ul>
+        </details>
       {/if}
 
       <div class="actions">
@@ -863,7 +934,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'templates'}
+    {#if tab === 'mail' && mailTab === 'templates' && canSendMail}
       <div class="card">
         <h2>Шаблоны писем</h2>
       <p class="hint">Подстановки: {'{title}'}, {'{body}'}, {'{request_number}'}, {'{link}'}</p>
@@ -895,7 +966,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'schedules'}
+    {#if tab === 'mail' && mailTab === 'schedules' && canSendMail}
       <div class="card">
         <h2>Расписание отчётов</h2>
       <p class="hint">
@@ -1025,9 +1096,22 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'queue'}
+    {#if tab === 'mail' && mailTab === 'queue' && canSendMail}
       <div class="card">
-        <h2>Очередь отправки</h2>
+        <div class="queue-head">
+          <div>
+            <h2>Очередь отправки</h2>
+            <p class="hint">Последние письма и результат отправки. Очистка удаляет все записи очереди.</p>
+          </div>
+          <Button
+            variant="danger"
+            loading={queueBusy}
+            disabled={queue.length === 0}
+            onclick={() => void clearQueueAction()}
+          >
+            Очистить
+          </Button>
+        </div>
       {#if queue.length === 0}
         <p class="hint">Очередь пуста</p>
       {:else}
@@ -1093,6 +1177,43 @@ async function saveSettings(): Promise<void> {
     display: flex;
     gap: var(--space-2);
     margin-left: auto;
+  }
+
+  .subtabs {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 5px;
+    background: var(--fill-tertiary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+
+  .subtabs button {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 12px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .subtabs button:hover {
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  .subtabs button.active {
+    color: var(--primary);
+    background: var(--surface);
+    border-color: var(--border);
+    box-shadow: var(--shadow-sm);
   }
 
   .tabs button {
@@ -1180,7 +1301,6 @@ async function saveSettings(): Promise<void> {
     font-size: 14px;
   }
 
-  .presets,
   .actions,
   .test {
     display: flex;
@@ -1198,6 +1318,29 @@ async function saveSettings(): Promise<void> {
   h3 {
     margin: var(--space-3) 0 0;
     font-size: 14px;
+  }
+
+  .advanced {
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--fill-tertiary);
+  }
+
+  .advanced summary {
+    color: var(--muted);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .advanced .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: var(--space-2) 0 0;
+    padding-left: 20px;
+    color: var(--text-description);
+    font-size: 13px;
   }
 
   .schedules {
@@ -1273,6 +1416,18 @@ async function saveSettings(): Promise<void> {
   .template-item.active {
     border-color: var(--primary);
     color: var(--primary);
+  }
+
+  .queue-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+
+  .queue-head .hint {
+    margin-top: 4px;
   }
 
   .queue {

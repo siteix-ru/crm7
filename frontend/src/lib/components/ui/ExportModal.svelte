@@ -61,32 +61,26 @@
     </div>
   </div>
 
-  <div class="field">
-    <p class="field-label">Способ получения</p>
-    <div class="radio-group">
-      <label class="radio-option">
-        <input type="radio" name="export-delivery" value={false} bind:group={sendByEmail} />
-        <span class="text">
-          <span class="label">Скачать файл</span>
-        </span>
-      </label>
-      <label class="radio-option" class:disabled={!canEmail}>
-        <input
-          type="radio"
-          name="export-delivery"
-          value={true}
-          bind:group={sendByEmail}
-          disabled={!canEmail}
-        />
-        <span class="text">
-          <span class="label">Отправить на почту</span>
-          <span class="hint">
-            {canEmail ? `Отправим на ${email}` : email ? 'Отправка на почту отключена в настройках' : 'E-mail не указан в профиле'}
+  {#if canEmail}
+    <div class="field">
+      <p class="field-label">Способ получения</p>
+      <div class="radio-group">
+        <label class="radio-option">
+          <input type="radio" name="export-delivery" value={false} bind:group={sendByEmail} />
+          <span class="text">
+            <span class="label">Скачать файл</span>
           </span>
-        </span>
-      </label>
+        </label>
+        <label class="radio-option">
+          <input type="radio" name="export-delivery" value={true} bind:group={sendByEmail} />
+          <span class="text">
+            <span class="label">Отправить на почту</span>
+            <span class="hint">Отправим на {email}</span>
+          </span>
+        </label>
+      </div>
     </div>
-  </div>
+  {/if}
 
   <div class="modal-actions">
     <Button variant="ghost" onclick={onclose}>Отмена</Button>
@@ -123,21 +117,12 @@
     cursor: pointer;
   }
 
-  .radio-option.disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
   .radio-option input[type='radio'] {
     width: 16px;
     height: 16px;
     margin: 0;
     accent-color: var(--primary);
     cursor: pointer;
-  }
-
-  .radio-option.disabled input {
-    cursor: default;
   }
 
   .code {

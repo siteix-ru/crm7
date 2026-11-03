@@ -11,16 +11,32 @@
   import { auth } from '../lib/stores/auth.svelte';
   import { avatars } from '../lib/stores/avatar.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
+  import { staffLevelTitle } from '../lib/api/staff';
   import Button from '../lib/components/ui/Button.svelte';
+  import Icon from '../lib/components/ui/Icon.svelte';
   import Input from '../lib/components/ui/Input.svelte';
 
-  let tab = $state<'profile' | 'notifications' | 'security' | 'logout'>('profile');
+  const tabs = [
+    { id: 'profile', icon: 'staff', label: 'Профиль' },
+    { id: 'notifications', icon: 'bell', label: 'Уведомления' },
+    { id: 'security', icon: 'key', label: 'Безопасность' },
+    { id: 'logout', icon: 'logout', label: 'Сессии' }
+  ] as const;
+
+  type ProfileTab = (typeof tabs)[number]['id'];
+  let tab = $state<ProfileTab>('profile');
   let logoutBusy = $state('');
   let logoutNotice = $state('');
   let logoutError = $state('');
 
   let name = $state(auth.name);
   let position = $state(auth.user?.position ?? '');
+  let department = $state(auth.user?.department ?? '');
+  let city = $state(auth.user?.city ?? '');
+  let office = $state(auth.user?.office ?? '');
+  let company = $state(auth.user?.company ?? '');
+  let inn = $state(auth.user?.inn ?? '');
+  let address = $state(auth.user?.address ?? '');
   let phone = $state(auth.user?.phone ?? '');
   let email = $state(auth.user?.email ?? '');
   const isStaff = $derived(auth.level >= 10);
@@ -46,6 +62,7 @@
   const avatarSeed = $derived(avatarName(auth.user?.name, auth.user?.login ?? 'guest'));
   const letter = $derived(avatarLetter(avatarSeed));
   const avatarBg = $derived(avatarColor(avatarSeed));
+  const roleTitle = $derived(staffLevelTitle(auth.level));
 
   onMount(() => {
     if (auth.user) {
@@ -72,15 +89,33 @@
           ? {
               name: name.trim(),
               position: position.trim(),
+              department: department.trim(),
+              city: city.trim(),
+              office: office.trim(),
               phone: phone.trim(),
               email: email.trim()
             }
-          : { name: name.trim() }
+          : {
+              name: name.trim(),
+              position: position.trim(),
+              company: company.trim(),
+              inn: inn.trim(),
+              city: city.trim(),
+              address: address.trim(),
+              phone: phone.trim(),
+              email: email.trim()
+            }
       );
 
       if (auth.user) {
         auth.user.name = result.name;
         auth.user.position = result.position;
+        auth.user.department = result.department;
+        auth.user.city = result.city;
+        auth.user.office = result.office;
+        auth.user.company = result.company;
+        auth.user.inn = result.inn;
+        auth.user.address = result.address;
         auth.user.phone = result.phone;
         auth.user.email = result.email;
       }
@@ -223,105 +258,148 @@
   }
 </script>
 
-<section class="page" class:profile-layout={tab === 'profile'}>
+<section class="page">
   <div class="page-hero">
-    <div class="head">
-      <h1>Профиль</h1>
-    </div>
-  </div>
+    <div class="hero-row">
+      <div class="identity">
+        <div class="avatar-hero">
+          {#if avatarUrl}
+            <img src={avatarUrl} alt="" />
+          {:else}
+            <span style:background={avatarBg}>{letter}</span>
+          {/if}
+        </div>
+        <div class="head-text">
+          <h1>{auth.name}</h1>
+          <p class="sub">{roleTitle} · {auth.user?.login ?? '—'}</p>
+        </div>
+      </div>
 
-  <div class="tabs tab-scroll">
-    <button type="button" class:active={tab === 'profile'} onclick={() => (tab = 'profile')}>
-      Профиль
-    </button>
-    <button
-      type="button"
-      class:active={tab === 'notifications'}
-      onclick={() => (tab = 'notifications')}
-    >
-      Уведомления
-    </button>
-    <button type="button" class:active={tab === 'security'} onclick={() => (tab = 'security')}>
-      Безопасность
-    </button>
-    <button type="button" class:active={tab === 'logout'} onclick={() => (tab = 'logout')}>
-      Сессии
-    </button>
+      <div class="tabs tab-scroll" role="tablist" aria-label="Разделы профиля">
+        {#each tabs as item (item.id)}
+          <button
+            type="button"
+            role="tab"
+            class:active={tab === item.id}
+            aria-selected={tab === item.id}
+            aria-label={item.label}
+            title={item.label}
+            onclick={() => (tab = item.id)}
+          >
+            <Icon name={item.icon} size={16} />
+          </button>
+        {/each}
+      </div>
+    </div>
   </div>
 
   {#if tab === 'profile'}
     {#if profileError}<div class="alert error">{profileError}</div>{/if}
     {#if profileNotice}<div class="alert success">{profileNotice}</div>{/if}
 
-    <div class="card avatar-card">
-      <div class="avatar-big">
-        {#if avatarUrl}
-          <img src={avatarUrl} alt="" />
-        {:else}
-          <span style:background={avatarBg}>{letter}</span>
-        {/if}
+    <div class="profile-grid">
+      <div class="card avatar-card">
+        <h2>Фото профиля</h2>
+
+        <div class="avatar-big">
+          {#if avatarUrl}
+            <img src={avatarUrl} alt="" />
+          {:else}
+            <span style:background={avatarBg}>{letter}</span>
+          {/if}
+        </div>
+
+        <div class="avatar-actions">
+          <label class="upload">
+            <input
+              bind:this={avatarInput}
+              type="file"
+              accept=".jpg,.jpeg,.png,.webp"
+              onchange={onAvatarSelected}
+              disabled={avatarBusy}
+            />
+            <Icon name="camera" size={16} />
+            <span>{avatarBusy ? 'Загрузка…' : avatarUrl ? 'Заменить фото' : 'Добавить фото'}</span>
+          </label>
+          {#if avatarUrl}
+            <Button variant="ghost" disabled={avatarBusy} onclick={() => void removeAvatar()}>
+              Удалить фото
+            </Button>
+          {/if}
+          <p class="hint">jpg, png или webp, до 5 МБ</p>
+        </div>
       </div>
 
-      <div class="avatar-actions">
-        <label class="upload">
-          <input
-            bind:this={avatarInput}
-            type="file"
-            accept=".jpg,.jpeg,.png,.webp"
-            onchange={onAvatarSelected}
-            disabled={avatarBusy}
-          />
-          <span>{avatarBusy ? 'Загрузка…' : avatarUrl ? 'Заменить фото' : 'Добавить фото'}</span>
-        </label>
-        {#if avatarUrl}
-          <Button variant="ghost" disabled={avatarBusy} onclick={() => void removeAvatar()}>Удалить фото</Button>
-        {/if}
-        <p class="hint">jpg, png или webp, до 5 МБ</p>
-      </div>
+      <form
+        class="card form"
+        onsubmit={(event) => {
+          event.preventDefault();
+          void saveName();
+        }}
+      >
+        <div class="card-head">
+          <div>
+            <h2>Личные данные</h2>
+            <p class="hint">Имя видно в чате, заявках и карточках сотрудников.</p>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="span-2">
+            <Input label="Имя" bind:value={name} autocomplete="name" />
+          </div>
+
+          {#if isStaff}
+            <Input label="Должность" bind:value={position} autocomplete="organization-title" />
+            <Input label="Отдел" bind:value={department} />
+            <Input label="Телефон" type="tel" bind:value={phone} autocomplete="tel" />
+            <Input label="E-mail" type="email" bind:value={email} autocomplete="email" />
+            <Input label="Город" bind:value={city} autocomplete="address-level2" />
+            <Input label="Офис" bind:value={office} />
+
+            <div class="span-2 readonly">
+              <div><span>Логин</span><strong>{auth.user?.login ?? '—'}</strong></div>
+              <div><span>Компания</span><strong>{auth.user?.company || '—'}</strong></div>
+            </div>
+          {:else}
+            <Input label="Должность" bind:value={position} />
+            <Input label="Компания" bind:value={company} autocomplete="organization" />
+            <Input label="ИНН" bind:value={inn} maxlength={12} inputmode="numeric" />
+            <Input label="Город" bind:value={city} autocomplete="address-level2" />
+            <div class="span-2">
+              <Input label="Адрес" bind:value={address} autocomplete="street-address" />
+            </div>
+            <Input label="Телефон" type="tel" bind:value={phone} autocomplete="tel" />
+            <Input label="E-mail" type="email" bind:value={email} autocomplete="email" />
+
+            <div class="span-2 readonly">
+              <div><span>Логин</span><strong>{auth.user?.login ?? '—'}</strong></div>
+            </div>
+            <p class="span-2 hint">
+              Логин и тип учётной записи меняет администратор.
+            </p>
+          {/if}
+        </div>
+
+        <div class="form-actions">
+          <span class="hint">Изменения сохраняются сразу после нажатия кнопки.</span>
+          <Button type="submit" loading={profileBusy} disabled={name.trim().length < 3}>
+            Сохранить
+          </Button>
+        </div>
+      </form>
     </div>
-
-    <form
-      class="card form"
-      onsubmit={(event) => {
-        event.preventDefault();
-        void saveName();
-      }}
-    >
-      <h2>Личные данные</h2>
-
-      <Input label="Имя" bind:value={name} autocomplete="name" />
-
-      {#if isStaff}
-        <Input label="Должность" bind:value={position} autocomplete="organization-title" />
-        <Input label="Телефон" bind:value={phone} autocomplete="tel" />
-        <Input label="E-mail" type="email" bind:value={email} autocomplete="email" />
-
-        <div class="readonly">
-          <div><span>Логин</span><strong>{auth.user?.login ?? '—'}</strong></div>
-          <div><span>Компания</span><strong>{auth.user?.company || '—'}</strong></div>
-        </div>
-      {:else}
-        <div class="readonly">
-          <div><span>Логин</span><strong>{auth.user?.login ?? '—'}</strong></div>
-          <div><span>E-mail</span><strong>{auth.user?.email || '—'}</strong></div>
-          <div><span>Телефон</span><strong>{auth.user?.phone || '—'}</strong></div>
-          <div><span>Компания</span><strong>{auth.user?.company || '—'}</strong></div>
-        </div>
-        <p class="hint">
-          E-mail, телефон и компанию меняет ваш менеджер — напишите ему в чат или попросите в
-          комментарии к заявке.
-        </p>
-      {/if}
-
-      <Button type="submit" loading={profileBusy} disabled={name.trim().length < 3}>Сохранить</Button>
-    </form>
-
   {/if}
 
   {#if tab === 'notifications'}
     {#if settings.length > 0}
       <div class="card">
-        <h2>Уведомления</h2>
+        <div class="card-head">
+          <div>
+            <h2>Уведомления</h2>
+            <p class="hint">Выберите, какие события показывать в системе и отправлять на e-mail.</p>
+          </div>
+        </div>
 
         <div class="notify">
           <div class="notify-head">
@@ -332,8 +410,20 @@
           {#each settings as item (item.event)}
             <div class="notify-row">
               <span class="notify-title">{item.title}</span>
-              <label><input type="checkbox" bind:checked={item.in_app} /></label>
-              <label><input type="checkbox" bind:checked={item.email} /></label>
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={item.in_app}
+                  aria-label={`${item.title} — в системе`}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={item.email}
+                  aria-label={`${item.title} — на e-mail`}
+                />
+              </label>
             </div>
           {/each}
         </div>
@@ -342,7 +432,12 @@
           <div class="alert success">{settingsNotice}</div>
         {/if}
 
-        <Button loading={settingsBusy} onclick={() => void saveSettings()}>Сохранить уведомления</Button>
+        <div class="form-actions">
+          <span class="hint">Настройки действуют для вашего профиля.</span>
+          <Button loading={settingsBusy} onclick={() => void saveSettings()}>
+            Сохранить уведомления
+          </Button>
+        </div>
       </div>
     {:else}
       <div class="card"><p class="hint">Настройки уведомлений недоступны.</p></div>
@@ -352,16 +447,44 @@
   {#if tab === 'security'}
     {#if appSettings.demoMode}
       <div class="card">
-        <h2>Смена пароля</h2>
-        <p class="hint">В демо-режиме смена пароля недоступна.</p>
+        <div class="card-head">
+          <div>
+            <h2>Смена пароля</h2>
+            <p class="hint">В демо-режиме смена пароля недоступна.</p>
+          </div>
+        </div>
       </div>
     {:else}
-      <form class="card form" onsubmit={submitPassword}>
-        <h2>Смена пароля</h2>
+      <form class="card form security-form" onsubmit={submitPassword}>
+        <div class="card-head">
+          <div>
+            <h2>Смена пароля</h2>
+            <p class="hint">После смены пароля остальные сессии будут завершены.</p>
+          </div>
+        </div>
 
-        <Input label="Текущий пароль" type="password" bind:value={current} autocomplete="current-password" />
-        <Input label="Новый пароль" type="password" bind:value={next} autocomplete="new-password" />
-        <Input label="Повторите новый пароль" type="password" bind:value={confirmation} autocomplete="new-password" />
+        <div class="password-grid">
+          <div class="span-2">
+            <Input
+              label="Текущий пароль"
+              type="password"
+              bind:value={current}
+              autocomplete="current-password"
+            />
+          </div>
+          <Input
+            label="Новый пароль"
+            type="password"
+            bind:value={next}
+            autocomplete="new-password"
+          />
+          <Input
+            label="Повторите новый пароль"
+            type="password"
+            bind:value={confirmation}
+            autocomplete="new-password"
+          />
+        </div>
 
         <p class="hint">Пароль: не менее 10 символов, буквы и цифры.</p>
 
@@ -373,34 +496,64 @@
           <div class="alert success">{success}</div>
         {/if}
 
-        <Button type="submit" loading={loading} disabled={!current || !next || !confirmation}>
-          Изменить пароль
-        </Button>
+        <div class="form-actions">
+          <span class="hint">Пароль должен быть уникальным.</span>
+          <Button type="submit" loading={loading} disabled={!current || !next || !confirmation}>
+            Изменить пароль
+          </Button>
+        </div>
       </form>
     {/if}
   {/if}
 
   {#if tab === 'logout'}
     <div class="card">
-      <h2>Сессии и выход</h2>
-      <p class="hint">
-        Если вы работали с нескольких устройств, можно завершить только текущую сессию, все сессии кроме
-        текущей или все сразу — например, если входили с чужого компьютера.
-      </p>
+      <div class="card-head">
+        <div>
+          <h2>Сессии и выход</h2>
+          <p class="hint">
+            Если вы работали с нескольких устройств, можно завершить только текущую сессию, все
+            сессии кроме текущей или все сразу.
+          </p>
+        </div>
+      </div>
 
       {#if logoutNotice}<div class="alert success">{logoutNotice}</div>{/if}
       {#if logoutError}<div class="alert error">{logoutError}</div>{/if}
 
-      <div class="logout-actions">
-        <Button variant="ghost" loading={logoutBusy === 'current'} onclick={() => void logoutCurrent()}>
-          Выйти из текущей сессии
-        </Button>
-        <Button variant="ghost" loading={logoutBusy === 'others'} onclick={() => void logoutOthers()}>
-          Выйти из всех сессий, кроме текущей
-        </Button>
-        <Button variant="danger" loading={logoutBusy === 'all'} onclick={() => void logoutAll()}>
-          Выйти из всех сессий
-        </Button>
+      <div class="session-list">
+        <div class="session-row">
+          <span class="session-icon"><Icon name="logout" size={18} /></span>
+          <div class="session-copy">
+            <strong>Текущая сессия</strong>
+            <span>Выйти только на этом устройстве</span>
+          </div>
+          <Button variant="ghost" loading={logoutBusy === 'current'} onclick={() => void logoutCurrent()}>
+            Выйти из текущей сессии
+          </Button>
+        </div>
+
+        <div class="session-row">
+          <span class="session-icon"><Icon name="key" size={18} /></span>
+          <div class="session-copy">
+            <strong>Другие устройства</strong>
+            <span>Завершить все сессии, кроме текущей</span>
+          </div>
+          <Button variant="ghost" loading={logoutBusy === 'others'} onclick={() => void logoutOthers()}>
+            Выйти из всех сессий, кроме текущей
+          </Button>
+        </div>
+
+        <div class="session-row danger">
+          <span class="session-icon"><Icon name="close" size={18} /></span>
+          <div class="session-copy">
+            <strong>Все устройства</strong>
+            <span>Завершить все активные сессии без исключений</span>
+          </div>
+          <Button variant="danger" loading={logoutBusy === 'all'} onclick={() => void logoutAll()}>
+            Выйти из всех сессий
+          </Button>
+        </div>
       </div>
     </div>
   {/if}
@@ -412,53 +565,99 @@
     flex-direction: column;
     gap: var(--space-4);
     width: 100%;
-    max-width: 960px;
+    max-width: 980px;
     margin: 0 auto;
   }
 
-  @media (min-width: 900px) {
-    .page.profile-layout {
-      display: grid;
-      grid-template-columns: 280px 1fr;
-      align-items: start;
-    }
-
-  .page.profile-layout > .tabs,
-    .page.profile-layout > .alert {
-      grid-column: 1 / -1;
-    }
+  .hero-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-4);
   }
 
-  h1 {
-    margin: 0;
-    font-size: 22px;
+  .identity {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
   }
 
-  h2 {
-    margin: 0 0 var(--space-3);
-    font-size: 16px;
+  .head-text {
+    min-width: 0;
+  }
+
+  .avatar-hero {
+    width: 56px;
+    height: 56px;
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .avatar-hero img,
+  .avatar-big img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .avatar-hero span,
+  .avatar-big span {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    color: #fff;
   }
 
   .tabs {
     display: flex;
     gap: var(--space-2);
+    margin-left: auto;
   }
 
   .tabs button {
-    padding: 7px 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-sm);
     background: var(--surface);
-    color: var(--muted);
+    color: var(--text);
     cursor: pointer;
-    font: inherit;
-    font-size: 14px;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .tabs button:hover {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
   }
 
   .tabs button.active {
     border-color: var(--primary);
     color: var(--primary);
-    font-weight: 500;
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 16px;
+  }
+
+  .profile-grid {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    align-items: start;
+    gap: var(--space-4);
   }
 
   .card {
@@ -469,112 +668,150 @@
     box-shadow: var(--shadow-sm);
   }
 
-  .avatar-card {
+  .card-head {
+    margin-bottom: var(--space-4);
+  }
+
+  .card-head .hint {
+    margin-top: 4px;
+  }
+
+  .form {
     display: flex;
-    align-items: center;
+    flex-direction: column;
     gap: var(--space-4);
   }
 
+  .form-grid,
+  .password-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-4);
+  }
+
+  .security-form {
+    max-width: 680px;
+  }
+
+  .span-2 {
+    grid-column: 1 / -1;
+  }
+
+  .avatar-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: var(--space-3);
+    text-align: center;
+  }
+
+  .avatar-card h2 {
+    align-self: flex-start;
+    width: 100%;
+    text-align: left;
+  }
+
   .avatar-big {
-    width: 88px;
-    height: 88px;
-    flex: 0 0 auto;
+    width: 96px;
+    height: 96px;
     display: grid;
     place-items: center;
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--primary) 10%, white);
-    color: var(--primary);
-    font-size: 28px;
-    font-weight: 600;
     overflow: hidden;
     border: 1px solid var(--border);
-  }
-
-  .avatar-big img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .avatar-big span {
-    display: grid;
-    place-items: center;
-    width: 100%;
-    height: 100%;
-    color: #fff;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
+    font-size: 30px;
+    font-weight: 600;
   }
 
   .avatar-actions {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
   }
 
   .upload {
     display: inline-flex;
     align-items: center;
-    padding: 8px 16px;
+    justify-content: center;
+    gap: 6px;
+    width: 100%;
+    height: 32px;
+    padding: 0 14px;
     border: 1px solid var(--primary);
     border-radius: var(--radius-sm);
+    background: var(--surface);
     color: var(--primary);
+    font: inherit;
+    font-size: 14px;
     cursor: pointer;
-    font-size: 13px;
-    width: fit-content;
+    transition: color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .upload:hover {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
   }
 
   .upload input {
     display: none;
   }
 
-  .form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
   .readonly {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--primary) 3%, var(--surface));
   }
 
   .readonly div {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
   }
 
   .readonly span {
-    font-size: 12px;
     color: var(--muted);
+    font-size: 12px;
   }
 
   .readonly strong {
-    font-weight: 500;
+    overflow-wrap: anywhere;
     font-size: 14px;
+    font-weight: 500;
+  }
+
+  .form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
   }
 
   .alert {
     padding: 8px 12px;
+    border: 1px solid transparent;
     border-radius: var(--radius-sm);
     font-size: 13px;
   }
 
   .error {
+    border-color: var(--error-border);
     background: var(--danger-bg);
     color: var(--danger);
   }
 
   .success {
-    background: #ecfdf5;
-    color: #047857;
-  }
-
-  .logout-actions {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-2);
+    border-color: var(--success-border);
+    background: var(--success-bg);
+    color: var(--success-text);
   }
 
   .hint {
@@ -586,17 +823,17 @@
   .notify {
     display: flex;
     flex-direction: column;
+    margin-bottom: var(--space-4);
+    overflow: hidden;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    overflow: hidden;
     background: var(--surface);
-    margin-bottom: var(--space-3);
   }
 
   .notify-head,
   .notify-row {
     display: grid;
-    grid-template-columns: 1fr 90px 90px;
+    grid-template-columns: minmax(0, 1fr) 90px 90px;
     align-items: center;
     gap: var(--space-2);
     padding: 10px var(--space-4);
@@ -605,9 +842,9 @@
   }
 
   .notify-head {
-    font-size: 12px;
+    background: color-mix(in srgb, var(--primary) 4%, var(--surface));
     color: var(--muted);
-    background: color-mix(in srgb, var(--primary) 4%, white);
+    font-size: 12px;
   }
 
   .notify-row:last-child {
@@ -621,5 +858,97 @@
 
   .notify-title {
     min-width: 0;
+  }
+
+  .session-list {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+
+  .session-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+
+  .session-row:last-child {
+    border-bottom: none;
+  }
+
+  .session-row.danger {
+    background: color-mix(in srgb, var(--danger) 3%, var(--surface));
+  }
+
+  .session-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-sm);
+    background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+    color: var(--primary);
+  }
+
+  .session-row.danger .session-icon {
+    background: var(--danger-bg);
+    color: var(--danger);
+  }
+
+  .session-copy {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .session-copy strong {
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .session-copy span {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  @media (max-width: 900px) {
+    .profile-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .tabs {
+      width: 100%;
+      margin-left: 0;
+    }
+
+    .form-grid,
+    .password-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .notify-head,
+    .notify-row {
+      grid-template-columns: minmax(0, 1fr) 76px 76px;
+      padding: 10px 12px;
+    }
+
+    .session-row {
+      flex-wrap: wrap;
+    }
+
+    .session-row :global(button) {
+      width: 100%;
+    }
   }
 </style>

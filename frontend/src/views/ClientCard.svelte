@@ -2074,7 +2074,7 @@
         Текущий пароль перестанет действовать, все сеансы клиента будут завершены. Новый пароль
         будет показан один раз — сохраните его и передайте клиенту.
       </p>
-      {#if card.client.email && appSettings.mailConfigured}
+      {#if card.client.email && appSettings.mailConfigured && auth.can('mail.recovery')}
         <p class="hint">
           Или отправьте клиенту ссылку для самостоятельной смены пароля на {card.client.email}.
         </p>
@@ -2095,7 +2095,7 @@
         >
           Отмена
         </Button>
-        {#if card.client.email && appSettings.mailConfigured}
+        {#if card.client.email && appSettings.mailConfigured && auth.can('mail.recovery')}
           <Button
             variant="ghost"
             loading={passwordLinkBusy}

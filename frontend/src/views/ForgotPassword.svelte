@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { ApiError, apiRequest } from '../lib/api/client';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
@@ -8,6 +9,19 @@
   let sent = $state(false);
   let error = $state('');
   let loading = $state(false);
+  let checked = $state(false);
+  let passwordResetAvailable = $state(false);
+
+  onMount(async () => {
+    try {
+      const data = await apiRequest<{ password_reset_available?: boolean }>('/settings/public');
+      passwordResetAvailable = data.password_reset_available === true;
+    } catch {
+      passwordResetAvailable = false;
+    } finally {
+      checked = true;
+    }
+  });
 
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
@@ -32,7 +46,14 @@
   <div class="card">
     <h1>Восстановление пароля</h1>
 
-    {#if sent}
+    {#if !checked}
+      <p class="hint">Проверяем доступность отправки писем…</p>
+    {:else if !passwordResetAvailable}
+      <p class="hint">
+        Восстановление пароля по почте недоступно. Обратитесь к администратору.
+      </p>
+      <Button variant="ghost" onclick={() => router.navigate('/')}>Вернуться ко входу</Button>
+    {:else if sent}
       <p>
         Если такой e-mail зарегистрирован, мы отправили на него письмо со ссылкой для установки
         нового пароля. Ссылка действует 60 минут.

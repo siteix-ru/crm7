@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace App\Modules;
 
 use App\Core\Database;
+use App\Core\Logger;
 use App\Http\HttpException;
 use App\Repositories\SettingsRepository;
+use App\Stocks\StocksService;
 use App\Support\Modules;
 use App\Users\UserAdminService;
+use Throwable;
 
 /**
  * Настройка модулей: вкл/выкл + доступ ролей (через права в level_capabilities).
@@ -27,7 +30,8 @@ final class ModuleService
 
     public function __construct(
         private readonly SettingsRepository $settings = new SettingsRepository(),
-        private readonly UserAdminService $users = new UserAdminService()
+        private readonly UserAdminService $users = new UserAdminService(),
+        private readonly StocksService $stocks = new StocksService()
     ) {
     }
 
@@ -58,6 +62,7 @@ final class ModuleService
             throw new HttpException(422, 'validation_error', 'Некорректный список модулей');
         }
 
+        $wasWarehousesEnabled = $this->settings->warehousesEnabled();
         $settings = [];
         $access = [];
 
@@ -71,14 +76,37 @@ final class ModuleService
 
             $settings[(string) $module['setting']] = ($row['enabled'] ?? true) ? '1' : '0';
 
-            $levels = array_map('intval', (array) ($row['levels'] ?? []));
-            $access[$code] = array_values(array_unique(array_filter(
-                $levels,
-                static fn (int $level): bool => in_array($level, self::LEVELS, true)
-            )));
+            $legacyLevels = (array) ($row['levels'] ?? []);
+            $groupRows = is_array($row['groups'] ?? null) ? $row['groups'] : null;
+
+            foreach (Modules::accessGroups($module) as $group) {
+                $groupCode = (string) $group['code'];
+                $raw = $groupRows !== null ? ($groupRows[$groupCode] ?? []) : $legacyLevels;
+                $levels = array_map('intval', (array) $raw);
+                $access[$code . ':' . $groupCode] = array_values(array_unique(array_filter(
+                    $levels,
+                    static fn (int $level): bool => in_array($level, self::LEVELS, true)
+                )));
+            }
         }
 
         $this->settings->many($settings);
+
+        $warehousesRow = $requested['warehouses'] ?? null;
+        $warehousesEnabled = is_array($warehousesRow)
+            ? (bool) ($warehousesRow['enabled'] ?? true)
+            : $wasWarehousesEnabled;
+
+        if ($wasWarehousesEnabled && !$warehousesEnabled) {
+            try {
+                $this->stocks->collapseWarehouses($actor);
+            } catch (Throwable $exception) {
+                $this->settings->many(['module.warehouses' => '1']);
+                Logger::error('stocks.collapse failed', ['error' => $exception->getMessage()]);
+
+                throw new HttpException(500, 'collapse_failed', 'Не удалось объединить склады. Подробности — в журнале.');
+            }
+        }
 
         if (in_array('roles.manage', $capabilities, true)) {
             $this->applyAccess($actor, $capabilities, $access);
@@ -94,16 +122,25 @@ final class ModuleService
      */
     private function applyAccess(array $actor, array $capabilities, array $access): void
     {
-        $catalog = Modules::all();
+        $catalog = [];
         $ownedBy = [];
-        $accessCodes = [];
 
-        foreach ($catalog as $module) {
-            $code = (string) $module['code'];
-            $accessCodes[$code] = array_values((array) $module['access']);
+        foreach (Modules::all() as $module) {
+            $moduleCode = (string) $module['code'];
 
-            foreach ((array) $module['capabilities'] as $cap) {
-                $ownedBy[(string) $cap][] = $code;
+            foreach (Modules::accessGroups($module) as $group) {
+                $key = $moduleCode . ':' . (string) $group['code'];
+                $entry = [
+                    'key' => $key,
+                    'access' => array_values((array) $group['access']),
+                    'grant' => array_values((array) $group['grant']),
+                    'capabilities' => array_values((array) $group['capabilities']),
+                ];
+                $catalog[] = $entry;
+
+                foreach ($entry['capabilities'] as $cap) {
+                    $ownedBy[$cap][] = $key;
+                }
             }
         }
 
@@ -114,21 +151,20 @@ final class ModuleService
             $add = [];
             $remove = [];
 
-            foreach ($catalog as $module) {
-                $code = (string) $module['code'];
-                $was = count(array_intersect($accessCodes[$code], $before)) > 0;
-                $want = in_array($level, $access[$code] ?? [], true);
+            foreach ($catalog as $group) {
+                $was = count(array_intersect($group['access'], $before)) > 0;
+                $want = in_array($level, $access[$group['key']] ?? [], true);
 
                 if ($was === $want) {
                     continue;
                 }
 
                 if ($want) {
-                    foreach ((array) $module['grant'] as $cap) {
+                    foreach ($group['grant'] as $cap) {
                         $add[(string) $cap] = true;
                     }
                 } else {
-                    foreach ((array) $module['capabilities'] as $cap) {
+                    foreach ($group['capabilities'] as $cap) {
                         $remove[(string) $cap] = true;
                     }
                 }
@@ -139,8 +175,8 @@ final class ModuleService
             }
 
             foreach (array_keys($remove) as $cap) {
-                foreach ($ownedBy[$cap] ?? [] as $code) {
-                    if (in_array($level, $access[$code] ?? [], true)) {
+                foreach ($ownedBy[$cap] ?? [] as $key) {
+                    if (in_array($level, $access[$key] ?? [], true)) {
                         unset($remove[$cap]);
                         break;
                     }
@@ -188,22 +224,39 @@ final class ModuleService
         $items = [];
 
         foreach (Modules::all() as $module) {
-            $access = array_values((array) $module['access']);
             $levels = [];
+            $groups = [];
 
-            foreach (self::LEVELS as $level) {
-                if (count(array_intersect($access, $current[$level] ?? [])) > 0) {
-                    $levels[] = $level;
+            foreach (Modules::accessGroups($module) as $group) {
+                $access = array_values((array) $group['access']);
+                $groupLevels = [];
+
+                foreach (self::LEVELS as $level) {
+                    if (count(array_intersect($access, $current[$level] ?? [])) > 0) {
+                        $groupLevels[] = $level;
+                    }
                 }
+
+                $levels = array_values(array_unique(array_merge($levels, $groupLevels)));
+                $groups[] = [
+                    'code' => (string) $group['code'],
+                    'title' => (string) $group['title'],
+                    'description' => (string) ($group['description'] ?? ''),
+                    'levels' => $groupLevels,
+                    'capabilities' => array_values((array) $group['capabilities']),
+                ];
             }
+
+            sort($levels);
 
             $items[] = [
                 'code' => (string) $module['code'],
                 'title' => (string) $module['title'],
                 'description' => (string) $module['description'],
-                'enabled' => $this->settings->get((string) $module['setting']) !== '0',
+                'enabled' => $this->settings->moduleEnabled((string) $module['setting']),
                 'levels' => $levels,
                 'capabilities' => array_values((array) $module['capabilities']),
+                'groups' => $groups,
             ];
         }
 

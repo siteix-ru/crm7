@@ -22,7 +22,6 @@ final class MailService
     ];
 
     private const KEYS = [
-        'enabled' => 'mail.enabled',
         'host' => 'mail.host',
         'port' => 'mail.port',
         'encryption' => 'mail.encryption',
@@ -46,7 +45,7 @@ final class MailService
         $password = $storedPassword !== '' ? (string) (Crypto::decrypt($storedPassword) ?? '') : '';
 
         return [
-            'enabled' => $this->settings->get(self::KEYS['enabled']) === '1',
+            'enabled' => $this->settings->mailConfigured(),
             'host' => (string) ($this->settings->get(self::KEYS['host']) ?? ''),
             'port' => (int) ($this->settings->get(self::KEYS['port']) ?? 465),
             'encryption' => (string) ($this->settings->get(self::KEYS['encryption']) ?? 'ssl'),
@@ -98,7 +97,6 @@ final class MailService
         }
 
         $pairs = [
-            self::KEYS['enabled'] => !empty($input['enabled']) ? '1' : '0',
             self::KEYS['host'] => $host,
             self::KEYS['port'] => (string) $port,
             self::KEYS['encryption'] => $encryption,
@@ -120,8 +118,14 @@ final class MailService
 
     public function testConnection(): array
     {
+        $config = $this->config();
+
+        if (!$config['enabled']) {
+            throw new HttpException(422, 'mail_disabled', 'Сначала настройте SMTP и сохраните параметры');
+        }
+
         try {
-            (new SmtpMailer($this->config()))->testConnection();
+            (new SmtpMailer($config))->testConnection();
         } catch (Throwable $exception) {
             throw new HttpException(422, 'smtp_error', $exception->getMessage());
         }
@@ -158,7 +162,7 @@ final class MailService
 
     public function enqueue(string $to, string $subject, string $body): void
     {
-        if (filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
+        if (!$this->config()['enabled'] || filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
             return;
         }
 
@@ -303,5 +307,10 @@ final class MailService
             'created_at' => (string) $row['created_at'],
             'sent_at' => $row['sent_at'],
         ], $this->queue->recent($limit));
+    }
+
+    public function clearQueue(): int
+    {
+        return $this->queue->clearAll();
     }
 }

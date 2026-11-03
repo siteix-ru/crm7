@@ -99,13 +99,42 @@ const scenarios = [
       await expectVisible(page.locator('nav.desktop-nav'), 'после входа не появилась навигация');
 
       await page.goto(`${BASE}/#/profile`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Сессии' }).click();
+      await page.getByRole('tab', { name: 'Сессии' }).click();
       await page.getByRole('button', { name: 'Выйти из текущей сессии' }).click();
 
       await expectVisible(
         page.locator('input[name="login"]'),
         'после выхода не вернулись на экран входа'
       );
+    }
+  },
+  {
+    name: 'профиль: поля сотрудника и компактная смена пароля',
+    role: 'admin',
+    async run(page) {
+      await page.goto(`${BASE}/#/profile`, { waitUntil: 'domcontentloaded' });
+
+      for (const label of ['Отдел', 'Город', 'Офис']) {
+        await expectVisible(page.getByLabel(label), `в профиле сотрудника нет поля «${label}»`);
+      }
+
+      await page.getByRole('tab', { name: 'Безопасность' }).click();
+      const currentPassword = page.getByLabel('Текущий пароль');
+      await expectVisible(currentPassword, 'не открылась форма смены пароля');
+
+      const box = await currentPassword.boundingBox();
+      assert(box !== null && box.width <= 680, 'поля смены пароля растянуты слишком широко');
+    }
+  },
+  {
+    name: 'профиль: поля клиента',
+    role: 'client',
+    async run(page) {
+      await page.goto(`${BASE}/#/profile`, { waitUntil: 'domcontentloaded' });
+
+      for (const label of ['Компания', 'ИНН', 'Город', 'Адрес']) {
+        await expectVisible(page.getByLabel(label), `в профиле клиента нет поля «${label}»`);
+      }
     }
   },
   {
@@ -1212,20 +1241,20 @@ const scenarios = [
     }
   },
   {
-    name: 'настройки: роли — группы прав',
+    name: 'настройки: модули — группы прав',
     role: 'admin',
     async run(page) {
       await page.goto(`${BASE}/#/settings`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Роли', exact: true }).click();
+      await page.getByRole('button', { name: 'Модули', exact: true }).click();
 
-      const group = page.locator('.cap-group').filter({ hasText: 'Заявки' }).first();
-      await expectVisible(group, 'нет группы прав «Заявки»');
-
-      const head = group.locator('.cap-group-head');
-      assert((await head.getAttribute('aria-expanded')) === 'false', 'группа должна быть свёрнута по умолчанию');
-      await head.click();
-      assert((await head.getAttribute('aria-expanded')) === 'true', 'группа не раскрылась');
-      await expectVisible(group.locator('input[type="checkbox"]').first(), 'в раскрытой группе нет чекбоксов');
+      const card = page.locator('.module-card').filter({ hasText: 'Заявки' }).first();
+      await expectVisible(card, 'нет карточки модуля «Заявки»');
+      await expectVisible(card.getByText('Просмотр всех заявок', { exact: true }), 'нет группы просмотра');
+      await expectVisible(card.getByText('Создание заявок', { exact: true }), 'нет группы создания');
+      assert(
+        (await card.getByRole('button', { name: 'Создание заявок' }).count()) > 0,
+        'у группы создания нет выбора ролей'
+      );
     }
   },
   {
@@ -1268,41 +1297,66 @@ const scenarios = [
       );
       assert((await tabs.first().innerText()).trim() === '', 'у вкладок остался текст');
       assert(
-        (await tabs.first().getAttribute('title')) === 'База данных',
+        (await tabs.first().getAttribute('title')) === 'Общие',
         'у вкладки нет всплывающей подсказки'
       );
+      assert((await tabs.count()) === 5, 'ожидалось пять основных вкладок');
       assert(
         (await tabs.getByRole('button', { name: 'Типы цен' }).count()) === 0,
         'вкладка типов цен осталась в настройках'
       );
-
-      await page.getByRole('button', { name: 'SMTP' }).click();
-      await expectVisible(page.getByRole('heading', { name: 'SMTP' }), 'не открылась вкладка SMTP');
-
-      await page.getByRole('button', { name: 'Брендинг и модули' }).click();
-      await expectVisible(
-        page.getByRole('heading', { name: 'Брендинг и модули' }),
-        'не открылась вкладка брендинга'
-      );
-
-      await page.getByRole('button', { name: 'Система' }).click();
-      await expectVisible(
-        page.getByRole('heading', { name: 'Система' }),
-        'не открылась вкладка системы'
+      assert(
+        (await tabs.getByRole('button', { name: 'Роли', exact: true }).count()) === 0,
+        'вкладка «Роли» всё ещё показана'
       );
 
       await expectVisible(
-        page.getByRole('button', { name: 'Модули', exact: true }),
-        'нет вкладки «Модули»'
+        page.getByRole('heading', { name: 'Брендинг и реквизиты' }),
+        'не открылись общие настройки'
       );
       await expectVisible(
-        page.getByRole('button', { name: 'Роли', exact: true }),
-        'нет вкладки «Роли»'
+        page.getByLabel(/^Описание системы/),
+        'нет поля описания системы'
+      );
+      await expectVisible(
+        page.getByLabel('Наименование организации'),
+        'нет поля наименования организации'
+      );
+      await expectVisible(
+        page.getByLabel(/^Реквизиты/),
+        'нет поля реквизитов'
+      );
+      await expectVisible(
+        page.getByRole('heading', { name: 'Параметры работы' }),
+        'нет блока параметров работы'
+      );
+      await expectVisible(
+        page.getByRole('button', { name: 'Сохранить' }).first(),
+        'нет кнопки сохранения общих настроек'
+      );
+      assert(
+        (await page.getByText('Корзина (добавление номенклатуры и оформление)').count()) === 0,
+        'отдельный модуль «Корзина» всё ещё показан'
+      );
+
+      await page.getByRole('button', { name: 'Модули', exact: true }).click();
+      await expectVisible(
+        page.getByRole('button', { name: 'Доступные роли' }).first(),
+        'нет мультисписка ролей в модулях'
+      );
+      await page.getByRole('button', { name: 'Подсказка' }).first().click();
+      await expectVisible(
+        page.getByRole('tooltip'),
+        'не открылся хелпер по клику'
       );
       await expectVisible(
         page.getByRole('button', { name: 'Документы', exact: true }),
         'нет вкладки «Документы»'
       );
+
+      await page.getByRole('button', { name: 'Почта', exact: true }).click();
+      await page.getByRole('button', { name: 'SMTP', exact: true }).click();
+      await expectVisible(page.getByRole('heading', { name: 'SMTP' }), 'не открылась вкладка SMTP');
 
       await page.getByRole('button', { name: 'Шаблоны писем' }).click();
       await expectVisible(
@@ -1320,6 +1374,16 @@ const scenarios = [
       await expectVisible(
         page.getByRole('heading', { name: 'Очередь отправки' }),
         'не открылась вкладка очереди'
+      );
+      await expectVisible(
+        page.getByRole('button', { name: 'Очистить' }),
+        'нет кнопки очистки очереди'
+      );
+
+      await page.getByRole('button', { name: 'База данных', exact: true }).click();
+      await expectVisible(
+        page.getByRole('heading', { name: 'База данных' }),
+        'не открылась вкладка базы данных'
       );
     }
   },

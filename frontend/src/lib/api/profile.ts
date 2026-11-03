@@ -18,6 +18,12 @@ export interface UserProfile {
 export interface ProfileUpdatePayload {
   name: string;
   position?: string;
+  department?: string;
+  city?: string;
+  office?: string;
+  company?: string;
+  inn?: string;
+  address?: string;
   phone?: string;
   email?: string;
 }
@@ -26,6 +32,12 @@ export interface ProfileUpdateResult {
   id: number;
   name: string;
   position: string;
+  department: string;
+  city: string;
+  office: string;
+  company: string;
+  inn: string;
+  address: string;
   phone: string;
   email: string;
 }

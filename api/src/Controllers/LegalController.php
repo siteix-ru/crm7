@@ -8,11 +8,14 @@ use App\Http\HttpException;
 use App\Http\Request;
 use App\Http\Response;
 use App\Repositories\LegalRepository;
+use App\Repositories\SettingsRepository;
 
 final class LegalController extends ApiController
 {
-    public function __construct(private readonly LegalRepository $documents = new LegalRepository())
-    {
+    public function __construct(
+        private readonly LegalRepository $documents = new LegalRepository(),
+        private readonly SettingsRepository $settings = new SettingsRepository()
+    ) {
         parent::__construct();
     }
 
@@ -27,7 +30,7 @@ final class LegalController extends ApiController
         return Response::ok([
             'code' => (string) $document['code'],
             'title' => (string) $document['title'],
-            'body' => (string) $document['body'],
+            'body' => $this->withRequisites((string) $document['body'], (string) $document['updated_at']),
             'updated_at' => (string) $document['updated_at'],
         ]);
     }
@@ -60,6 +63,30 @@ final class LegalController extends ApiController
         $this->audit($request, $user, 'legal.save', 'legal', $code);
 
         return Response::ok($this->index($request));
+    }
+
+    private function withRequisites(string $body, string $updatedAt): string
+    {
+        $legal = $this->settings->legalRequisites();
+        $updatedTimestamp = strtotime($updatedAt);
+        $replacements = [
+            '[наименование организации]' => $legal['organization'],
+            '[адрес]' => $legal['legal_address'],
+            '[ИНН]' => $legal['requisites'],
+            '[реквизиты]' => $legal['requisites'],
+            '[e-mail]' => $legal['contact_email'],
+            '[телефон]' => $legal['contact_phone'],
+            '[ФИО, должность, контакт]' => $legal['responsible'],
+            '[дата]' => date('d.m.Y', $updatedTimestamp !== false ? $updatedTimestamp : time()),
+        ];
+
+        foreach ($replacements as $placeholder => $value) {
+            if ($value !== '') {
+                $body = str_replace($placeholder, $value, $body);
+            }
+        }
+
+        return $body;
     }
 
     private function requireSettings(Request $request): array

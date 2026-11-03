@@ -29,6 +29,7 @@
   const avatarBg = $derived(avatarColor(avatarSeed));
 
   const path = $derived(router.current.path);
+  const brandHint = $derived(appSettings.appDescription || appSettings.appTitle);
 
   $effect(() => {
     if (!appSettings.loaded) {
@@ -48,14 +49,26 @@
       router.navigate('/stocks');
     } else if (!appSettings.reportsEnabled && (path === '/reports' || path === '/my-reports')) {
       router.navigate('/stocks');
+    } else if (!appSettings.chatEnabled && path === '/chat') {
+      router.navigate('/requests');
+    } else if (!appSettings.notificationsEnabled && path === '/notifications') {
+      router.navigate('/requests');
+    } else if (!appSettings.clientsEnabled && path.startsWith('/clients')) {
+      router.navigate('/requests');
+    } else if (!appSettings.staffEnabled && path.startsWith('/staff')) {
+      router.navigate('/requests');
     }
   });
 
-  const showClients = $derived(auth.can('clients.view.all') || auth.can('clients.view.own'));
+  const showClients = $derived(
+    appSettings.clientsEnabled && (auth.can('clients.view.all') || auth.can('clients.view.own'))
+  );
 
-  const showSettings = $derived(auth.can('settings.manage'));
+  const showSettings = $derived(
+    auth.can('settings.manage') || auth.can('mail.manage') || auth.can('mail.send')
+  );
 
-  const showStaff = $derived(auth.can('users.manage'));
+  const showStaff = $derived(appSettings.staffEnabled && auth.can('users.manage'));
 
   const showAudit = $derived(auth.level >= 90);
 
@@ -66,7 +79,8 @@
   const showMyReports = $derived(appSettings.reportsEnabled && !canViewReports);
 
   const showWarehouses = $derived(
-    appSettings.warehousesEnabled && (auth.can('stocks.import') || auth.can('stocks.edit'))
+    appSettings.warehousesEnabled &&
+      (auth.can('stocks.view') || auth.can('stocks.import') || auth.can('stocks.edit'))
   );
 
   const navCount = $derived(
@@ -86,8 +100,12 @@
     const tick = async (): Promise<void> => {
       try {
         const [notes, chat] = await Promise.all([
-          unreadCount().catch(() => ({ unread: 0 })),
-          chatUnread().catch(() => ({ unread: 0 }))
+          appSettings.notificationsEnabled && auth.can('notifications.use')
+            ? unreadCount().catch(() => ({ unread: 0 }))
+            : Promise.resolve({ unread: 0 }),
+          appSettings.chatEnabled && auth.can('chat.use')
+            ? chatUnread().catch(() => ({ unread: 0 }))
+            : Promise.resolve({ unread: 0 })
         ]);
 
         unread = notes.unread;
@@ -108,9 +126,9 @@
 <div class="shell">
   <header>
     <div class="left">
-      <a class="brand" href="#/requests">
-        <Logo size={26} />
-        <span>{appSettings.appTitle}</span>
+      <a class="brand" href="#/requests" title={brandHint}>
+        <span title={brandHint}><Logo size={26} /></span>
+        <span title={brandHint}>{appSettings.appTitle}</span>
       </a>
       <nav class="desktop-nav" class:many={navCount > 6}>
         <a
@@ -192,34 +210,38 @@
       >
         <Icon name="info" size={20} />
       </button>
-      <button
-        type="button"
-        class="bell"
-        class:has-new={chatUnreadCount > 0}
-        class:current={path === '/chat'}
-        aria-label={chatUnreadCount > 0 ? `Чат: ${chatUnreadCount} новых` : 'Чат'}
-        title="Чат"
-        onclick={() => router.navigate('/chat')}
-      >
-        <Icon name="chat" size={20} />
-        {#if chatUnreadCount > 0}
-          <span class="bell-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>
-        {/if}
-      </button>
-      <button
-        type="button"
-        class="bell"
-        class:has-new={unread > 0}
-        class:current={path === '/notifications'}
-        aria-label={unread > 0 ? `Уведомления: ${unread} новых` : 'Уведомления'}
-        title="Уведомления"
-        onclick={() => router.navigate('/notifications')}
-      >
-        <Icon name="bell" size={20} />
-        {#if unread > 0}
-          <span class="bell-badge">{unread > 99 ? '99+' : unread}</span>
-        {/if}
-      </button>
+      {#if appSettings.chatEnabled && auth.can('chat.use')}
+        <button
+          type="button"
+          class="bell"
+          class:has-new={chatUnreadCount > 0}
+          class:current={path === '/chat'}
+          aria-label={chatUnreadCount > 0 ? `Чат: ${chatUnreadCount} новых` : 'Чат'}
+          title="Чат"
+          onclick={() => router.navigate('/chat')}
+        >
+          <Icon name="chat" size={20} />
+          {#if chatUnreadCount > 0}
+            <span class="bell-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>
+          {/if}
+        </button>
+      {/if}
+      {#if appSettings.notificationsEnabled && auth.can('notifications.use')}
+        <button
+          type="button"
+          class="bell"
+          class:has-new={unread > 0}
+          class:current={path === '/notifications'}
+          aria-label={unread > 0 ? `Уведомления: ${unread} новых` : 'Уведомления'}
+          title="Уведомления"
+          onclick={() => router.navigate('/notifications')}
+        >
+          <Icon name="bell" size={20} />
+          {#if unread > 0}
+            <span class="bell-badge">{unread > 99 ? '99+' : unread}</span>
+          {/if}
+        </button>
+      {/if}
       {#if appSettings.salesEnabled && appSettings.cartEnabled}
         <button
           type="button"

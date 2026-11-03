@@ -7,14 +7,18 @@ namespace App\Controllers;
 use App\Export\ExportMailer;
 use App\Http\DownloadResponse;
 use App\Http\FileResponse;
+use App\Http\HttpException;
 use App\Http\Request;
 use App\Http\Response;
+use App\Repositories\SettingsRepository;
 use App\Stocks\StocksService;
 
 final class StocksController extends ApiController
 {
-    public function __construct(private readonly StocksService $service = new StocksService())
-    {
+    public function __construct(
+        private readonly StocksService $service = new StocksService(),
+        private readonly SettingsRepository $settings = new SettingsRepository()
+    ) {
         parent::__construct();
     }
 
@@ -95,6 +99,7 @@ final class StocksController extends ApiController
     public function activate(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStockEdit();
 
         return Response::ok($this->service->setActive($user, $capabilities, (int) ($params['itemId'] ?? 0), true));
     }
@@ -102,6 +107,7 @@ final class StocksController extends ApiController
     public function deactivate(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStockEdit();
 
         return Response::ok($this->service->setActive($user, $capabilities, (int) ($params['itemId'] ?? 0), false));
     }
@@ -109,6 +115,7 @@ final class StocksController extends ApiController
     public function deleteItem(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStockEdit();
 
         return Response::ok($this->service->deleteItem($user, $capabilities, (int) ($params['itemId'] ?? 0)));
     }
@@ -146,6 +153,7 @@ final class StocksController extends ApiController
     public function import(Request $request): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStockEdit();
 
         return Response::ok($this->service->import(
             $user,
@@ -166,6 +174,7 @@ final class StocksController extends ApiController
     public function createItem(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStockEdit();
 
         return Response::ok($this->service->createItem(
             $user,
@@ -178,6 +187,7 @@ final class StocksController extends ApiController
     public function updateItem(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStockEdit();
 
         return Response::ok($this->service->updateItem(
             $user,
@@ -277,6 +287,7 @@ final class StocksController extends ApiController
     public function uploadPhoto(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStockEdit();
 
         return Response::ok($this->service->uploadPhoto(
             $user,
@@ -289,6 +300,7 @@ final class StocksController extends ApiController
     public function deletePhoto(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStockEdit();
 
         return Response::ok($this->service->deletePhoto($user, $capabilities, (int) ($params['id'] ?? 0)));
     }
@@ -303,6 +315,13 @@ final class StocksController extends ApiController
             (int) ($params['id'] ?? 0),
             $request->queryParam('size', 'max')
         );
+    }
+
+    private function requireStockEdit(): void
+    {
+        if (!$this->settings->stockEditEnabled()) {
+            throw new HttpException(403, 'module_disabled', 'Управление номенклатурой отключено');
+        }
     }
 
     private function importMapping(Request $request): array

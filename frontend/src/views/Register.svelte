@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ApiError } from '../lib/api/client';
+  import { onMount } from 'svelte';
+  import { ApiError, apiRequest } from '../lib/api/client';
   import { registerClient } from '../lib/api/clients';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
@@ -18,6 +19,19 @@
   let error = $state('');
   let loading = $state(false);
   let sent = $state(false);
+  let checked = $state(false);
+  let registrationAvailable = $state(false);
+
+  onMount(async () => {
+    try {
+      const data = await apiRequest<{ registration_enabled?: boolean }>('/settings/public');
+      registrationAvailable = data.registration_enabled === true;
+    } catch {
+      registrationAvailable = false;
+    } finally {
+      checked = true;
+    }
+  });
 
   const ready = $derived(
     name.trim().length >= 3 && email.trim() !== '' && password !== '' && passwordConfirm !== ''
@@ -52,7 +66,18 @@
 </script>
 
 <div class="wrap">
-  {#if sent}
+  {#if !checked}
+    <div class="card">
+      <h1>Регистрация</h1>
+      <p class="hint">Проверяем доступность регистрации…</p>
+    </div>
+  {:else if !registrationAvailable}
+    <div class="card">
+      <h1>Регистрация недоступна</h1>
+      <p class="hint">Самостоятельная регистрация отключена. Обратитесь к менеджеру.</p>
+      <Button onclick={() => router.navigate('/')}>На страницу входа</Button>
+    </div>
+  {:else if sent}
     <div class="card">
       <h1>Заявка отправлена</h1>
       <p class="hint">

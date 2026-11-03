@@ -17,7 +17,6 @@ export function getEmailSettings(): Promise<EmailSettings> {
 }
 
 export interface EmailSettingsPayload {
-  enabled: boolean;
   host: string;
   port: number;
   encryption: string;
@@ -67,6 +66,13 @@ export function listQueue(): Promise<EmailQueueItem[]> {
   return apiRequest<EmailQueueItem[]>('/admin/queue', { auth: true });
 }
 
+export function clearQueue(): Promise<{ cleared: number }> {
+  return apiRequest<{ cleared: number }>('/admin/queue', {
+    method: 'DELETE',
+    auth: true
+  });
+}
+
 export function getSystemSettings(): Promise<SystemSettings> {
   return apiRequest<SystemSettings>('/admin/settings/system', { auth: true });
 }
@@ -81,15 +87,14 @@ export function saveSystemSettings(payload: {
   stock_allow_zero: boolean;
   prices_enabled: boolean;
   groups_enabled: boolean;
-  requests_enabled: boolean;
-  cart_enabled: boolean;
-  substitutions_enabled: boolean;
-  manager_assign_enabled: boolean;
-  warehouses_enabled: boolean;
-  reports_enabled: boolean;
-  single_name: string;
   app_title: string;
-  client_label: string;
+  app_description: string;
+  organization: string;
+  legal_address: string;
+  requisites: string;
+  contact_email: string;
+  contact_phone: string;
+  responsible: string;
   photo_ratio: string;
   photo_fit: string;
   photo_size_preview: number;
@@ -220,6 +225,14 @@ export function saveRole(level: number, capabilities: string[]): Promise<RolesRe
   });
 }
 
+export interface ModuleAccessGroup {
+  code: string;
+  title: string;
+  description: string;
+  levels: number[];
+  capabilities: string[];
+}
+
 export interface ModuleItem {
   code: string;
   title: string;
@@ -227,6 +240,7 @@ export interface ModuleItem {
   enabled: boolean;
   levels: number[];
   capabilities: string[];
+  groups: ModuleAccessGroup[];
 }
 
 export interface ModuleRole {
@@ -249,7 +263,16 @@ export function saveModules(modules: ModuleItem[]): Promise<ModulesResponse> {
     auth: true,
     body: {
       modules: Object.fromEntries(
-        modules.map((module) => [module.code, { enabled: module.enabled, levels: module.levels }])
+        modules.map((module) => [
+          module.code,
+          {
+            enabled: module.enabled,
+            levels: module.levels,
+            groups: Object.fromEntries(
+              module.groups.map((group) => [group.code, group.levels])
+            )
+          }
+        ])
       )
     }
   });

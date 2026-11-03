@@ -254,6 +254,11 @@ final class UserController extends ApiController
         $this->denyInDemo();
 
         [$user, $capabilities] = $this->context($request);
+
+        if (!in_array('mail.recovery', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для отправки доступа');
+        }
+
         $id = (int) ($params['id'] ?? 0);
         $body = $request->bodyAll();
         $result = $this->admin->sendCredentials(

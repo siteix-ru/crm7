@@ -10,6 +10,7 @@ export const LICENSE_YEAR = 2026;
 export const LICENSE_URL = 'https://opensource.org/license/mit';
 
 export const CONTACTS: { label: string; value: string; href?: string }[] = [
+  { label: 'Контактное лицо', value: 'Литвинов Антон Александрович' },
   { label: 'Телефон', value: '+79380264903', href: 'tel:+79380264903' },
   { label: 'E-mail', value: 'siteix@yandex.ru', href: 'mailto:siteix@yandex.ru' }
 ];

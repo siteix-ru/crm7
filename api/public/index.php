@@ -68,7 +68,7 @@ if ($basePath !== '' && str_starts_with($request->path, $basePath)) {
 // Отключённые модули: пути блокируются по реестру модулей (App\Support\Modules).
 $moduleSettings = new SettingsRepository();
 $moduleGuards = Modules::guards(
-    static fn (string $setting): bool => $moduleSettings->get($setting) !== '0'
+    static fn (string $setting): bool => $moduleSettings->moduleEnabled($setting)
 );
 
 foreach ($moduleGuards as $guard) {
@@ -169,6 +169,7 @@ $router->post('/admin/settings/database/test', [$admin, 'testDatabaseSettings'])
 $router->get('/admin/templates', [$admin, 'templates']);
 $router->post('/admin/templates/{code}', [$admin, 'saveTemplate']);
 $router->get('/admin/queue', [$admin, 'queue']);
+$router->delete('/admin/queue', [$admin, 'clearQueue']);
 $router->get('/admin/settings/system', [$admin, 'systemSettings']);
 $router->post('/admin/settings/system', [$admin, 'saveSystemSettings']);
 $router->get('/admin/modules', [$modules, 'index']);

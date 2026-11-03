@@ -19,6 +19,8 @@
   let demoMode = $state(false);
   let demoAccounts = $state<DemoAccount[]>([]);
   let appTitle = $state('CRM7');
+  let passwordResetAvailable = $state(false);
+  let registrationAvailable = $state(false);
 
   onMount(async () => {
     try {
@@ -26,13 +28,19 @@
         demo_mode: boolean;
         demo_accounts: DemoAccount[];
         app_title?: string;
+        password_reset_available?: boolean;
+        registration_enabled?: boolean;
       }>('/settings/public');
       demoMode = data.demo_mode === true;
       demoAccounts = Array.isArray(data.demo_accounts) ? data.demo_accounts : [];
       appTitle = (data.app_title || 'CRM7').trim() || 'CRM7';
+      passwordResetAvailable = data.password_reset_available === true;
+      registrationAvailable = data.registration_enabled === true;
     } catch {
       demoMode = false;
       demoAccounts = [];
+      passwordResetAvailable = false;
+      registrationAvailable = false;
     }
   });
 
@@ -95,13 +103,17 @@
         <p class="hint">Демо-режим: вход по демонстрационным учётным записям</p>
       {/if}
     {:else}
-      <button type="button" class="link" onclick={() => router.navigate('/forgot')}>
-        Забыли пароль?
-      </button>
+      {#if passwordResetAvailable}
+        <button type="button" class="link" onclick={() => router.navigate('/forgot')}>
+          Забыли пароль?
+        </button>
+      {/if}
 
-      <button type="button" class="link" onclick={() => router.navigate('/register')}>
-        Нет аккаунта? Зарегистрироваться
-      </button>
+      {#if registrationAvailable}
+        <button type="button" class="link" onclick={() => router.navigate('/register')}>
+          Ещё нет аккаунта? Зарегистрироваться
+        </button>
+      {/if}
     {/if}
   </form>
 </div>

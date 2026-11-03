@@ -74,6 +74,11 @@ final class EmailQueueRepository
         $stmt->execute([mb_substr($error, 0, 500), $id]);
     }
 
+    public function clearAll(): int
+    {
+        return (int) Database::pdo()->exec('DELETE FROM email_queue');
+    }
+
     public function recent(int $limit): array
     {
         $sql = 'SELECT ID AS id, to_email, subject, status, attempts, last_error, created_at, sent_at

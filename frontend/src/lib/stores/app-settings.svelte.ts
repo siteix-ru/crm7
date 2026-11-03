@@ -5,11 +5,18 @@ interface AppSettingsResponse {
   sales_enabled: boolean;
   email_export_enabled: boolean;
   mail_configured: boolean;
+  mail_enabled: boolean;
   stock_reserve_enabled: boolean;
   stock_allow_zero: boolean;
   prices_enabled: boolean;
   groups_enabled: boolean;
   requests_enabled: boolean;
+  clients_enabled: boolean;
+  chat_enabled: boolean;
+  notifications_enabled: boolean;
+  staff_enabled: boolean;
+  registration_enabled: boolean;
+  stock_edit_enabled: boolean;
   cart_enabled: boolean;
   substitutions_enabled: boolean;
   manager_assign_enabled: boolean;
@@ -17,7 +24,7 @@ interface AppSettingsResponse {
   reports_enabled: boolean;
   single_name: string;
   app_title: string;
-  client_label: string;
+  app_description: string;
   photo_ratio: string;
   photo_fit: string;
   demo_mode: boolean;
@@ -30,6 +37,8 @@ class AppSettingsStore {
 
   mailConfigured = $state(false);
 
+  mailEnabled = $state(true);
+
   stockReserveEnabled = $state(false);
 
   allowZeroStock = $state(false);
@@ -39,6 +48,18 @@ class AppSettingsStore {
   groupsEnabled = $state(false);
 
   requestsEnabled = $state(true);
+
+  clientsEnabled = $state(true);
+
+  chatEnabled = $state(true);
+
+  notificationsEnabled = $state(true);
+
+  staffEnabled = $state(true);
+
+  registrationEnabled = $state(true);
+
+  stockEditEnabled = $state(true);
 
   cartEnabled = $state(true);
 
@@ -54,7 +75,7 @@ class AppSettingsStore {
 
   appTitle = $state('CRM7');
 
-  clientLabel = $state('Клиент');
+  appDescription = $state('');
 
   photoRatio = $state('square');
 
@@ -104,19 +125,26 @@ class AppSettingsStore {
       this.salesEnabled = Boolean(data.sales_enabled);
       this.emailExportEnabled = data.email_export_enabled !== false;
       this.mailConfigured = data.mail_configured === true;
+      this.mailEnabled = data.mail_enabled !== false;
       this.stockReserveEnabled = data.stock_reserve_enabled === true;
       this.allowZeroStock = data.stock_allow_zero === true;
       this.pricesEnabled = data.prices_enabled === true;
       this.groupsEnabled = data.groups_enabled === true;
       this.requestsEnabled = data.requests_enabled !== false;
-      this.cartEnabled = data.cart_enabled !== false;
+      this.clientsEnabled = data.clients_enabled !== false;
+      this.chatEnabled = data.chat_enabled !== false;
+      this.notificationsEnabled = data.notifications_enabled !== false;
+      this.staffEnabled = data.staff_enabled !== false;
+      this.registrationEnabled = data.registration_enabled !== false;
+      this.stockEditEnabled = data.stock_edit_enabled !== false;
+      this.cartEnabled = this.requestsEnabled;
       this.substitutionsEnabled = data.substitutions_enabled !== false;
       this.managerAssignEnabled = data.manager_assign_enabled !== false;
       this.warehousesEnabled = data.warehouses_enabled !== false;
       this.reportsEnabled = data.reports_enabled !== false;
       this.singleName = (data.single_name || 'Основной склад').trim() || 'Основной склад';
       this.appTitle = (data.app_title || 'CRM7').trim() || 'CRM7';
-      this.clientLabel = (data.client_label || 'Клиент').trim() || 'Клиент';
+      this.appDescription = (data.app_description || '').trim();
       this.photoRatio = ['dynamic', 'square', 'landscape', 'portrait'].includes(data.photo_ratio)
         ? data.photo_ratio
         : 'square';
@@ -141,13 +169,12 @@ class AppSettingsStore {
     pricesEnabled = this.pricesEnabled,
     groupsEnabled = this.groupsEnabled,
     requestsEnabled = this.requestsEnabled,
-    cartEnabled = this.cartEnabled,
     substitutionsEnabled = this.substitutionsEnabled,
     managerAssignEnabled = this.managerAssignEnabled,
     warehousesEnabled = this.warehousesEnabled,
     singleName = this.singleName,
     appTitle = this.appTitle,
-    clientLabel = this.clientLabel,
+    appDescription = this.appDescription,
     photoRatio = this.photoRatio,
     photoFit = this.photoFit
   ): void {
@@ -159,13 +186,13 @@ class AppSettingsStore {
     this.pricesEnabled = pricesEnabled;
     this.groupsEnabled = groupsEnabled;
     this.requestsEnabled = requestsEnabled;
-    this.cartEnabled = cartEnabled;
+    this.cartEnabled = requestsEnabled;
     this.substitutionsEnabled = substitutionsEnabled;
     this.managerAssignEnabled = managerAssignEnabled;
     this.warehousesEnabled = warehousesEnabled;
     this.singleName = singleName;
     this.appTitle = appTitle;
-    this.clientLabel = clientLabel;
+    this.appDescription = appDescription;
     this.photoRatio = photoRatio;
     this.photoFit = photoFit;
   }
@@ -174,11 +201,18 @@ class AppSettingsStore {
     this.salesEnabled = true;
     this.emailExportEnabled = true;
     this.mailConfigured = false;
+    this.mailEnabled = true;
     this.stockReserveEnabled = false;
     this.allowZeroStock = false;
     this.pricesEnabled = false;
     this.groupsEnabled = false;
     this.requestsEnabled = true;
+    this.clientsEnabled = true;
+    this.chatEnabled = true;
+    this.notificationsEnabled = true;
+    this.staffEnabled = true;
+    this.registrationEnabled = true;
+    this.stockEditEnabled = true;
     this.cartEnabled = true;
     this.substitutionsEnabled = true;
     this.managerAssignEnabled = true;
@@ -186,7 +220,7 @@ class AppSettingsStore {
     this.reportsEnabled = true;
     this.singleName = 'Основной склад';
     this.appTitle = 'CRM7';
-    this.clientLabel = 'Клиент';
+    this.appDescription = '';
     this.photoRatio = 'square';
     this.photoFit = 'contain';
     this.demoMode = false;

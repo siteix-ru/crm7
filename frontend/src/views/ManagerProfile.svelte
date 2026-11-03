@@ -6,7 +6,6 @@
   import { avatarColor, avatarLetter, avatarName } from '../lib/avatar';
   import { avatars } from '../lib/stores/avatar.svelte';
   import { auth } from '../lib/stores/auth.svelte';
-  import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
@@ -25,7 +24,7 @@
   let chatBusy = $state(false);
 
   const roleTitle = $derived(
-    profile === null ? '' : profile.level >= 50 ? 'Администратор' : profile.is_staff ? 'Менеджер' : appSettings.clientLabel
+    profile === null ? '' : profile.level >= 50 ? 'Администратор' : profile.is_staff ? 'Менеджер' : 'Клиент'
   );
 
   const avatarSeed = $derived(avatarName(profile?.name, profile?.login ?? id));

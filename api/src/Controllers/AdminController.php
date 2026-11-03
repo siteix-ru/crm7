@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Core\DatabaseSettings;
-use App\Core\Logger;
 use App\Groups\ItemGroupService;
 use App\Http\HttpException;
 use App\Http\Request;
@@ -14,8 +13,6 @@ use App\Mail\MailService;
 use App\Prices\PriceService;
 use App\Repositories\SearchLogRepository;
 use App\Repositories\SettingsRepository;
-use App\Stocks\StocksService;
-use Throwable;
 
 final class AdminController extends ApiController
 {
@@ -24,8 +21,7 @@ final class AdminController extends ApiController
         private readonly SettingsRepository $settings = new SettingsRepository(),
         private readonly PriceService $prices = new PriceService(),
         private readonly ItemGroupService $groups = new ItemGroupService(),
-        private readonly SearchLogRepository $searches = new SearchLogRepository(),
-        private readonly StocksService $stocks = new StocksService()
+        private readonly SearchLogRepository $searches = new SearchLogRepository()
     ) {
         parent::__construct();
     }
@@ -39,8 +35,7 @@ final class AdminController extends ApiController
 
     public function saveSystemSettings(Request $request): Response
     {
-        $user = $this->requireSettings($request);
-        $wasWarehousesEnabled = $this->settings->warehousesEnabled();
+        $this->requireSettings($request);
 
         $reaction = max(1, min(168, (int) $request->input('sla_reaction_hours', 2)));
         $resolution = max(1, min(720, (int) $request->input('sla_resolution_hours', 24)));
@@ -51,15 +46,14 @@ final class AdminController extends ApiController
         $stockAllowZero = (bool) $request->input('stock_allow_zero', false);
         $pricesEnabled = (bool) $request->input('prices_enabled', false);
         $groupsEnabled = (bool) $request->input('groups_enabled', false);
-        $requestsEnabled = (bool) $request->input('requests_enabled', true);
-        $cartEnabled = (bool) $request->input('cart_enabled', true);
-        $substitutionsEnabled = (bool) $request->input('substitutions_enabled', true);
-        $managerAssignEnabled = (bool) $request->input('manager_assign_enabled', true);
-        $warehousesEnabled = (bool) $request->input('warehouses_enabled', true);
-        $reportsEnabled = (bool) $request->input('reports_enabled', true);
-        $singleName = mb_substr(trim((string) $request->input('single_name', '')), 0, 255);
         $appTitle = mb_substr(trim((string) $request->input('app_title', '')), 0, 60);
-        $clientLabel = mb_substr(trim((string) $request->input('client_label', '')), 0, 40);
+        $appDescription = mb_substr(trim((string) $request->input('app_description', '')), 0, 300);
+        $organization = mb_substr(trim((string) $request->input('organization', '')), 0, 255);
+        $legalAddress = mb_substr(trim((string) $request->input('legal_address', '')), 0, 500);
+        $requisites = mb_substr(trim((string) $request->input('requisites', '')), 0, 500);
+        $contactEmail = mb_substr(trim((string) $request->input('contact_email', '')), 0, 255);
+        $contactPhone = mb_substr(trim((string) $request->input('contact_phone', '')), 0, 100);
+        $responsible = mb_substr(trim((string) $request->input('responsible', '')), 0, 500);
         $photoRatio = (string) $request->input('photo_ratio', 'square');
         $photoRatio = in_array($photoRatio, ['dynamic', 'square', 'landscape', 'portrait'], true) ? $photoRatio : 'square';
         $photoFit = (string) $request->input('photo_fit', 'contain') === 'cover' ? 'cover' : 'contain';
@@ -77,15 +71,14 @@ final class AdminController extends ApiController
             'stock.allow_zero' => $stockAllowZero ? '1' : '0',
             'prices.enabled' => $pricesEnabled ? '1' : '0',
             'groups.enabled' => $groupsEnabled ? '1' : '0',
-            'module.requests' => $requestsEnabled ? '1' : '0',
-            'module.cart' => $cartEnabled ? '1' : '0',
-            'module.substitutions' => $substitutionsEnabled ? '1' : '0',
-            'module.manager_assign' => $managerAssignEnabled ? '1' : '0',
-            'module.warehouses' => $warehousesEnabled ? '1' : '0',
-            'module.reports' => $reportsEnabled ? '1' : '0',
-            'stocks.single_name' => $singleName !== '' ? $singleName : 'Основной склад',
             'branding.title' => $appTitle,
-            'branding.client_label' => $clientLabel,
+            'branding.description' => $appDescription,
+            'branding.organization' => $organization,
+            'branding.legal_address' => $legalAddress,
+            'branding.requisites' => $requisites,
+            'branding.contact_email' => $contactEmail,
+            'branding.contact_phone' => $contactPhone,
+            'branding.responsible' => $responsible,
             'stocks.photo_ratio' => $photoRatio,
             'stocks.photo_fit' => $photoFit,
             'stocks.photo_size_preview' => (string) $photoSizePreview,
@@ -93,23 +86,13 @@ final class AdminController extends ApiController
             'stocks.photo_size_max' => (string) $photoSizeMax,
         ]);
 
-        if ($wasWarehousesEnabled && !$warehousesEnabled) {
-            try {
-                $this->stocks->collapseWarehouses($user);
-            } catch (Throwable $exception) {
-                $this->settings->many(['module.warehouses' => '1']);
-                Logger::error('stocks.collapse failed', ['error' => $exception->getMessage()]);
-
-                throw new HttpException(500, 'collapse_failed', 'Не удалось объединить склады. Подробности — в журнале.');
-            }
-        }
-
         return Response::ok($this->systemSettingsPayload());
     }
 
     private function systemSettingsPayload(): array
     {
         $photoSizes = $this->settings->photoSizes();
+        $legal = $this->settings->legalRequisites();
 
         return [
             'sla_reaction_hours' => (int) ($this->settings->get('sla.reaction_hours') ?? 2),
@@ -123,6 +106,7 @@ final class AdminController extends ApiController
             'prices_enabled' => $this->settings->pricesEnabled(),
             'groups_enabled' => $this->settings->groupsEnabled(),
             'requests_enabled' => $this->settings->requestsEnabled(),
+            'mail_enabled' => $this->settings->mailEnabled(),
             'cart_enabled' => $this->settings->cartEnabled(),
             'substitutions_enabled' => $this->settings->substitutionsEnabled(),
             'manager_assign_enabled' => $this->settings->managerAssignEnabled(),
@@ -130,7 +114,13 @@ final class AdminController extends ApiController
             'reports_enabled' => $this->settings->reportsEnabled(),
             'single_name' => $this->settings->singleWarehouseName(),
             'app_title' => $this->settings->appTitle(),
-            'client_label' => $this->settings->clientLabel(),
+            'app_description' => $this->settings->appDescription(),
+            'organization' => $legal['organization'],
+            'legal_address' => $legal['legal_address'],
+            'requisites' => $legal['requisites'],
+            'contact_email' => $legal['contact_email'],
+            'contact_phone' => $legal['contact_phone'],
+            'responsible' => $legal['responsible'],
             'photo_ratio' => $this->settings->photoRatio(),
             'photo_fit' => $this->settings->photoFit(),
             'photo_size_preview' => $photoSizes['preview'],
@@ -285,21 +275,21 @@ final class AdminController extends ApiController
 
     public function emailSettings(Request $request): Response
     {
-        $this->requireSettings($request);
+        $this->requireMail($request);
 
         return Response::ok($this->mail->publicSettings());
     }
 
     public function saveEmailSettings(Request $request): Response
     {
-        $this->requireSettings($request);
+        $this->requireMail($request);
 
         return Response::ok($this->mail->saveSettings($request->bodyAll()));
     }
 
     public function testEmail(Request $request): Response
     {
-        $this->requireSettings($request);
+        $this->requireMail($request);
 
         $to = trim((string) $request->input('to', ''));
 
@@ -341,14 +331,14 @@ final class AdminController extends ApiController
 
     public function templates(Request $request): Response
     {
-        $this->requireSettings($request);
+        $this->requireMailSend($request);
 
         return Response::ok($this->mail->templates());
     }
 
     public function saveTemplate(Request $request, array $params): Response
     {
-        $this->requireSettings($request);
+        $this->requireMailSend($request);
 
         return Response::ok($this->mail->saveTemplate(
             (string) ($params['code'] ?? ''),
@@ -359,9 +349,21 @@ final class AdminController extends ApiController
 
     public function queue(Request $request): Response
     {
-        $this->requireSettings($request);
+        $this->requireMailSend($request);
 
         return Response::ok($this->mail->queueRecent((int) $request->queryParam('limit', '30')));
+    }
+
+    public function clearQueue(Request $request): Response
+    {
+        [$user] = $this->requireMailSend($request);
+        $cleared = $this->mail->clearQueue();
+
+        $this->audit($request, $user, 'admin.queue.clear', 'email_queue', null, [
+            'cleared' => $cleared,
+        ]);
+
+        return Response::ok(['cleared' => $cleared]);
     }
 
     private function requireSettings(Request $request): array
@@ -373,5 +375,27 @@ final class AdminController extends ApiController
         }
 
         return $user;
+    }
+
+    private function requireMail(Request $request): array
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        if (!in_array('mail.manage', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для настройки почты');
+        }
+
+        return [$user, $capabilities];
+    }
+
+    private function requireMailSend(Request $request): array
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        if (!in_array('mail.send', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для отправки писем');
+        }
+
+        return [$user, $capabilities];
     }
 }

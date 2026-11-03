@@ -60,7 +60,10 @@ final class ReportScheduleController extends ApiController
     {
         [$user, $capabilities] = $this->context($request);
 
-        if (!in_array('settings.manage', $capabilities, true)) {
+        if (
+            !in_array('settings.manage', $capabilities, true) &&
+            !in_array('mail.send', $capabilities, true)
+        ) {
             throw new HttpException(403, 'forbidden', 'Недостаточно прав');
         }
 

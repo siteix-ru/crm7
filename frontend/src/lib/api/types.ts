@@ -29,6 +29,11 @@ export interface UserProfile {
   phone: string;
   company: string;
   position: string;
+  department: string;
+  city: string;
+  office: string;
+  inn: string;
+  address: string;
 }
 
 export interface LoginResponse {
@@ -381,6 +386,7 @@ export interface SystemSettings {
   prices_enabled: boolean;
   groups_enabled: boolean;
   requests_enabled: boolean;
+  mail_enabled: boolean;
   cart_enabled: boolean;
   substitutions_enabled: boolean;
   manager_assign_enabled: boolean;
@@ -388,7 +394,13 @@ export interface SystemSettings {
   reports_enabled: boolean;
   single_name: string;
   app_title: string;
-  client_label: string;
+  app_description: string;
+  organization: string;
+  legal_address: string;
+  requisites: string;
+  contact_email: string;
+  contact_phone: string;
+  responsible: string;
   photo_ratio: string;
   photo_fit: string;
   photo_size_preview: number;

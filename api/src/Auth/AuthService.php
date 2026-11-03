@@ -11,6 +11,7 @@ use App\Mail\MailService;
 use App\Notifications\NotificationService;
 use App\Repositories\AttemptRepository;
 use App\Repositories\ResetRepository;
+use App\Repositories\SettingsRepository;
 use App\Repositories\TokenRepository;
 use App\Repositories\UserHistoryRepository;
 use App\Repositories\UserRepository;
@@ -42,7 +43,8 @@ final class AuthService
         private readonly UserHistoryRepository $history = new UserHistoryRepository(),
         private readonly NotificationService $notifications = new NotificationService(),
         private readonly AuditService $audit = new AuditService(),
-        private readonly MailService $mail = new MailService()
+        private readonly MailService $mail = new MailService(),
+        private readonly SettingsRepository $settings = new SettingsRepository()
     ) {
     }
 
@@ -110,6 +112,10 @@ final class AuthService
 
     public function register(array $input, string $ip): array
     {
+        if (!in_array('registration.use', $this->users->capabilitiesForLevel(1), true)) {
+            throw new HttpException(403, 'registration_disabled', 'Самостоятельная регистрация отключена');
+        }
+
         $name = trim((string) ($input['name'] ?? ''));
         $company = trim((string) ($input['company'] ?? ''));
         $inn = preg_replace('/\s+/', '', (string) ($input['inn'] ?? '')) ?? '';
@@ -285,8 +291,15 @@ final class AuthService
 
     public function requestPasswordReset(string $email, string $ip): void
     {
+        if (
+            !$this->settings->mailConfigured() ||
+            !in_array('mail.recovery', $this->users->capabilitiesForLevel(1), true)
+        ) {
+            throw new HttpException(403, 'password_reset_disabled', 'Восстановление пароля по почте отключено');
+        }
+
         if (!Validator::email($email)) {
-            throw new HttpException(422, 'validation_error', 'Укажите корректный e-mail');
+            throw new HttpException(422, 'validation_error', 'Некорректный e-mail');
         }
 
         if ($this->attempts->countRecent('reset', $email, $ip, self::RESET_WINDOW_MINUTES, false) >= self::MAX_RESET_REQUESTS) {

@@ -137,7 +137,7 @@
         ? 'inactive'
         : 'all'
   );
-  const canDeactivate = $derived(auth.can('stocks.deactivate'));
+  const canDeactivate = $derived(appSettings.stockEditEnabled && auth.can('stocks.deactivate'));
   const statusOptions = [
     { value: 'active', label: 'Активированные' },
     { value: 'inactive', label: 'Деактивированные' }
@@ -392,8 +392,8 @@
     try {
       const data = await listWarehouses();
       warehouses = data.items;
-      canImport = data.can_import;
-      canEdit = data.can_edit;
+      canImport = data.can_import && appSettings.stockEditEnabled;
+      canEdit = data.can_edit && appSettings.stockEditEnabled;
 
       if (warehouses.length > 0) {
         const valid = new Set(warehouses.map((item) => item.id));

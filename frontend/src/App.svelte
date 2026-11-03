@@ -123,6 +123,8 @@
       <Cart />
     {:else if requestMatch}
       <RequestCard id={Number(requestMatch.id)} />
+    {:else if (route === '/clients' || route === '/clients/new' || clientMatch) && (!appSettings.clientsEnabled || auth.level < 10 || !(auth.can('clients.view.all') || auth.can('clients.view.own')))}
+      <NotFound />
     {:else if route === '/clients'}
       <Clients />
     {:else if route === '/clients/new'}
@@ -147,7 +149,7 @@
       {:else}
         <NotFound />
       {/if}
-    {:else if (route === '/staff' || route === '/staff/new' || staffMatch) && !auth.can('users.manage')}
+    {:else if (route === '/staff' || route === '/staff/new' || staffMatch) && (!appSettings.staffEnabled || !auth.can('users.manage'))}
       <NotFound />
     {:else if route === '/staff'}
       {#key route}<Staff initialTab="staff" />{/key}
@@ -161,11 +163,13 @@
       {#key staffMatch.id}
         <StaffCard id={Number(staffMatch.id)} />
       {/key}
+    {:else if route === '/chat' && (!appSettings.chatEnabled || !auth.can('chat.use'))}
+      <NotFound />
     {:else if route === '/chat'}
       <Chat />
     {:else if route === '/stocks'}
       <Stocks />
-    {:else if (route === '/stocks/groups' || route === '/stocks/groups/new' || groupEditMatch) && !auth.can('settings.manage')}
+    {:else if (route === '/stocks/groups' || route === '/stocks/groups/new' || groupEditMatch) && (!auth.can('settings.manage') || !appSettings.stockEditEnabled)}
       <NotFound />
     {:else if route === '/stocks/groups'}
       <StockGroups />
@@ -173,7 +177,7 @@
       <StockGroupEdit id={0} />
     {:else if groupEditMatch}
       <StockGroupEdit id={Number(groupEditMatch.id)} />
-    {:else if (route === '/stocks/types' || route === '/stocks/types/new' || typeEditMatch) && !auth.can('settings.manage')}
+    {:else if (route === '/stocks/types' || route === '/stocks/types/new' || typeEditMatch) && (!auth.can('settings.manage') || !appSettings.stockEditEnabled)}
       <NotFound />
     {:else if route === '/stocks/types'}
       <StockTypes />
@@ -181,7 +185,7 @@
       <StockTypeEdit id={0} />
     {:else if typeEditMatch}
       <StockTypeEdit id={Number(typeEditMatch.id)} />
-    {:else if (route === '/stocks/price-types' || route === '/stocks/price-types/new' || priceTypeEditMatch) && !auth.can('settings.manage')}
+    {:else if (route === '/stocks/price-types' || route === '/stocks/price-types/new' || priceTypeEditMatch) && (!auth.can('settings.manage') || !appSettings.stockEditEnabled)}
       <NotFound />
     {:else if route === '/stocks/price-types'}
       <PriceTypes />
@@ -197,6 +201,8 @@
       <WarehouseCard id={Number(warehouseEditMatch.id)} />
     {:else if warehouseMatch}
       <WarehouseView id={Number(warehouseMatch.id)} />
+    {:else if (itemNewMatch || itemEditMatch) && !appSettings.stockEditEnabled}
+      <NotFound />
     {:else if itemNewMatch}
       <ItemEdit id={0} />
     {:else if itemEditMatch}
@@ -207,8 +213,12 @@
       <Reports />
     {:else if route === '/substitutions'}
       {#key route}<Staff initialTab="substitutions" />{/key}
+    {:else if route === '/notifications' && (!appSettings.notificationsEnabled || !auth.can('notifications.use'))}
+      <NotFound />
     {:else if route === '/notifications'}
       <Notifications />
+    {:else if route === '/settings' && !auth.can('settings.manage') && !auth.can('mail.manage') && !auth.can('mail.send')}
+      <NotFound />
     {:else if route === '/settings'}
       <Settings />
     {:else if userMatch}

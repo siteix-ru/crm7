@@ -30,37 +30,49 @@ final class ProfileController extends ApiController
     {
         [$user] = $this->context($request);
         $userId = (int) $user['ID'];
+        $target = $this->users->findById($userId);
 
-        $name = trim((string) $request->input('name', ''));
+        if ($target === null) {
+            throw new HttpException(404, 'not_found', 'Пользователь не найден');
+        }
+
+        $isStaff = (int) ($target['LEVEL'] ?? 0) >= 10;
+        $input = $request->bodyAll();
+        $text = static function (string $key, string $fallback) use ($input): string {
+            if (!array_key_exists($key, $input)) {
+                return $fallback;
+            }
+
+            $value = $input[$key];
+
+            return is_scalar($value) ? trim((string) $value) : $fallback;
+        };
+
+        $name = $text('name', (string) ($target['FULL_NAME'] ?? ''));
+        $position = mb_substr($text('position', (string) ($target['DOLGNOST'] ?? '')), 0, 255);
+        $phone = mb_substr($text('phone', (string) ($target['PHONE'] ?? '')), 0, 255);
+        $email = mb_strtolower(mb_substr($text('email', (string) ($target['EMAIL'] ?? '')), 0, 255));
+        $city = mb_substr($text('city', (string) ($target['CITY'] ?? '')), 0, 128);
+        $department = $isStaff
+            ? mb_substr($text('department', (string) ($target['DEPARTMENT'] ?? '')), 0, 255)
+            : (string) ($target['DEPARTMENT'] ?? '');
+        $office = $isStaff
+            ? mb_substr($text('office', (string) ($target['OFFICE'] ?? '')), 0, 128)
+            : (string) ($target['OFFICE'] ?? '');
+        $company = $isStaff
+            ? (string) ($target['COMPANY'] ?? '')
+            : mb_substr($text('company', (string) ($target['COMPANY'] ?? '')), 0, 255);
+        $address = $isStaff
+            ? (string) ($target['ADDRESS'] ?? '')
+            : mb_substr($text('address', (string) ($target['ADDRESS'] ?? '')), 0, 255);
+        $innRaw = $isStaff
+            ? (string) ($target['INN'] ?? '')
+            : $text('inn', (string) ($target['INN'] ?? ''));
+        $inn = preg_replace('/\s+/', '', $innRaw) ?? '';
 
         if (mb_strlen($name) < 3) {
             throw new HttpException(422, 'validation_error', 'Укажите имя (минимум 3 символа)');
         }
-
-        if ((int) $user['LEVEL'] < 10) {
-            $oldName = (string) ($user['FULL_NAME'] ?? '');
-            $this->users->updateName($userId, mb_substr($name, 0, 255));
-            $this->history->add(
-                $userId,
-                'profile_updated',
-                $userId,
-                $oldName !== $name
-                    ? 'Имя: «' . ($oldName !== '' ? $oldName : '—') . '» → «' . $name . '»'
-                    : 'Изменений нет'
-            );
-
-            return Response::ok([
-                'id' => $userId,
-                'name' => mb_substr($name, 0, 255),
-                'position' => (string) ($user['DOLGNOST'] ?? ''),
-                'phone' => (string) ($user['PHONE'] ?? ''),
-                'email' => (string) ($user['EMAIL'] ?? ''),
-            ]);
-        }
-
-        $position = trim((string) $request->input('position', ''));
-        $phone = trim((string) $request->input('phone', ''));
-        $email = mb_strtolower(trim((string) $request->input('email', '')));
 
         if ($email !== '' && !Validator::email($email)) {
             throw new HttpException(422, 'validation_error', 'Некорректный e-mail');
@@ -68,6 +80,10 @@ final class ProfileController extends ApiController
 
         if ($phone !== '' && mb_strlen($phone) < 5) {
             throw new HttpException(422, 'validation_error', 'Некорректный телефон');
+        }
+
+        if (!$isStaff && $inn !== '' && preg_match('/^\d{10}(\d{2})?$/', $inn) !== 1) {
+            throw new HttpException(422, 'validation_error', 'ИНН должен содержать 10 или 12 цифр');
         }
 
         if ($email !== '') {
@@ -87,21 +103,39 @@ final class ProfileController extends ApiController
         }
 
         $before = [
-            'Имя' => (string) ($user['FULL_NAME'] ?? ''),
-            'Должность' => (string) ($user['DOLGNOST'] ?? ''),
-            'Телефон' => (string) ($user['PHONE'] ?? ''),
-            'E-mail' => (string) ($user['EMAIL'] ?? ''),
+            'Имя' => (string) ($target['FULL_NAME'] ?? ''),
+            'Должность' => (string) ($target['DOLGNOST'] ?? ''),
+            'Отдел' => (string) ($target['DEPARTMENT'] ?? ''),
+            'Город' => (string) ($target['CITY'] ?? ''),
+            'Офис' => (string) ($target['OFFICE'] ?? ''),
+            'Компания' => (string) ($target['COMPANY'] ?? ''),
+            'ИНН' => (string) ($target['INN'] ?? ''),
+            'Адрес' => (string) ($target['ADDRESS'] ?? ''),
+            'Телефон' => (string) ($target['PHONE'] ?? ''),
+            'E-mail' => (string) ($target['EMAIL'] ?? ''),
         ];
         $after = [
             'Имя' => mb_substr($name, 0, 255),
-            'Должность' => mb_substr($position, 0, 255),
-            'Телефон' => mb_substr($phone, 0, 255),
-            'E-mail' => mb_substr($email, 0, 255),
+            'Должность' => $position,
+            'Отдел' => $department,
+            'Город' => $city,
+            'Офис' => $office,
+            'Компания' => $company,
+            'ИНН' => $inn,
+            'Адрес' => $address,
+            'Телефон' => $phone,
+            'E-mail' => $email,
         ];
 
-        $this->users->updateProfileContacts($userId, [
+        $this->users->updateProfile($userId, [
             'name' => $after['Имя'],
             'position' => $after['Должность'],
+            'department' => $after['Отдел'],
+            'city' => $after['Город'],
+            'office' => $after['Офис'],
+            'company' => $after['Компания'],
+            'inn' => $after['ИНН'],
+            'address' => $after['Адрес'],
             'phone' => $after['Телефон'],
             'email' => $after['E-mail'],
         ]);
@@ -126,10 +160,16 @@ final class ProfileController extends ApiController
 
         return Response::ok([
             'id' => $userId,
-            'name' => mb_substr($name, 0, 255),
-            'position' => mb_substr($position, 0, 255),
-            'phone' => mb_substr($phone, 0, 255),
-            'email' => mb_substr($email, 0, 255),
+            'name' => $after['Имя'],
+            'position' => $after['Должность'],
+            'department' => $after['Отдел'],
+            'city' => $after['Город'],
+            'office' => $after['Офис'],
+            'company' => $after['Компания'],
+            'inn' => $after['ИНН'],
+            'address' => $after['Адрес'],
+            'phone' => $after['Телефон'],
+            'email' => $after['E-mail'],
         ]);
     }
 

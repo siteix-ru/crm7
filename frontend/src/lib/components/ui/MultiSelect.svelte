@@ -10,7 +10,11 @@
     values?: string[];
     allLabel?: string;
     emptyLabel?: string;
+    emptyValuesLabel?: string;
     maxHeight?: string;
+    showCount?: boolean;
+    disabled?: boolean;
+    onchange?: (values: string[]) => void;
   }
 
   let {
@@ -19,7 +23,11 @@
     values = $bindable([]),
     allLabel = 'Все',
     emptyLabel = 'Нет данных',
-    maxHeight = '260px'
+    emptyValuesLabel = '',
+    maxHeight = '260px',
+    showCount = false,
+    disabled = false,
+    onchange
   }: Props = $props();
 
   let open = $state(false);
@@ -27,8 +35,16 @@
   let menuStyle = $state('');
 
   const summary = $derived.by(() => {
-    if (values.length === 0 || values.length === options.length) {
+    if (values.length === 0) {
+      return emptyValuesLabel || allLabel;
+    }
+
+    if (values.length === options.length) {
       return allLabel;
+    }
+
+    if (showCount) {
+      return `${values.length} из ${options.length}`;
     }
 
     const labels = options
@@ -81,6 +97,10 @@
   }
 
   function toggleMenu(): void {
+    if (disabled) {
+      return;
+    }
+
     open = !open;
   }
 
@@ -88,6 +108,7 @@
     values = values.includes(value)
       ? values.filter((item) => item !== value)
       : [...values, value];
+    onchange?.(values);
   }
 
   function handleFocusOut(event: FocusEvent): void {
@@ -108,7 +129,7 @@
     aria-label={label || summary}
     aria-haspopup="listbox"
     aria-expanded={open}
-    disabled={options.length === 0}
+    disabled={options.length === 0 || disabled}
     onclick={toggleMenu}
   >
     <span class="value">{summary}</span>
@@ -122,6 +143,7 @@
           <input
             type="checkbox"
             checked={values.includes(option.value)}
+            disabled={disabled}
             onchange={() => toggle(option.value)}
           />
           <span>{option.label}</span>
