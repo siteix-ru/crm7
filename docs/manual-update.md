@@ -12,7 +12,7 @@
 | Локальный репозиторий | правки, `git add`, `git commit` |
 | GitHub (`siteix-ru/crm7`) | хранит коммиты; сюда идёт `git push` |
 | Dev-сервер (`/srv/build/crm7`) | сборка образов `crm7-app` и `crm7-web` |
-| GHCR | реестр образов `ghcr.io/yygomail-code/crm7-app`, `.../crm7-web` |
+| GHCR | реестр образов `ghcr.io/siteix-ru/crm7-app`, `.../crm7-web` |
 | `/srv/projects/crm7-{test,demo,k}` | окружения: `.env`, `docker-compose.yml`, тома |
 | Тома окружения | БД, `config/`, `storage/`, `var/` — релиз их не трогает |
 
@@ -296,7 +296,7 @@ python deploy/build_images.py --tag 1.4.0 --push
 == building frontend ==
 ...
 version=1.4.0 sha=1a2b3c4
-images: ghcr.io/yygomail-code/crm7-app  ghcr.io/yygomail-code/crm7-web
+images: ghcr.io/siteix-ru/crm7-app  ghcr.io/siteix-ru/crm7-web
 context: 1234567 bytes
 uploaded
 ...

@@ -10,6 +10,6 @@ export const LICENSE_YEAR = 2026;
 export const LICENSE_URL = 'https://opensource.org/license/mit';
 
 export const CONTACTS: { label: string; value: string; href?: string }[] = [
-  { label: 'Телефон', value: '+7 909 498-13-22', href: 'tel:+79094981322' },
-  { label: 'E-mail', value: 's199266214@yandex.ru', href: 'mailto:s199266214@yandex.ru' }
+  { label: 'Телефон', value: '+79380264903', href: 'tel:+79380264903' },
+  { label: 'E-mail', value: 'siteix@yandex.ru', href: 'mailto:siteix@yandex.ru' }
 ];

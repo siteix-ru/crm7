@@ -18,7 +18,7 @@
 демо и тестов в реестр не уезжают.**
 
 ## Реестр
-Приватный **GHCR**: `ghcr.io/yygomail-code/crm7-app` и `.../crm7-web`.
+Приватный **GHCR**: `ghcr.io/siteix-ru/crm7-app` и `.../crm7-web`.
 Доступ — по GitHub PAT (scope `write:packages` для пуша, `read:packages` для
 пула). Образы приватные.
 

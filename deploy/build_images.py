@@ -7,7 +7,7 @@ docker build app+web tagged by version and git sha -> optional push to GHCR.
 Usage:
     python deploy/build_images.py [--server root@www.crm7.ru:21023]
                                   [--key ~/.ssh/id_ed25519]
-                                  [--registry ghcr.io/yygomail-code]
+                                  [--registry ghcr.io/siteix-ru]
                                   [--tag 1.3.0] [--skip-build] [--push]
 
 Requires: paramiko, Node.js for the frontend build, docker on the server.
@@ -84,7 +84,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--server", default="root@www.crm7.ru:21023")
     ap.add_argument("--key", default=str(pathlib.Path.home() / ".ssh" / "id_ed25519"))
-    ap.add_argument("--registry", default="ghcr.io/yygomail-code")
+    ap.add_argument("--registry", default="ghcr.io/siteix-ru")
     ap.add_argument("--tag", default=None)
     ap.add_argument("--skip-build", action="store_true")
     ap.add_argument("--push", action="store_true")

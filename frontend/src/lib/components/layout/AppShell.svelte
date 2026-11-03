@@ -57,7 +57,7 @@
 
   const showStaff = $derived(auth.can('users.manage'));
 
-  const showAudit = $derived(auth.can('audit.view'));
+  const showAudit = $derived(auth.level >= 90);
 
   const canViewReports = $derived(auth.can('reports.view.all') || auth.can('reports.view.own'));
 

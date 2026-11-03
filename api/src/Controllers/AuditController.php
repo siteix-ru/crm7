@@ -18,10 +18,10 @@ final class AuditController extends ApiController
 
     public function index(Request $request): Response
     {
-        [, $capabilities] = $this->context($request);
+        [$user] = $this->context($request);
 
-        if (!in_array('audit.view', $capabilities, true)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для просмотра аудита');
+        if ((int) ($user['LEVEL'] ?? 0) < 90) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для просмотра журнала');
         }
 
         $userId = (int) $request->queryParam('user_id', '0');
@@ -37,10 +37,10 @@ final class AuditController extends ApiController
 
     public function actions(Request $request): Response
     {
-        [, $capabilities] = $this->context($request);
+        [$user] = $this->context($request);
 
-        if (!in_array('audit.view', $capabilities, true)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для просмотра аудита');
+        if ((int) ($user['LEVEL'] ?? 0) < 90) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для просмотра журнала');
         }
 
         return Response::ok($this->service->actions());

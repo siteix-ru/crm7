@@ -19,6 +19,7 @@ db-old/
 php_info/
 api/db/backups/
 ssh-private/
+demo-tech-admin.txt
 
 # client data imports / dumps (never commit)
 imports/

@@ -32,6 +32,13 @@ cd {directory}
 sed -i 's/^CRM7_VERSION=.*/CRM7_VERSION={tag}/' .env
 grep -q '^CRM7_VERSION=' .env || echo 'CRM7_VERSION={tag}' >> .env
 {pull_cmd}
+docker compose up -d db
+for i in $(seq 1 30); do
+  if docker compose exec -T db healthcheck.sh --connect --innodb_initialized >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
 docker compose run --rm php php /var/www/html/api/bin/migrate.php
 docker compose up -d
 sleep 4

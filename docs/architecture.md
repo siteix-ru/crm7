@@ -79,7 +79,7 @@
 
 ## Окружения и выкладка
 
-- Код — образы в GHCR (`ghcr.io/yygomail-code/crm7-app`, `.../crm7-web`); данные — в томах.
+- Код — образы в GHCR (`ghcr.io/siteix-ru/crm7-app`, `.../crm7-web`); данные — в томах.
 - Окружения: `demo` (демо), `test` (общий тест), `k` (dev клиента «Камень»).
 - Структура окружения: `/srv/projects/crm7-<env>/` — `docker-compose.yml`, `.env` (`CRM7_VERSION`, `DB_*`),
   тома `config/`, `storage/`, `var/`, `data/db/`.
