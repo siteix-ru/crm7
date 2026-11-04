@@ -41,7 +41,7 @@ final class ModuleService
      */
     public function list(array $capabilities): array
     {
-        $this->requireSettings($capabilities);
+        $this->requireRolesManage($capabilities);
 
         return $this->payload();
     }
@@ -54,7 +54,7 @@ final class ModuleService
      */
     public function save(array $actor, array $capabilities, array $input): array
     {
-        $this->requireSettings($capabilities);
+        $this->requireRolesManage($capabilities);
 
         $requested = $input['modules'] ?? null;
 
@@ -108,9 +108,7 @@ final class ModuleService
             }
         }
 
-        if (in_array('roles.manage', $capabilities, true)) {
-            $this->applyAccess($actor, $capabilities, $access);
-        }
+        $this->applyAccess($actor, $capabilities, $access);
 
         return $this->payload();
     }
@@ -266,10 +264,14 @@ final class ModuleService
     /**
      * @param  array<int, string>  $capabilities
      */
-    private function requireSettings(array $capabilities): void
+    private function requireRolesManage(array $capabilities): void
     {
-        if (!in_array('settings.manage', $capabilities, true)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для настройки модулей');
+        if (!in_array('roles.manage', $capabilities, true)) {
+            throw new HttpException(
+                403,
+                'forbidden',
+                'Настраивать модули может только технический администратор'
+            );
         }
     }
 }

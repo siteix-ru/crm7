@@ -185,6 +185,32 @@ final class ClientController extends ApiController
         return Response::ok($result);
     }
 
+    public function uploadAvatar(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $this->requireClientsModule();
+        $clientId = (int) ($params['id'] ?? 0);
+
+        $result = $this->service->uploadAvatar($user, $capabilities, $clientId, $_FILES['file'] ?? []);
+
+        $this->audit($request, $user, 'client.avatar_upload', 'user', $clientId, []);
+
+        return Response::ok($result);
+    }
+
+    public function deleteAvatar(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $this->requireClientsModule();
+        $clientId = (int) ($params['id'] ?? 0);
+
+        $result = $this->service->deleteAvatar($user, $capabilities, $clientId);
+
+        $this->audit($request, $user, 'client.avatar_delete', 'user', $clientId, []);
+
+        return Response::ok($result);
+    }
+
     public function changeLogin(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);

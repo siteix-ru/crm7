@@ -12,16 +12,14 @@ use App\Repositories\UserHistoryRepository;
 use App\Repositories\UserRepository;
 use App\Support\Storage;
 use App\Support\Validator;
+use App\Users\AvatarService;
 
 final class ProfileController extends ApiController
 {
-    public const MAX_AVATAR_SIZE = 5242880;
-
-    private const AVATAR_EXTENSIONS = ['jpg', 'jpeg', 'png', 'webp'];
-
     public function __construct(
         private readonly UserRepository $users = new UserRepository(),
-        private readonly UserHistoryRepository $history = new UserHistoryRepository()
+        private readonly UserHistoryRepository $history = new UserHistoryRepository(),
+        private readonly AvatarService $avatars = new AvatarService()
     ) {
         parent::__construct();
     }
@@ -177,85 +175,14 @@ final class ProfileController extends ApiController
     {
         [$user] = $this->context($request);
 
-        $file = $_FILES['file'] ?? [];
-        $error = (int) ($file['error'] ?? UPLOAD_ERR_NO_FILE);
-
-        if ($error === UPLOAD_ERR_INI_SIZE || $error === UPLOAD_ERR_FORM_SIZE) {
-            throw new HttpException(422, 'too_large', 'Файл превышает лимит сервера загрузки');
-        }
-
-        if ($error !== UPLOAD_ERR_OK) {
-            throw new HttpException(422, 'upload_failed', 'Файл не загружен');
-        }
-
-        $size = (int) ($file['size'] ?? 0);
-
-        if ($size <= 0) {
-            throw new HttpException(422, 'upload_failed', 'Пустой файл');
-        }
-
-        if ($size > self::MAX_AVATAR_SIZE) {
-            throw new HttpException(422, 'too_large', 'Фото больше 5 МБ');
-        }
-
-        $originalName = (string) ($file['name'] ?? 'avatar');
-        $extension = strtolower((string) pathinfo($originalName, PATHINFO_EXTENSION));
-
-        if (!in_array($extension, self::AVATAR_EXTENSIONS, true)) {
-            throw new HttpException(422, 'bad_type', 'Допустимые форматы фото: jpg, png, webp');
-        }
-
-        $finfo = new \finfo(FILEINFO_MIME_TYPE);
-        $mime = (string) ($finfo->file((string) ($file['tmp_name'] ?? '')) ?: '');
-
-        if (!str_starts_with($mime, 'image/')) {
-            throw new HttpException(422, 'bad_type', 'Файл не является изображением');
-        }
-
-        $stored = Storage::save($file);
-        $previous = (string) ($user['AVATAR_PATH'] ?? '');
-
-        $this->users->updateAvatar((int) $user['ID'], $stored['relative']);
-
-        if ($previous !== '' && $previous !== $stored['relative']) {
-            try {
-                Storage::delete($previous);
-            } catch (\Throwable) {
-                // старый файл можно удалить позже
-            }
-        }
-
-        $this->history->add(
-            (int) $user['ID'],
-            'avatar_updated',
-            (int) $user['ID'],
-            $previous !== '' ? 'Фото профиля: заменено' : 'Фото профиля: добавлено'
-        );
-
-        return Response::ok(['has_avatar' => true]);
+        return Response::ok($this->avatars->store($user, $_FILES['file'] ?? []));
     }
 
     public function deleteAvatar(Request $request): Response
     {
         [$user] = $this->context($request);
 
-        $previous = (string) ($user['AVATAR_PATH'] ?? '');
-
-        if ($previous === '') {
-            return Response::ok(['has_avatar' => false]);
-        }
-
-        $this->users->updateAvatar((int) $user['ID'], null);
-
-        try {
-            Storage::delete($previous);
-        } catch (\Throwable) {
-            // файл можно удалить позже
-        }
-
-        $this->history->add((int) $user['ID'], 'avatar_removed', (int) $user['ID'], 'Фото профиля: удалено');
-
-        return Response::ok(['has_avatar' => false]);
+        return Response::ok($this->avatars->remove($user));
     }
 
     public function avatar(Request $request, array $params): FileResponse

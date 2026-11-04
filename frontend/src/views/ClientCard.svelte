@@ -10,16 +10,19 @@
     changeClientLogin,
     claimClient,
     declineTransfer,
+    deleteClientAvatar,
     getClientCard,
-    getClientHistory,
     getClientInterests,
     rejectClient,
     resetClientPassword,
     revokeClientSessions,
     sendClientPasswordLink,
     unblockClient,
-    updateClientContacts
+    updateClientContacts,
+    uploadClientAvatar
   } from '../lib/api/clients';
+  import { startThread } from '../lib/api/chat';
+  import { listDrafts, type RequestDraftSummary } from '../lib/api/drafts';
   import { listPriceTypes, setUserPriceTypes } from '../lib/api/prices';
   import { listManagers, listRequests, requestFilters } from '../lib/api/requests';
   import {
@@ -30,14 +33,11 @@
   } from '../lib/api/staff';
   import type {
     ClientCard,
-    ClientCardRequest,
-    ClientHistoryItem,
     ClientInterest,
     ManagerItem,
     PriceType,
     RequestItem,
-    RequestStatus,
-    ViewEntry
+    RequestStatus
   } from '../lib/api/types';
   import { formatDate, formatDateTime, formatRelative } from '../lib/format';
   import { tooltip } from '../lib/actions/tooltip';
@@ -45,6 +45,7 @@
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import SortDialog from '../lib/components/ui/SortDialog.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
@@ -52,6 +53,7 @@
   import StatusBadge from '../lib/components/StatusBadge.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { auth } from '../lib/stores/auth.svelte';
+  import { avatars } from '../lib/stores/avatar.svelte';
   import { router } from '../lib/router.svelte';
 
   interface Props {
@@ -66,7 +68,10 @@
   let actionError = $state('');
   let actionNotice = $state('');
   let busy = $state(false);
-  type TabId = 'requests' | 'interests' | 'account';
+  let avatarBusy = $state(false);
+  let avatarInput: HTMLInputElement | null = $state(null);
+  let chatBusy = $state(false);
+  type TabId = 'requests' | 'account';
   type ActionKind = 'approve' | 'decline' | 'block' | 'unblock';
   type ContactField =
     | 'name'
@@ -77,12 +82,6 @@
     | 'address'
     | 'phone'
     | 'email';
-  type HistoryKind = 'all' | 'request' | 'account';
-  type HistoryPayload = {
-    history: ClientHistoryItem[];
-    views: ViewEntry[];
-    requests: ClientCardRequest[];
-  };
 
   interface ContactFieldMeta {
     key: ContactField;
@@ -162,9 +161,31 @@
     }
   ];
 
+  const contactGroups: ReadonlyArray<{ title: string; fields: ReadonlyArray<ContactFieldMeta> }> = [
+    {
+      title: 'Контактное лицо',
+      fields: contactFields.filter((field) => field.key === 'name' || field.key === 'position')
+    },
+    {
+      title: 'Компания',
+      fields: contactFields.filter((field) => field.key === 'company' || field.key === 'inn')
+    },
+    {
+      title: 'Адрес',
+      fields: contactFields.filter((field) => field.key === 'city' || field.key === 'address')
+    },
+    {
+      title: 'Контакты',
+      fields: contactFields.filter((field) => field.key === 'phone' || field.key === 'email')
+    }
+  ];
+
   let priceTypes = $state<PriceType[]>([]);
   let priceTypesLoading = $state(false);
   let priceBusy = $state(false);
+  let priceTypesOpen = $state(false);
+  let priceTypesDraft = $state<string[]>([]);
+  let priceTypesError = $state('');
   let tab = $state<TabId>('requests');
   let actionKind = $state<ActionKind | null>(null);
   let actionComment = $state('');
@@ -242,6 +263,10 @@
   });
   let interestsSortOpen = $state(false);
   let interestsSearchTimer: ReturnType<typeof setTimeout> | undefined;
+  let interestsOpen = $state(false);
+  let interestPreview = $state<ClientInterest[]>([]);
+  let interestPreviewLoading = $state(false);
+  let interestPreviewError = $state('');
   let requestsStates = $state<string[]>([]);
   let requestsStatuses = $state<string[]>([]);
   let requestsFrom = $state('');
@@ -257,6 +282,8 @@
   let requestsLoading = $state(false);
   let requestsError = $state('');
   let requestsSeq = 0;
+  let clientDrafts = $state<RequestDraftSummary[]>([]);
+  let clientDraftsSeq = 0;
   let requestsFilterDraft = $state({
     states: [] as string[],
     statuses: [] as string[],
@@ -264,18 +291,9 @@
     to: ''
   });
   let requestsSortOpen = $state(false);
-  let historyOpen = $state(false);
-  let fullHistory = $state<HistoryPayload | null>(null);
-  let historyLoading = $state(false);
-  let historyError = $state('');
-  let historySeq = 0;
-  let historyKind = $state<HistoryKind>('all');
-  let historyQuery = $state('');
-  let historyFrom = $state('');
-  let historyTo = $state('');
-  let historyPage = $state(1);
   let statuses = $state<RequestStatus[]>([]);
   let managerForm = $state({ manager_id: '', comment: '' });
+  let managerCommentOpen = $state(false);
   let requestsSearchTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => {
@@ -312,6 +330,13 @@
   const canConfirm = $derived(auth.can('clients.confirm'));
   const pricesEnabled = $derived(appSettings.pricesEnabled);
   const canAssignPrices = $derived(pricesEnabled && auth.can('prices.assign'));
+  const priceTypeOptions = $derived(
+    priceTypes.map((type) => ({ value: String(type.id), label: type.title }))
+  );
+  const allPriceTypeTitles = $derived(priceTypes.map((type) => type.title).join(', '));
+  const assignedPriceTypeTitles = $derived(
+    (card?.client.price_types ?? []).map((type) => type.title).join(', ')
+  );
   const canConvertToStaff = $derived(
     card?.can.convert_to_staff === true && !appSettings.demoMode
   );
@@ -333,6 +358,29 @@
         : card.can.access
       : false
   );
+  const avatarUrl = $derived(avatars.url(id));
+  const canEditAvatar = $derived(card?.can.access === true && !appSettings.demoMode);
+  const canOpenChat = $derived(
+    Boolean(
+      card
+      && appSettings.chatEnabled
+      && auth.can('chat.use')
+      && card.can.access
+      && card.client.active
+      && card.client.reg_state === 'active'
+    )
+  );
+  const requestStateOptions = $derived([
+    { value: 'open', label: `Открыто (${card?.stats.open ?? 0})` },
+    { value: 'closed', label: `Закрыто (${card?.stats.closed ?? 0})` },
+    { value: 'overdue', label: `Просрочено (${card?.stats.overdue ?? 0})` }
+  ]);
+  const requestStatusOptions = $derived(
+    statuses.map((status) => ({
+      value: status.code,
+      label: `${status.title} (${card?.stats.by_status[status.code] ?? 0})`
+    }))
+  );
   const displayName = $derived(card?.client.name || card?.client.company || `Клиент #${id}`);
   const accessHelp = $derived.by(() => {
     if (!card) {
@@ -344,20 +392,17 @@
       : 'Доступ к кабинету заблокирован.';
 
     return card.client.email && appSettings.mailConfigured
-      ? `${base} После изменения клиенту придёт письмо на ${card.client.email}.`
+      ? `${base} При блокировке или разблокировке клиенту придёт письмо на ${card.client.email}.`
       : base;
   });
   const pricesHelp =
-    'Включённые типы цен определяют, какие цены доступны клиенту. При оформлении заявки применяется минимальная цена среди включённых типов.';
+    'Отмеченные типы цен определяют, какие цены доступны клиенту. При оформлении заявки применяется минимальная цена среди отмеченных типов.';
+  const managerHelp =
+    'За клиентом закрепляется менеджер, который ведёт его заявки. Можно закрепить или сменить менеджера, а также открепить клиента от менеджера.';
   const accountHistory = $derived(
     card
       ? [...card.history].sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
       : []
-  );
-  const requestHistory = $derived(
-    [...(card?.requests ?? [])].sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-    )
   );
   const requestsActiveFilters = $derived(
     (requestsStates.length > 0 ? 1 : 0)
@@ -438,120 +483,6 @@
     return '';
   }
 
-  interface HistoryEntry {
-    id: string;
-    kind: 'account' | 'request';
-    title: string;
-    comment: string;
-    actor: string;
-    created_at: string;
-    href?: string;
-    status?: { title: string; color: string };
-  }
-
-  const historySource = $derived<HistoryPayload>(
-    fullHistory ?? {
-      history: card?.history ?? [],
-      views: card?.views ?? [],
-      requests: card?.requests ?? []
-    }
-  );
-
-  const accountEntries = $derived(
-    [
-      ...historySource.history.map((item) => ({
-        id: `h${item.id}`,
-        kind: 'account' as const,
-        title: eventTitles[item.event] ?? item.event,
-        actor: item.actor?.name ?? '',
-        comment: item.comment,
-        created_at: item.created_at
-      })),
-      ...historySource.views.map((item) => ({
-        id: `v${item.id}`,
-        kind: 'account' as const,
-        title: 'Открыл(а) профиль клиента',
-        actor: item.user.name,
-        comment: '',
-        created_at: item.created_at
-      }))
-    ].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)) as HistoryEntry[]
-  );
-
-  const requestEntries = $derived(
-    historySource.requests
-      .map((item) => ({
-        id: `r${item.id}`,
-        kind: 'request' as const,
-        title: `Заявка ${item.number}`,
-        comment: item.subject,
-        actor: item.manager?.name ?? '',
-        created_at: item.created_at,
-        href: `#/requests/${item.id}`,
-        status: item.status
-      }))
-      .sort((a, b) => (a.created_at < b.created_at ? 1 : -1)) as HistoryEntry[]
-  );
-
-  const allHistoryEntries = $derived(
-    [...accountEntries, ...requestEntries].sort((a, b) =>
-      a.created_at < b.created_at ? 1 : -1
-    )
-  );
-
-  const filteredHistory = $derived.by(() => {
-    const query = historyQuery.trim().toLowerCase();
-    const from = historyFrom ? new Date(`${historyFrom}T00:00:00`).getTime() : null;
-    const to = historyTo ? new Date(`${historyTo}T23:59:59`).getTime() : null;
-
-    return allHistoryEntries.filter((item) => {
-      if (historyKind !== 'all' && item.kind !== historyKind) {
-        return false;
-      }
-
-      if (
-        query !== ''
-        && !`${item.title} ${item.comment} ${item.actor} ${item.status?.title ?? ''}`
-          .toLowerCase()
-          .includes(query)
-      ) {
-        return false;
-      }
-
-      const time = new Date(item.created_at.replace(' ', 'T')).getTime();
-
-      if (from !== null && time < from) {
-        return false;
-      }
-
-      if (to !== null && time > to) {
-        return false;
-      }
-
-      return true;
-    });
-  });
-
-  const historyPageItems = $derived(
-    filteredHistory.slice((historyPage - 1) * 50, historyPage * 50)
-  );
-
-  $effect(() => {
-    historyQuery;
-    historyKind;
-    historyFrom;
-    historyTo;
-    historyPage = 1;
-  });
-
-  $effect(() => {
-    const pages = Math.max(1, Math.ceil(filteredHistory.length / 50));
-
-    if (historyPage > pages) {
-      historyPage = pages;
-    }
-  });
-
   const stateTitles: Record<string, string> = {
     active: 'активен',
     pending: 'ожидает подтверждения',
@@ -560,8 +491,11 @@
 
   onMount(() => {
     void load();
+    void avatars.load(id);
     void loadInterests();
+    void loadInterestPreview();
     void loadRequests();
+    void loadClientDrafts();
     void loadStatuses();
   });
 
@@ -588,7 +522,6 @@
 
     try {
       card = await getClientCard(id);
-      fullHistory = null;
     } catch (cause) {
       const message = cause instanceof ApiError ? cause.message : 'Не удалось загрузить клиента';
 
@@ -637,6 +570,96 @@
       if (seq === interestsSeq) {
         interestsLoading = false;
       }
+    }
+  }
+
+  async function loadInterestPreview(): Promise<void> {
+    interestPreviewLoading = true;
+    interestPreviewError = '';
+
+    try {
+      const data = await getClientInterests(id, { sort: 'qty_desc', page: 1, perPage: 20 });
+      interestPreview = data.items;
+    } catch (cause) {
+      interestPreviewError =
+        cause instanceof ApiError ? cause.message : 'Не удалось загрузить интересы';
+    } finally {
+      interestPreviewLoading = false;
+    }
+  }
+
+  async function onAvatarSelected(event: Event): Promise<void> {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+
+    if (!file) {
+      return;
+    }
+
+    avatarBusy = true;
+    actionError = '';
+    actionNotice = '';
+
+    try {
+      await uploadClientAvatar(id, file);
+      await avatars.refresh(id);
+      actionNotice = 'Фото клиента обновлено';
+      await load(true);
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить фото';
+    } finally {
+      avatarBusy = false;
+
+      if (avatarInput) {
+        avatarInput.value = '';
+      }
+    }
+  }
+
+  async function openClientChat(): Promise<void> {
+    if (!card || chatBusy) {
+      return;
+    }
+
+    chatBusy = true;
+    actionError = '';
+
+    try {
+      const thread = await startThread(card.client.id);
+      router.navigate(`/chat?thread=${thread.id}`);
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось открыть чат';
+    } finally {
+      chatBusy = false;
+    }
+  }
+
+  function startClientRequest(): void {
+    if (!card) {
+      return;
+    }
+
+    router.navigate(`/requests/new?client=${card.client.id}`);
+  }
+
+  async function removeClientAvatar(): Promise<void> {
+    if (!confirm('Удалить фото клиента?')) {
+      return;
+    }
+
+    avatarBusy = true;
+    actionError = '';
+    actionNotice = '';
+
+    try {
+      await deleteClientAvatar(id);
+      await avatars.refresh(id);
+      actionNotice = 'Фото клиента удалено';
+      await load(true);
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось удалить фото';
+    } finally {
+      avatarBusy = false;
     }
   }
 
@@ -736,6 +759,26 @@
     }
   }
 
+  async function loadClientDrafts(): Promise<void> {
+    const seq = ++clientDraftsSeq;
+
+    try {
+      const data = await listDrafts(id);
+
+      if (seq !== clientDraftsSeq) {
+        return;
+      }
+
+      clientDrafts = data.items;
+    } catch {
+      if (seq !== clientDraftsSeq) {
+        return;
+      }
+
+      clientDrafts = [];
+    }
+  }
+
   function showTab(next: TabId): void {
     if (next === 'account' && !canOpenAccount) {
       return;
@@ -820,45 +863,6 @@
     requestsPerPage = value;
     requestsPage = 1;
     void loadRequests();
-  }
-
-  async function openHistory(kind: HistoryKind): Promise<void> {
-    historyKind = kind;
-    historyQuery = '';
-    historyFrom = '';
-    historyTo = '';
-    historyPage = 1;
-    historyOpen = true;
-
-    if (fullHistory === null) {
-      await loadFullHistory();
-    }
-  }
-
-  async function loadFullHistory(): Promise<void> {
-    const seq = ++historySeq;
-    historyLoading = true;
-    historyError = '';
-
-    try {
-      const data = await getClientHistory(id);
-
-      if (seq !== historySeq) {
-        return;
-      }
-
-      fullHistory = data;
-    } catch (cause) {
-      if (seq !== historySeq) {
-        return;
-      }
-
-      historyError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить историю';
-    } finally {
-      if (seq === historySeq) {
-        historyLoading = false;
-      }
-    }
   }
 
   async function runAction<T>(action: () => Promise<T>, notice: string): Promise<T | null> {
@@ -1141,23 +1145,39 @@
     }
   }
 
-  async function togglePriceType(type: PriceType): Promise<void> {
-    if (!card || !canAssignPrices || priceBusy) {
+  function openPriceTypes(): void {
+    if (!card || priceBusy || priceTypes.length === 0) {
       return;
     }
 
-    const assigned = card.client.price_types;
-    const isOn = assigned.some((item) => item.id === type.id);
+    priceTypesDraft = card.client.price_types.map((type) => String(type.id));
+    priceTypesError = '';
+    priceTypesOpen = true;
+  }
 
-    if (isOn && assigned.length === 1) {
-      actionError = 'Нельзя отключить последний тип цены. Сначала включите другой тип.';
+  function cancelPriceTypes(): void {
+    if (priceBusy) {
       return;
     }
 
-    let ids = assigned.map((item) => item.id);
-    ids = isOn ? ids.filter((id) => id !== type.id) : [...ids, type.id];
+    priceTypesOpen = false;
+    priceTypesError = '';
+  }
+
+  async function savePriceTypes(): Promise<void> {
+    if (!card || priceBusy) {
+      return;
+    }
+
+    const ids = priceTypesDraft.map(Number).filter((value) => Number.isFinite(value));
+
+    if (ids.length === 0) {
+      priceTypesError = 'Выберите хотя бы один тип цены';
+      return;
+    }
 
     priceBusy = true;
+    priceTypesError = '';
     actionError = '';
     actionNotice = '';
 
@@ -1171,8 +1191,9 @@
         }
       };
       actionNotice = 'Типы цен обновлены';
+      priceTypesOpen = false;
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось обновить типы цен';
+      priceTypesError = cause instanceof ApiError ? cause.message : 'Не удалось обновить типы цен';
     } finally {
       priceBusy = false;
     }
@@ -1192,6 +1213,7 @@
 
   function openAssign(): void {
     managerForm = { manager_id: card?.manager ? String(card.manager.id) : '', comment: '' };
+    managerCommentOpen = false;
     actionError = '';
     actionNotice = '';
     managerOpen = true;
@@ -1326,7 +1348,60 @@
       <a class="back" href="#/clients" title="К списку клиентов" aria-label="К списку клиентов">
         <Icon name="arrow-left" size={16} />
       </a>
-      <span class="avatar" aria-hidden="true">{initials(displayName)}</span>
+      {#if canEditAvatar}
+        <div class="avatar-edit">
+          <button
+            type="button"
+            class="avatar avatar-btn"
+            title={avatarUrl ? 'Заменить фото клиента' : 'Добавить фото клиента'}
+            aria-label={avatarUrl ? 'Заменить фото клиента' : 'Добавить фото клиента'}
+            aria-busy={avatarBusy}
+            disabled={avatarBusy}
+            onclick={() => avatarInput?.click()}
+          >
+            {#if avatarUrl}
+              <img src={avatarUrl} alt="" />
+            {:else}
+              {initials(displayName)}
+            {/if}
+            <span class="avatar-overlay">
+              {#if avatarBusy}
+                <Spinner size={16} />
+              {:else}
+                <Icon name="camera" size={16} />
+              {/if}
+            </span>
+          </button>
+          {#if avatarUrl}
+            <button
+              type="button"
+              class="avatar-remove"
+              title="Удалить фото клиента"
+              aria-label="Удалить фото клиента"
+              disabled={avatarBusy}
+              onclick={() => void removeClientAvatar()}
+            >
+              <Icon name="close" size={12} />
+            </button>
+          {/if}
+          <input
+            bind:this={avatarInput}
+            class="avatar-input"
+            type="file"
+            accept=".jpg,.jpeg,.png,.webp"
+            onchange={onAvatarSelected}
+            disabled={avatarBusy}
+          />
+        </div>
+      {:else}
+        <span class="avatar" aria-hidden="true">
+          {#if avatarUrl}
+            <img src={avatarUrl} alt="" />
+          {:else}
+            {initials(displayName)}
+          {/if}
+        </span>
+      {/if}
 
       <div class="hero-main">
         <h1>{displayName}</h1>
@@ -1344,51 +1419,67 @@
           </span>
         </div>
 
-        <div class="hero-tabs" role="tablist" aria-label="Разделы клиента">
-        <button
-          type="button"
-          class="hero-tab"
-          class:active={tab === 'requests'}
-          role="tab"
-          aria-selected={tab === 'requests'}
-          title={card.stats.open > 0 ? `Заявки, открытых: ${card.stats.open}` : 'Заявки'}
-          aria-label={card.stats.open > 0 ? `Заявки, открытых: ${card.stats.open}` : 'Заявки'}
-          onclick={() => showTab('requests')}
-        >
-          <Icon name="requests" size={18} />
-          {#if card.stats.open > 0}
-            <span class="tab-count">{card.stats.open > 99 ? '99+' : card.stats.open}</span>
+        <div class="hero-actions">
+          {#if appSettings.salesEnabled && auth.can('requests.create')}
+            <button
+              type="button"
+              class="hero-tab"
+              title="Создать заявку для клиента"
+              aria-label="Создать заявку для клиента"
+              onclick={startClientRequest}
+            >
+              <Icon name="file-plus" size={18} />
+            </button>
           {/if}
-        </button>
-        <button
-          type="button"
-          class="hero-tab"
-          class:active={tab === 'interests'}
-          role="tab"
-          aria-selected={tab === 'interests'}
-          title={interestsTotal > 0 ? `Интересы, позиций: ${interestsTotal}` : 'Интересы'}
-          aria-label={interestsTotal > 0 ? `Интересы, позиций: ${interestsTotal}` : 'Интересы'}
-          onclick={() => showTab('interests')}
-        >
-          <Icon name="tags" size={18} />
-          {#if interestsTotal > 0}
-            <span class="tab-count muted">{interestsTotal > 99 ? '99+' : interestsTotal}</span>
+
+          <div class="hero-tabs" role="tablist" aria-label="Разделы клиента">
+            <button
+              type="button"
+              class="hero-tab"
+              class:active={tab === 'requests'}
+              role="tab"
+              aria-selected={tab === 'requests'}
+              title={card.stats.open > 0 ? `Заявки, открытых: ${card.stats.open}` : 'Заявки'}
+              aria-label={card.stats.open > 0 ? `Заявки, открытых: ${card.stats.open}` : 'Заявки'}
+              onclick={() => showTab('requests')}
+            >
+              <Icon name="requests" size={18} />
+              {#if card.stats.open > 0}
+                <span class="tab-count">{card.stats.open > 99 ? '99+' : card.stats.open}</span>
+              {/if}
+            </button>
+            {#if canOpenAccount}
+              <button
+                type="button"
+                class="hero-tab"
+                class:active={tab === 'account'}
+                role="tab"
+                aria-selected={tab === 'account'}
+                title="Профиль"
+                aria-label="Профиль"
+                onclick={() => showTab('account')}
+              >
+                <Icon name="staff" size={18} />
+              </button>
+            {/if}
+          </div>
+
+          {#if canOpenChat}
+            <button
+              type="button"
+              class="hero-tab"
+              title="Открыть чат с клиентом"
+              aria-label="Открыть чат с клиентом"
+              disabled={chatBusy}
+              onclick={() => void openClientChat()}
+            >
+              {#if chatBusy}
+                <Spinner size={16} />
+              {:else}
+                <Icon name="chat" size={18} />
+              {/if}
+            </button>
           {/if}
-        </button>
-        {#if canOpenAccount}
-          <button
-            type="button"
-            class="hero-tab"
-            class:active={tab === 'account'}
-            role="tab"
-            aria-selected={tab === 'account'}
-            title="Профиль"
-            aria-label="Профиль"
-            onclick={() => showTab('account')}
-          >
-            <Icon name="staff" size={18} />
-          </button>
-        {/if}
         </div>
       </div>
     </div>
@@ -1430,48 +1521,7 @@
       </div>
     {/if}
 
-    {#if tab === 'interests'}
-      <div class="card">
-        <h2>Целевой интерес к номенклатуре</h2>
-      <p class="hint">Что клиент заказывал — для будущих целевых продаж (без отменённых заявок)</p>
-
-      <div class="block-toolbar">
-        <div class="search">
-          <SearchInput
-            bind:value={interestsInput}
-            historyKey="client-interests"
-            placeholder="Поиск номенклатуры"
-          />
-        </div>
-
-        <button
-          type="button"
-          class="toolbar-btn"
-          class:active={interestsActiveFilters > 0}
-          title="Фильтры"
-          aria-label={interestsActiveFilters > 0
-            ? `Фильтры, активно: ${interestsActiveFilters}`
-            : 'Фильтры'}
-          onclick={openInterestsFilters}
-        >
-          <Icon name="filter" size={16} />
-          {#if interestsActiveFilters > 0}
-            <span class="filter-badge">{interestsActiveFilters}</span>
-          {/if}
-        </button>
-
-        <button
-          type="button"
-          class="toolbar-btn"
-          class:active={interestsSort !== 'qty_desc'}
-          title="Сортировка"
-          aria-label="Сортировка"
-          onclick={openInterestsSort}
-        >
-          <Icon name="sort" size={16} />
-        </button>
-      </div>
-
+    {#snippet interestsResults()}
       {#if interestsError}
         <div class="list-error">
           <span>{interestsError}</span>
@@ -1529,8 +1579,7 @@
           />
         </div>
       {/if}
-      </div>
-    {/if}
+    {/snippet}
 
     {#if tab === 'requests'}
       <div class="requests-layout">
@@ -1631,32 +1680,60 @@
         </div>
 
         <div class="requests-side">
+          {#if clientDrafts.length > 0}
+            <div class="card">
+              <div class="card-head">
+                <h2>Черновики</h2>
+              </div>
+              <div class="request-history drafts-list">
+                {#each clientDrafts as draft (draft.id)}
+                  <a class="history-row" href={`#/requests/new?draft=${draft.id}`}>
+                    <div class="history-top">
+                      <span class="history-number">{draft.subject || 'Без темы'}</span>
+                    </div>
+                    <div class="draft-meta">
+                      Изменён {formatDateTime(draft.updated_at)}
+                      {#if draft.items_count > 0}· позиций: {draft.items_count}{/if}
+                    </div>
+                  </a>
+                {/each}
+              </div>
+            </div>
+          {/if}
+
           <div class="card">
             <div class="card-head">
-              <h2>Последние заявки</h2>
-              {#if requestHistory.length > 0}
-                <button type="button" class="link-btn" onclick={() => openHistory('request')}>
-                  Вся история →
+              <h2>Целевой интерес к номенклатуре</h2>
+              {#if interestPreview.length > 0}
+                <button type="button" class="link-btn" onclick={() => (interestsOpen = true)}>
+                  Все интересы →
                 </button>
               {/if}
             </div>
-            {#if requestHistory.length === 0}
-              <p class="empty">Заявок нет</p>
+            {#if interestPreviewLoading && interestPreview.length === 0}
+              <div class="center"><Spinner size={18} /></div>
+            {:else if interestPreviewError}
+              <div class="list-error">
+                <span>{interestPreviewError}</span>
+                <Button size="sm" variant="ghost" onclick={() => void loadInterestPreview()}>
+                  Повторить
+                </Button>
+              </div>
+            {:else if interestPreview.length === 0}
+              <p class="empty">Номенклатуры пока нет</p>
             {:else}
-              <div class="request-history">
-                {#each requestHistory.slice(0, 5) as item (item.id)}
-                  <a class="history-row" href={`#/requests/${item.id}`}>
+              <div class="request-history interest-preview">
+                {#each interestPreview as item (item.name + '|' + item.unit)}
+                  <div class="history-row">
                     <div class="history-top">
-                      <span class="history-number">{item.number}</span>
-                      <span class="history-date">{formatDate(item.created_at)}</span>
+                      <span class="history-number">{item.name}{item.unit ? ` (${item.unit})` : ''}</span>
+                      <span class="history-date">{formatDate(item.last_at)}</span>
                     </div>
-                    <div class="history-subject">{item.subject}</div>
+                    <div class="history-subject">{item.warehouse_name || '—'}</div>
                     <div class="history-meta">
-                      <span class="history-dot" style:background={item.status.color}></span>
-                      <span>{item.status.title}</span>
-                      {#if item.is_overdue}<span class="overdue">просрочена</span>{/if}
+                      Заказов: {item.orders} · Количество: {item.total_qty}
                     </div>
-                  </a>
+                  </div>
                 {/each}
               </div>
             {/if}
@@ -1672,23 +1749,30 @@
           <div class="card-head">
             <h2>Личные данные</h2>
           </div>
-          <div class="rows">
-            {#each contactFields as field (field.key)}
-              <div class="row">
-                <span class="row-label">{field.label}</span>
-                <span class="row-value">{card.client[field.key] || '—'}</span>
-                {#if canEditContacts}
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    title={`Изменить: ${field.label}`}
-                    aria-label={`Изменить ${field.label}`}
-                    disabled={busy || contactEditBusy}
-                    onclick={() => startContactEdit(field.key)}
-                  >
-                    <Icon name="edit" size={16} />
-                  </button>
-                {/if}
+          <div class="field-groups">
+            {#each contactGroups as group (group.title)}
+              <div class="field-group">
+                <span class="field-group-title">{group.title}</span>
+                <div class="rows">
+                  {#each group.fields as field (field.key)}
+                    <div class="row">
+                      <span class="row-label">{field.label}</span>
+                      <span class="row-value">{card.client[field.key] || '—'}</span>
+                      {#if canEditContacts}
+                        <button
+                          type="button"
+                          class="icon-btn"
+                          title={`Изменить: ${field.label}`}
+                          aria-label={`Изменить ${field.label}`}
+                          disabled={busy || contactEditBusy}
+                          onclick={() => startContactEdit(field.key)}
+                        >
+                          <Icon name="edit" size={16} />
+                        </button>
+                      {/if}
+                    </div>
+                  {/each}
+                </div>
               </div>
             {/each}
           </div>
@@ -1698,7 +1782,9 @@
         <div class="card">
           <div class="card-head">
             <h2>Доступ</h2>
-            <HelpTip text={accessHelp} />
+            <div class="card-head-tools">
+              <HelpTip text={accessHelp} />
+            </div>
           </div>
           <div class="rows">
             <div class="row">
@@ -1759,163 +1845,153 @@
 
         <div class="card">
           <div class="card-head">
-            <h2>Менеджер</h2>
+            <h2>Безопасность</h2>
           </div>
-          <div class="manager-row">
-            {#if card.manager}
-              <div class="manager-box">
-                <a class="manager-name link" href={`#/users/${card.manager.id}`}>{card.manager.name}</a>
-                {#if card.manager.assigned_at}
-                  <span class="mini-sub">с {formatDate(card.manager.assigned_at)}</span>
-                {/if}
-                {#if card.manager.assigned_by}
-                  <span class="mini-sub">назначил(а): {card.manager.assigned_by.name}</span>
-                {/if}
-                {#if card.manager.temporary_until}
-                  <span class="state transfer-chip">
-                    временно до {formatDate(card.manager.temporary_until)}
-                  </span>
-                {/if}
-              </div>
-            {:else}
-              <p class="empty">Менеджер не назначен</p>
-            {/if}
-            {#if card.can.assign}
-              <div class="manager-actions">
+          <div class="rows">
+            <div class="row">
+              <span class="row-label">Логин</span>
+              <span class="row-value">{card.client.login}</span>
+              {#if card.can.access && !appSettings.demoMode}
                 <button
                   type="button"
                   class="icon-btn"
-                  title="Редактировать менеджера"
-                  aria-label="Редактировать менеджера"
+                  title="Изменить логин"
+                  aria-label="Изменить логин"
                   disabled={busy}
-                  onclick={openAssign}
+                  onclick={openLoginEdit}
                 >
                   <Icon name="edit" size={16} />
+                </button>
+              {/if}
+            </div>
+            <div class="row">
+              <span class="row-label">Пароль</span>
+              <span class="row-value">Сброс завершит активные сессии</span>
+              {#if card.can.reset_password && card.client.reg_state === 'active'}
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Сбросить пароль"
+                  aria-label="Сбросить пароль"
+                  disabled={busy}
+                  onclick={() => {
+                    actionError = '';
+                    passwordConfirmOpen = true;
+                  }}
+                >
+                  <Icon name="key" size={16} />
+                </button>
+              {/if}
+            </div>
+            {#if card.can.revoke_sessions}
+              <div class="row">
+                <span class="row-label">Сессии</span>
+                <span class="row-value">Завершить все сессии клиента</span>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Завершить все сессии"
+                  aria-label="Завершить все сессии"
+                  disabled={busy}
+                  onclick={() => {
+                    actionError = '';
+                    sessionsConfirmOpen = true;
+                  }}
+                >
+                  <Icon name="logout" size={16} />
                 </button>
               </div>
             {/if}
           </div>
-          {#if card.can.claim}
-            <div class="account-actions">
-              <Button disabled={busy} onclick={() => void claimSelf()}>Взять себе</Button>
-            </div>
-          {/if}
         </div>
-
-        {#if canAssignPrices}
-        <div class="card">
-          <div class="card-head">
-            <h2>Типы цен</h2>
-            <div class="card-head-tools">
-              {#if priceBusy}
-                <Spinner size={16} />
-              {/if}
-              <HelpTip text={pricesHelp} />
-            </div>
-          </div>
-          {#if priceTypesLoading && priceTypes.length === 0}
-            <div class="price-loading"><Spinner size={18} /></div>
-          {:else if priceTypes.length === 0}
-            <p class="empty">Типы цен не настроены</p>
-          {:else}
-            <div class="price-toggles">
-              {#each priceTypes as type (type.id)}
-                {@const on = card.client.price_types.some((item) => item.id === type.id)}
-                <button
-                  type="button"
-                  class="price-toggle"
-                  class:on
-                  disabled={priceBusy || (on && card.client.price_types.length === 1)}
-                  aria-pressed={on}
-                  title={on
-                    ? card.client.price_types.length === 1
-                      ? 'Нельзя отключить последний тип цены'
-                      : 'Доступен клиенту — нажмите, чтобы выключить'
-                    : 'Недоступен — нажмите, чтобы включить'}
-                  onclick={() => void togglePriceType(type)}
-                >
-                  {#if on}<Icon name="check" size={14} />{/if}
-                  {type.title}
-                </button>
-              {/each}
-            </div>
-          {/if}
-        </div>
-        {/if}
 
         </div>
 
         <div class="account-side">
           <div class="card">
             <div class="card-head">
-              <h2>Безопасность</h2>
+              <h2>Менеджер</h2>
+              <div class="card-head-tools">
+                <HelpTip text={managerHelp} />
+              </div>
             </div>
-            <div class="rows">
-              <div class="row">
-                <span class="row-label">Логин</span>
-                <span class="row-value">{card.client.login}</span>
-                {#if card.can.access && !appSettings.demoMode}
+            <div class="manager-row">
+              {#if card.manager}
+                <div class="manager-box">
+                  <a class="manager-name link" href={`#/users/${card.manager.id}`}>{card.manager.name}</a>
+                  {#if card.manager.assigned_at}
+                    <span class="mini-sub">с {formatDate(card.manager.assigned_at)}</span>
+                  {/if}
+                  {#if card.manager.assigned_by}
+                    <span class="mini-sub">назначил(а): {card.manager.assigned_by.name}</span>
+                  {/if}
+                  {#if card.manager.temporary_until}
+                    <span class="state transfer-chip">
+                      временно до {formatDate(card.manager.temporary_until)}
+                    </span>
+                  {/if}
+                </div>
+              {:else}
+                <p class="empty">Менеджер не назначен</p>
+              {/if}
+              {#if card.can.assign}
+                <div class="manager-actions">
                   <button
                     type="button"
                     class="icon-btn"
-                    title="Изменить логин"
-                    aria-label="Изменить логин"
+                    title="Редактировать менеджера"
+                    aria-label="Редактировать менеджера"
                     disabled={busy}
-                    onclick={openLoginEdit}
+                    onclick={openAssign}
                   >
                     <Icon name="edit" size={16} />
-                  </button>
-                {/if}
-              </div>
-              <div class="row">
-                <span class="row-label">Пароль</span>
-                <span class="row-value">Сброс завершит активные сессии</span>
-                {#if card.can.reset_password && card.client.reg_state === 'active'}
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    title="Сбросить пароль"
-                    aria-label="Сбросить пароль"
-                    disabled={busy}
-                    onclick={() => {
-                      actionError = '';
-                      passwordConfirmOpen = true;
-                    }}
-                  >
-                    <Icon name="key" size={16} />
-                  </button>
-                {/if}
-              </div>
-              {#if card.can.revoke_sessions}
-                <div class="row">
-                  <span class="row-label">Сессии</span>
-                  <span class="row-value">Завершить все сессии клиента</span>
-                  <button
-                    type="button"
-                    class="icon-btn"
-                    title="Завершить все сессии"
-                    aria-label="Завершить все сессии"
-                    disabled={busy}
-                    onclick={() => {
-                      actionError = '';
-                      sessionsConfirmOpen = true;
-                    }}
-                  >
-                    <Icon name="logout" size={16} />
                   </button>
                 </div>
               {/if}
             </div>
+            {#if card.can.claim}
+              <div class="account-actions">
+                <Button disabled={busy} onclick={() => void claimSelf()}>Взять себе</Button>
+              </div>
+            {/if}
           </div>
+
+          {#if canAssignPrices}
+          <div class="card">
+            <div class="card-head">
+              <h2>Типы цен</h2>
+              <div class="card-head-tools">
+                {#if priceBusy}
+                  <Spinner size={16} />
+                {/if}
+                <HelpTip text={pricesHelp} />
+              </div>
+            </div>
+            {#if priceTypesLoading && priceTypes.length === 0}
+              <div class="price-loading"><Spinner size={18} /></div>
+            {:else if priceTypes.length === 0}
+              <p class="empty">Типы цен не настроены</p>
+            {:else}
+              <div class="price-types-row">
+                <span class="price-types-value">{assignedPriceTypeTitles || '—'}</span>
+                <button
+                  type="button"
+                  class="icon-btn"
+                  title="Изменить типы цен"
+                  aria-label="Изменить типы цен"
+                  disabled={priceBusy}
+                  onclick={openPriceTypes}
+                >
+                  <Icon name="edit" size={16} />
+                </button>
+              </div>
+            {/if}
+          </div>
+          {/if}
 
           <div class="card">
             <div class="card-head">
               <h2>История профиля</h2>
-              {#if accountHistory.length > 0}
-                <button type="button" class="link-btn" onclick={() => openHistory('account')}>
-                  Вся история →
-                </button>
-              {/if}
             </div>
             {#if accountHistory.length === 0}
               <p class="empty">Событий пока нет</p>
@@ -2173,99 +2249,54 @@
       title="Фильтры"
       onclose={() => (requestsFiltersOpen = false)}
     >
-      <p class="sort-hint">Если ничего не выбрано — показываются все заявки.</p>
-
-      <div class="filter-group">
-        <span class="filter-group-label">Состояние</span>
-        <div class="filter-chips">
-          <button
-            type="button"
-            class="filter-chip"
-            class:on={requestsFilterDraft.states.length === 0}
-            aria-pressed={requestsFilterDraft.states.length === 0}
-            onclick={() => (requestsFilterDraft.states = [])}
-          >
-            Все
-          </button>
-          <button
-            type="button"
-            class="filter-chip"
-            class:on={requestsFilterDraft.states.includes('open')}
-            aria-pressed={requestsFilterDraft.states.includes('open')}
-            onclick={() => (requestsFilterDraft.states = requestsFilterDraft.states.includes('open')
-              ? requestsFilterDraft.states.filter((value) => value !== 'open')
-              : [...requestsFilterDraft.states, 'open'])}
-          >
-            Открыто ({card.stats.open})
-          </button>
-          <button
-            type="button"
-            class="filter-chip"
-            class:on={requestsFilterDraft.states.includes('closed')}
-            aria-pressed={requestsFilterDraft.states.includes('closed')}
-            onclick={() => (requestsFilterDraft.states = requestsFilterDraft.states.includes('closed')
-              ? requestsFilterDraft.states.filter((value) => value !== 'closed')
-              : [...requestsFilterDraft.states, 'closed'])}
-          >
-            Закрыто ({card.stats.closed})
-          </button>
-          <button
-            type="button"
-            class="filter-chip"
-            class:on={requestsFilterDraft.states.includes('overdue')}
-            aria-pressed={requestsFilterDraft.states.includes('overdue')}
-            onclick={() => (requestsFilterDraft.states = requestsFilterDraft.states.includes('overdue')
-              ? requestsFilterDraft.states.filter((value) => value !== 'overdue')
-              : [...requestsFilterDraft.states, 'overdue'])}
-          >
-            Просрочено ({card.stats.overdue})
-          </button>
+      <div class="filters-form">
+        <div class="filter-group">
+          <span class="filter-label">Состояние</span>
+          <MultiSelect
+            label="Состояние"
+            options={requestStateOptions}
+            bind:values={requestsFilterDraft.states}
+            allLabel="Все состояния"
+            emptyValuesLabel="Все состояния"
+          />
         </div>
-      </div>
 
-      <div class="filter-group">
-        <span class="filter-group-label">Статус</span>
-        <div class="filter-chips">
-          <button
-            type="button"
-            class="filter-chip"
-            class:on={requestsFilterDraft.statuses.length === 0}
-            aria-pressed={requestsFilterDraft.statuses.length === 0}
-            onclick={() => (requestsFilterDraft.statuses = [])}
-          >
-            Все
-          </button>
-          {#each statuses as status (status.code)}
-            <button
-              type="button"
-              class="filter-chip"
-              class:on={requestsFilterDraft.statuses.includes(status.code)}
-              aria-pressed={requestsFilterDraft.statuses.includes(status.code)}
-              onclick={() => (requestsFilterDraft.statuses = requestsFilterDraft.statuses.includes(status.code)
-                ? requestsFilterDraft.statuses.filter((code) => code !== status.code)
-                : [...requestsFilterDraft.statuses, status.code])}
-            >
-              {status.title} ({card.stats.by_status[status.code] ?? 0})
-            </button>
-          {/each}
+        <div class="filter-group">
+          <span class="filter-label">Статус</span>
+          <MultiSelect
+            label="Статус"
+            options={requestStatusOptions}
+            bind:values={requestsFilterDraft.statuses}
+            allLabel="Все статусы"
+            emptyValuesLabel="Все статусы"
+            maxHeight="280px"
+          />
         </div>
-      </div>
 
-      <div class="filter-period">
-        <label class="filter-field">
-          <span>Период с</span>
-          <input type="date" bind:value={requestsFilterDraft.from} max={requestsFilterDraft.to} />
-        </label>
-        <label class="filter-field">
-          <span>Период по</span>
-          <input type="date" bind:value={requestsFilterDraft.to} min={requestsFilterDraft.from} />
-        </label>
-      </div>
+        <div class="view-period">
+          <label class="filter-field">
+            <span>Период с</span>
+            <input
+              type="date"
+              bind:value={requestsFilterDraft.from}
+              max={requestsFilterDraft.to || undefined}
+            />
+          </label>
+          <label class="filter-field">
+            <span>Период по</span>
+            <input
+              type="date"
+              bind:value={requestsFilterDraft.to}
+              min={requestsFilterDraft.from || undefined}
+            />
+          </label>
+        </div>
 
-      <div class="modal-actions">
-        <Button variant="ghost" onclick={resetRequestsFilters}>Сбросить</Button>
-        <Button variant="ghost" onclick={() => (requestsFiltersOpen = false)}>Отмена</Button>
-        <Button onclick={applyRequestsFilters}>Применить</Button>
+        <div class="modal-actions">
+          <Button variant="ghost" onclick={resetRequestsFilters}>Сбросить</Button>
+          <Button variant="ghost" onclick={() => (requestsFiltersOpen = false)}>Отмена</Button>
+          <Button onclick={applyRequestsFilters}>Применить</Button>
+        </div>
       </div>
     </Modal>
 
@@ -2277,6 +2308,54 @@
       onclose={() => (requestsSortOpen = false)}
       onapply={applyRequestsSort}
     />
+
+    <Modal
+      open={interestsOpen}
+      title="Целевой интерес к номенклатуре"
+      wide
+      onclose={() => (interestsOpen = false)}
+    >
+      <p class="hint">Что клиент заказывал — для будущих целевых продаж (без отменённых заявок)</p>
+
+      <div class="block-toolbar">
+        <div class="search">
+          <SearchInput
+            bind:value={interestsInput}
+            historyKey="client-interests"
+            placeholder="Поиск номенклатуры"
+          />
+        </div>
+
+        <button
+          type="button"
+          class="toolbar-btn"
+          class:active={interestsActiveFilters > 0}
+          title="Фильтры"
+          aria-label={interestsActiveFilters > 0
+            ? `Фильтры, активно: ${interestsActiveFilters}`
+            : 'Фильтры'}
+          onclick={openInterestsFilters}
+        >
+          <Icon name="filter" size={16} />
+          {#if interestsActiveFilters > 0}
+            <span class="filter-badge">{interestsActiveFilters}</span>
+          {/if}
+        </button>
+
+        <button
+          type="button"
+          class="toolbar-btn"
+          class:active={interestsSort !== 'qty_desc'}
+          title="Сортировка"
+          aria-label="Сортировка"
+          onclick={openInterestsSort}
+        >
+          <Icon name="sort" size={16} />
+        </button>
+      </div>
+
+      {@render interestsResults()}
+    </Modal>
 
     <Modal
       open={interestsFiltersOpen}
@@ -2343,88 +2422,6 @@
       onapply={applyInterestsSort}
     />
 
-    {#snippet historyEntry(item: HistoryEntry)}
-      <div class="history-entry-top">
-        <span class="history-kind" class:request={item.kind === 'request'}>
-          {item.kind === 'request' ? 'Заявка' : 'Учётка'}
-        </span>
-        <span class="history-entry-title">{item.title}</span>
-        <span class="history-date">{formatDateTime(item.created_at)}</span>
-      </div>
-      {#if item.comment}
-        <div class="history-entry-comment">{item.comment}</div>
-      {/if}
-      <div class="history-entry-meta">
-        {#if item.status}
-          <span class="history-dot" style:background={item.status.color}></span>
-          <span>{item.status.title}</span>
-        {/if}
-        {#if item.actor}<span>· {item.actor}</span>{/if}
-      </div>
-    {/snippet}
-
-    <Modal open={historyOpen} title="История" wide onclose={() => (historyOpen = false)}>
-      <div class="history-controls">
-        <div class="search">
-          <SearchInput
-            bind:value={historyQuery}
-            historyKey="client-history"
-            placeholder="Поиск по истории"
-          />
-        </div>
-        <select
-          value={historyKind}
-          aria-label="Тип истории"
-          onchange={(event) => (historyKind = event.currentTarget.value as HistoryKind)}
-        >
-          <option value="all">Вся история</option>
-          <option value="request">Заявки</option>
-          <option value="account">Профиль</option>
-        </select>
-        <input type="date" bind:value={historyFrom} aria-label="Период с" />
-        <input type="date" bind:value={historyTo} aria-label="Период по" />
-      </div>
-
-      {#if historyError}
-        <div class="list-error">
-          <span>{historyError}</span>
-          <Button size="sm" variant="ghost" onclick={() => void loadFullHistory()}>
-            Повторить
-          </Button>
-        </div>
-      {/if}
-
-      {#if historyLoading && filteredHistory.length === 0}
-        <div class="center"><Spinner size={20} /></div>
-      {:else if filteredHistory.length === 0}
-        <p class="empty">Ничего не найдено</p>
-      {:else}
-        <div class="history-modal-list">
-          {#each historyPageItems as item (item.id)}
-            {#if item.href}
-              <a class="history-entry" href={item.href} onclick={() => (historyOpen = false)}>
-                {@render historyEntry(item)}
-              </a>
-            {:else}
-              <div class="history-entry">{@render historyEntry(item)}</div>
-            {/if}
-          {/each}
-        </div>
-
-        {#if filteredHistory.length > 50}
-          <div class="pager-wrap">
-            <Pager
-              page={historyPage}
-              perPage={50}
-              total={filteredHistory.length}
-              onchange={(page) => (historyPage = page)}
-            />
-          </div>
-        {/if}
-      {/if}
-
-    </Modal>
-
     <Modal
       open={contactEditField !== ''}
       title={activeContactField?.title ?? 'Изменить контакт'}
@@ -2464,6 +2461,41 @@
           loading={contactEditBusy}
           disabled={!activeContactField}
           onclick={() => void saveContactField()}
+        >
+          Сохранить
+        </Button>
+      </div>
+    </Modal>
+
+    <Modal open={priceTypesOpen} title="Типы цен" onclose={cancelPriceTypes}>
+      {#if priceTypes.length === 0}
+        <p class="empty">Типы цен не настроены</p>
+      {:else}
+        <MultiSelect
+          label="Типы цен"
+          options={priceTypeOptions}
+          bind:values={priceTypesDraft}
+          allLabel={allPriceTypeTitles}
+          emptyLabel="Типы цен не настроены"
+          emptyValuesLabel="Не выбрано"
+          maxHeight="240px"
+          disabled={priceBusy}
+        />
+      {/if}
+
+      {#if priceTypesError}
+        <div class="alert" role="alert">
+          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+          <span class="notify-text">{priceTypesError}</span>
+        </div>
+      {/if}
+
+      <div class="modal-actions">
+        <Button variant="ghost" disabled={priceBusy} onclick={cancelPriceTypes}>Отмена</Button>
+        <Button
+          loading={priceBusy}
+          disabled={priceTypes.length === 0}
+          onclick={() => void savePriceTypes()}
         >
           Сохранить
         </Button>
@@ -2521,10 +2553,20 @@
             {/each}
           </select>
         </label>
-        <label class="edit-label">
-          <span>Комментарий</span>
-          <input bind:value={managerForm.comment} placeholder="Например: закрепляю за собой" maxlength="500" />
-        </label>
+        {#if managerCommentOpen}
+          <label class="edit-label">
+            <span>Комментарий</span>
+            <input bind:value={managerForm.comment} placeholder="Например: закрепляю за собой" maxlength="500" />
+          </label>
+        {:else}
+          <button
+            type="button"
+            class="link-btn manager-comment-toggle"
+            onclick={() => (managerCommentOpen = true)}
+          >
+            Добавить комментарий
+          </button>
+        {/if}
       </div>
 
       {#if actionError}
@@ -2685,6 +2727,12 @@
     max-width: none;
   }
 
+  .hero-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
   .hero-tabs {
     display: flex;
     align-items: center;
@@ -2710,6 +2758,11 @@
   .hero-tab:hover {
     color: var(--primary);
     background: var(--bg);
+  }
+
+  .hero-tab:disabled {
+    opacity: 0.6;
+    cursor: default;
   }
 
   .hero-tab.active {
@@ -2982,17 +3035,92 @@
   }
 
   .avatar {
+    position: relative;
     display: inline-flex;
     flex: 0 0 auto;
     align-items: center;
     justify-content: center;
     width: 56px;
     height: 56px;
+    overflow: hidden;
     border-radius: 50%;
     background: color-mix(in srgb, var(--primary) 12%, var(--surface));
     color: var(--primary);
+    font-family: inherit;
     font-size: 18px;
     font-weight: 600;
+  }
+
+  .avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .avatar-edit {
+    position: relative;
+    flex: 0 0 auto;
+  }
+
+  .avatar-btn {
+    padding: 0;
+    border: none;
+    cursor: pointer;
+  }
+
+  .avatar-btn:disabled {
+    cursor: default;
+  }
+
+  .avatar-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(0, 0, 0, 0.45);
+    color: #fff;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+
+  .avatar-btn:hover .avatar-overlay,
+  .avatar-btn:focus-visible .avatar-overlay,
+  .avatar-btn:disabled .avatar-overlay {
+    opacity: 1;
+  }
+
+  .avatar-remove {
+    position: absolute;
+    top: -4px;
+    right: -4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--danger);
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+
+  .avatar-remove:hover {
+    background: var(--danger);
+    color: #fff;
+  }
+
+  .avatar-remove:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+
+  .avatar-input {
+    display: none;
   }
 
   .card-head {
@@ -3052,6 +3180,10 @@
     text-decoration: underline;
   }
 
+  .manager-comment-toggle {
+    align-self: flex-start;
+  }
+
   .mini-sub {
     font-size: 12px;
     color: var(--muted);
@@ -3087,43 +3219,16 @@
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   }
 
-  .price-toggles {
+  .price-types-row {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-
-  .price-toggle {
-    display: inline-flex;
     align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    font: inherit;
-    font-size: 13px;
-    color: var(--text-description);
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+    justify-content: space-between;
+    gap: var(--space-3);
   }
 
-  .price-toggle:hover:not(:disabled) {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .price-toggle.on {
-    border-color: var(--primary);
-    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
-    color: var(--primary);
-    font-weight: 500;
-  }
-
-  .price-toggle:disabled {
-    opacity: 0.65;
-    cursor: not-allowed;
+  .price-types-value {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
 
   .price-loading {
@@ -3212,6 +3317,26 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     margin-top: var(--space-3);
+  }
+
+  .field-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .field-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .field-group-title {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
   }
 
   .rows {
@@ -3357,6 +3482,9 @@
   }
 
   .requests-side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
     position: sticky;
     top: var(--space-4);
     align-self: start;
@@ -3412,6 +3540,11 @@
     flex-direction: column;
     gap: var(--space-2);
     margin-bottom: var(--space-3);
+  }
+
+  .filters-form .filter-group {
+    display: block;
+    margin-bottom: 0;
   }
 
   .filter-group-label {
@@ -3485,6 +3618,10 @@
     padding-right: var(--space-2);
   }
 
+  .interest-preview {
+    max-height: min(320px, 38vh);
+  }
+
   .history-row {
     display: flex;
     flex-direction: column;
@@ -3541,115 +3678,6 @@
     font-size: 12px;
   }
 
-  .history-dot {
-    flex: 0 0 auto;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-  }
-
-  .history-controls {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-    padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--border-secondary);
-    background: var(--surface);
-  }
-
-  .history-controls .search {
-    display: flex;
-    flex: 1 1 240px;
-    min-width: 0;
-  }
-
-  .history-controls select,
-  .history-controls input[type='date'] {
-    padding: 7px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 13px;
-    color: var(--text);
-  }
-
-  .history-modal-list {
-    display: flex;
-    flex-direction: column;
-  }
-
-  .history-entry {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: var(--space-3) 0;
-    border-bottom: 1px solid var(--border-secondary);
-    color: inherit;
-    text-decoration: none;
-  }
-
-  .history-entry:first-child {
-    padding-top: 0;
-  }
-
-  .history-entry:last-child {
-    padding-bottom: 0;
-    border-bottom: none;
-  }
-
-  .history-entry:hover .history-entry-title {
-    color: var(--primary);
-  }
-
-  .history-entry-top {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-2);
-  }
-
-  .history-kind {
-    flex: 0 0 auto;
-    padding: 1px 6px;
-    border-radius: 999px;
-    background: var(--bg);
-    color: var(--muted);
-    font-size: 11px;
-  }
-
-  .history-kind.request {
-    background: var(--primary-bg);
-    color: var(--primary);
-  }
-
-  .history-entry-title {
-    flex: 1 1 auto;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-weight: 500;
-    font-size: 14px;
-  }
-
-  .history-entry-comment {
-    font-size: 13px;
-  }
-
-  .history-entry-meta {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--muted);
-    font-size: 12px;
-  }
-
   .requests {
     display: flex;
     flex-direction: column;
@@ -3670,6 +3698,15 @@
   .request:hover {
     border-color: var(--primary);
     background: var(--bg);
+  }
+
+  .drafts-list {
+    max-height: min(320px, 38vh);
+  }
+
+  .draft-meta {
+    color: var(--muted);
+    font-size: 12px;
   }
 
   .line {

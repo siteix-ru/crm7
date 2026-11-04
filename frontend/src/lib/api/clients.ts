@@ -1,4 +1,4 @@
-import { apiRequest } from './client';
+import { apiRequest, apiUpload } from './client';
 import type {
   AssignedPriceType,
   ClientCard,
@@ -159,6 +159,20 @@ export function unblockClient(id: number, comment: string): Promise<ClientAccess
     method: 'POST',
     auth: true,
     body: { comment }
+  });
+}
+
+export function uploadClientAvatar(id: number, file: File): Promise<{ has_avatar: boolean }> {
+  const form = new FormData();
+  form.append('file', file);
+
+  return apiUpload<{ has_avatar: boolean }>(`/clients/${id}/avatar`, form);
+}
+
+export function deleteClientAvatar(id: number): Promise<{ has_avatar: boolean }> {
+  return apiRequest<{ has_avatar: boolean }>(`/clients/${id}/avatar`, {
+    method: 'DELETE',
+    auth: true
   });
 }
 

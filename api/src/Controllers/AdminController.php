@@ -302,21 +302,21 @@ final class AdminController extends ApiController
 
     public function databaseSettings(Request $request): Response
     {
-        $this->requireSettings($request);
+        $this->requireTechAdmin($request);
 
         return Response::ok(DatabaseSettings::publicPayload());
     }
 
     public function testDatabaseSettings(Request $request): Response
     {
-        $this->requireSettings($request);
+        $this->requireTechAdmin($request);
 
         return Response::ok(DatabaseSettings::test($request->bodyAll()));
     }
 
     public function saveDatabaseSettings(Request $request): Response
     {
-        $user = $this->requireSettings($request);
+        $user = $this->requireTechAdmin($request);
 
         $payload = DatabaseSettings::save($request->bodyAll(), (string) ($user['LOGIN'] ?? ''));
 
@@ -331,14 +331,14 @@ final class AdminController extends ApiController
 
     public function templates(Request $request): Response
     {
-        $this->requireMailSend($request);
+        $this->requireTechAdmin($request);
 
         return Response::ok($this->mail->templates());
     }
 
     public function saveTemplate(Request $request, array $params): Response
     {
-        $this->requireMailSend($request);
+        $this->requireTechAdmin($request);
 
         return Response::ok($this->mail->saveTemplate(
             (string) ($params['code'] ?? ''),
@@ -349,14 +349,14 @@ final class AdminController extends ApiController
 
     public function queue(Request $request): Response
     {
-        $this->requireMailSend($request);
+        $this->requireTechAdmin($request);
 
         return Response::ok($this->mail->queueRecent((int) $request->queryParam('limit', '30')));
     }
 
     public function clearQueue(Request $request): Response
     {
-        [$user] = $this->requireMailSend($request);
+        [$user] = $this->requireTechAdmin($request);
         $cleared = $this->mail->clearQueue();
 
         $this->audit($request, $user, 'admin.queue.clear', 'email_queue', null, [
@@ -388,12 +388,16 @@ final class AdminController extends ApiController
         return [$user, $capabilities];
     }
 
-    private function requireMailSend(Request $request): array
+    private function requireTechAdmin(Request $request): array
     {
         [$user, $capabilities] = $this->context($request);
 
-        if (!in_array('mail.send', $capabilities, true)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для отправки писем');
+        if (!in_array('roles.manage', $capabilities, true)) {
+            throw new HttpException(
+                403,
+                'forbidden',
+                'Доступно только техническому администратору'
+            );
         }
 
         return [$user, $capabilities];

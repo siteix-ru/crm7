@@ -26,7 +26,7 @@
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { loadFilters, saveFilters } from '../lib/filters';
-  import { formatDateTime } from '../lib/format';
+  import { formatDate, formatDateTime } from '../lib/format';
   import { clampPeriod, defaultPeriod, todayIso } from '../lib/period';
 
   const filterDefaults = {
@@ -77,8 +77,7 @@
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let loadSeq = 0;
   let warehouses = $state<RequestWarehouseOption[]>([]);
-  let warehouseOpen = $state(false);
-  let warehouseDraft = $state<number[]>([]);
+  let warehouseDraft = $state<string[]>([]);
   let selectedClient = $state<{ id: number; name: string } | null>(null);
   let clientQuery = $state('');
   let clientResults = $state<ClientItem[]>([]);
@@ -88,6 +87,7 @@
   let clientInputEl = $state<HTMLInputElement | null>(null);
   let clientTimer: ReturnType<typeof setTimeout> | undefined;
   let exportOpen = $state(false);
+  let helpOpen = $state(false);
   let exporting = $state(false);
   let message = $state('');
 
@@ -154,6 +154,9 @@
   const isStaff = $derived(auth.level >= 10);
   const statusOptions = $derived(
     statuses.map((status) => ({ value: status.code, label: status.title }))
+  );
+  const warehouseOptions = $derived(
+    warehouses.map((warehouse) => ({ value: String(warehouse.id), label: warehouse.name }))
   );
   const emailAllowed = $derived(appSettings.emailExportEnabled && appSettings.mailConfigured);
   let dragSortField = $state<string | null>(null);
@@ -480,32 +483,6 @@
     applySortTerms(sortDraft);
   }
 
-  function openWarehouse(): void {
-    warehouseDraft = [...filters.warehouses];
-    warehouseOpen = true;
-  }
-
-  function selectAllWarehouses(): void {
-    warehouseDraft = warehouses.map((item) => item.id);
-  }
-
-  function clearAllWarehouses(): void {
-    warehouseDraft = [];
-  }
-
-  function applyWarehouse(): void {
-    warehouseOpen = false;
-    const next = [...warehouseDraft].sort((a, b) => a - b);
-
-    if (next.length === filters.warehouses.length && next.every((id, index) => id === filters.warehouses[index])) {
-      return;
-    }
-
-    filters.warehouses = next;
-    persist();
-    void load(true);
-  }
-
   function changeSort(): void {
     persist();
     void load(true);
@@ -513,6 +490,7 @@
 
   function openView(): void {
     viewDraft = viewMode;
+    warehouseDraft = filters.warehouses.map(String);
     draft = {
       ...filters,
       statusCodes: [...filters.statusCodes],
@@ -540,10 +518,12 @@
     clientQuery = '';
     clientResults = [];
     clientOpen = false;
+    warehouseDraft = [];
     draft = {
       ...draft,
       statusCodes: [],
       scopes: [],
+      warehouses: [],
       overdue: [],
       clientId: 0,
       clientName: '',
@@ -561,6 +541,8 @@
     const currentScopes = [...filters.scopes].sort();
     const nextStatuses = [...draft.statusCodes].sort();
     const currentStatuses = [...filters.statusCodes].sort();
+    const nextWarehouses = warehouseDraft.map(Number).sort((a, b) => a - b);
+    const currentWarehouses = [...filters.warehouses].sort((a, b) => a - b);
     const nextOverdue = [...draft.overdue].sort();
     const currentOverdue = [...filters.overdue].sort();
     const nextClientId = selectedClient?.id ?? 0;
@@ -574,6 +556,8 @@
       nextScopes.some((value, index) => value !== currentScopes[index]) ||
       nextStatuses.length !== currentStatuses.length ||
       nextStatuses.some((value, index) => value !== currentStatuses[index]) ||
+      nextWarehouses.length !== currentWarehouses.length ||
+      nextWarehouses.some((value, index) => value !== currentWarehouses[index]) ||
       nextOverdue.length !== currentOverdue.length ||
       nextOverdue.some((value, index) => value !== currentOverdue[index]) ||
       clientChanged;
@@ -585,6 +569,7 @@
       filters.to = period.to;
       filters.scopes = nextScopes;
       filters.statusCodes = nextStatuses;
+      filters.warehouses = nextWarehouses;
       filters.overdue = nextOverdue;
       filters.clientId = nextClientId;
       filters.clientName = nextClientName;
@@ -814,36 +799,35 @@
         <Icon name="sort" size={16} />
       </button>
 
-      {#if warehouses.length > 0}
-        <button
-          type="button"
-          class="sort-button"
-          class:active={filters.warehouses.length > 0}
-          title="Склады"
-          aria-label={filters.warehouses.length > 0
-            ? `Склады, выбрано: ${filters.warehouses.length}`
-            : 'Склады'}
-          onclick={openWarehouse}
-        >
-          <Icon name="stocks" size={16} />
-          {#if filters.warehouses.length > 0}
-            <span class="icon-badge" aria-hidden="true">{filters.warehouses.length}</span>
-          {/if}
-        </button>
-      {/if}
-
       <button
         type="button"
         class="sort-button"
         class:active={viewMode === 'tiles'}
-        title="Вид"
-        aria-label="Вид: списком или плитками"
+        title="Вид и фильтры"
+        aria-label="Вид и фильтры"
         onclick={openView}
       >
         <Icon name="view" size={16} />
       </button>
 
       <span class="toolbar-divider" aria-hidden="true"></span>
+
+      {#if appSettings.salesEnabled && auth.can('requests.create')}
+        <button
+          type="button"
+          class="sort-button"
+          title="Добавить заявку"
+          aria-label="Добавить заявку"
+          onclick={() => router.navigate('/requests/new')}
+        >
+          <span class="create-request-icon">
+            <Icon name="requests" size={16} />
+            <span class="create-request-plus" aria-hidden="true">
+              <Icon name="plus" size={10} />
+            </span>
+          </span>
+        </button>
+      {/if}
 
       <button
         type="button"
@@ -858,17 +842,7 @@
         {#if draftCount > 0}<span class="icon-badge" aria-hidden="true">{draftCount}</span>{/if}
       </button>
 
-      {#if appSettings.salesEnabled && auth.can('requests.create')}
-        <button
-          type="button"
-          class="sort-button"
-          title="Добавить заявку"
-          aria-label="Добавить заявку"
-          onclick={() => router.navigate('/requests/new')}
-        >
-          <Icon name="plus" size={16} />
-        </button>
-      {/if}
+      <span class="toolbar-divider" aria-hidden="true"></span>
 
       <button
         type="button"
@@ -879,6 +853,18 @@
         onclick={() => (exportOpen = true)}
       >
         <Icon name="export" size={16} />
+      </button>
+
+      <span class="toolbar-divider" aria-hidden="true"></span>
+
+      <button
+        type="button"
+        class="sort-button"
+        title="Как пользоваться"
+        aria-label="Как пользоваться страницей"
+        onclick={() => (helpOpen = true)}
+      >
+        <Icon name="help" size={16} />
       </button>
     </div>
   </div>
@@ -935,21 +921,41 @@
               </div>
               <div class="tile-subject" title={item.subject}>{item.subject}</div>
               <div class="tile-status">
-                <span class="status-text" style={`color: ${item.status.color}`}>{item.status.title}</span>
+                <span class="status-chip" style={`--status: ${item.status.color}`}>
+                  <span class="status-chip-text">{item.status.title}</span>
+                </span>
                 {#if item.is_overdue}<span class="overdue">Просрочена</span>{/if}
               </div>
               <div class="tile-meta">
                 {#if isStaff}
-                  <span class="meta-item" title={item.client.name}>{item.client.name}</span>
+                  <span class="meta-item" title={item.client.name}>
+                    <Icon name="clients" size={13} />
+                    <span class="meta-text">{item.client.name}</span>
+                  </span>
                 {/if}
-                <span class="meta-item">
-                  {#if item.manager}
-                    {item.manager.name}
-                  {:else}
-                    <span class="search-badge">поиск менеджера</span>
-                  {/if}
+                <span
+                  class="meta-item"
+                  title={item.manager ? item.manager.name : 'Поиск менеджера'}
+                >
+                  <Icon name="staff" size={13} />
+                  <span class="meta-text">
+                    {#if item.manager}
+                      {item.manager.name}
+                    {:else}
+                      <span class="search-badge">поиск менеджера</span>
+                    {/if}
+                  </span>
                 </span>
-                <span class="meta-item meta-count">номенклатуры: {item.items_count}</span>
+                {#if item.due_at}
+                  <span class="meta-item" class:is-overdue={item.is_overdue} title="Срок исполнения">
+                    <Icon name="calendar" size={13} />
+                    <span class="meta-text">до {formatDate(item.due_at)}</span>
+                  </span>
+                {/if}
+                <span class="meta-item meta-count" title="Номенклатуры в заявке">
+                  <Icon name="stocks" size={13} />
+                  <span>{item.items_count} поз.</span>
+                </span>
               </div>
             </a>
           {/each}
@@ -1082,31 +1088,64 @@
     </div>
   </Modal>
 
-  <Modal open={warehouseOpen} title="Склады" onclose={() => (warehouseOpen = false)}>
-    <div class="sort-options">
-      <div class="options-head">
-        <button type="button" class="link-btn" onclick={selectAllWarehouses}>Отметить все</button>
-        <button type="button" class="link-btn" onclick={clearAllWarehouses}>Снять все</button>
+  <Modal open={helpOpen} title="Как пользоваться" onclose={() => (helpOpen = false)} wide>
+    <div class="help">
+      <p class="help-intro">
+        Эта страница показывает заявки клиентов. Ниже — краткая справка по кнопкам и возможностям
+        страницы.
+      </p>
+
+      <div class="help-block">
+        <h3>Кнопки сверху</h3>
+        <ul>
+          <li>
+            <b>Значок сортировки</b> (стрелки ↑↓) — расставить заявки по порядку. Можно задать
+            несколько условий: например, «сначала по статусу, потом по дате». Стрелка вверх — по
+            возрастанию, вниз — по убыванию.
+          </li>
+          <li>
+            <b>Значок вида</b> (квадратики) — показать заявки списком или плитками и открыть
+            фильтры: статусы{#if warehouses.length > 0}, склады{/if}{#if isStaff}, клиент,
+            менеджеры{/if}, просрочка и период. Выбор запоминается.
+          </li>
+          <li>
+            <b>Черновики</b> — незавершённые заявки. Их можно продолжить или удалить.
+          </li>
+          {#if appSettings.salesEnabled && auth.can('requests.create')}
+            <li><b>Лист с плюсом</b> — создать новую заявку.</li>
+          {/if}
+          <li>
+            <b>Экспорт</b> (стрелка вниз) — скачать список заявок файлом: Excel, CSV, TXT или PDF.
+            Можно отправить файл на почту, если почта настроена.
+          </li>
+        </ul>
       </div>
 
-      {#each warehouses as warehouse (warehouse.id)}
-        <label class="sort-option warehouse-option">
-          <input type="checkbox" value={warehouse.id} bind:group={warehouseDraft} />
-          <span class="warehouse-option-name" title={warehouse.name}>{warehouse.name}</span>
-          <span
-            class="count"
-            class:found={warehouse.count > 0}
-            class:zero={warehouse.count === 0}
-            title="Активные заявки"
-          >
-            {warehouse.count}
-          </span>
-        </label>
-      {/each}
-    </div>
-    <div class="modal-actions">
-      <Button variant="ghost" onclick={() => (warehouseOpen = false)}>Отмена</Button>
-      <Button onclick={applyWarehouse}>Применить</Button>
+      <div class="help-block">
+        <h3>Поиск</h3>
+        <p>
+          Поле поиска ищет по теме, клиенту, номеру, телефону и описанию заявки. Начните вводить —
+          список обновится сам. Крестик в поле очищает поиск, а по пустому полю можно открыть
+          прошлые запросы.
+        </p>
+      </div>
+
+      <div class="help-block">
+        <h3>Список заявок</h3>
+        <p>
+          В строке видны номер, тема, {#if isStaff}клиент, {/if}менеджер, количество номенклатуры,
+          статус, просрочка и дата. Нажмите на заявку, чтобы открыть её карточку: там история,
+          комментарии, состав и чат.
+        </p>
+      </div>
+
+      <div class="help-block">
+        <h3>Сколько показывать</h3>
+        <p>
+          Внизу списка есть «Показывать»: 10, 20, 50 или 100 заявок на странице. Выбор
+          запоминается.
+        </p>
+      </div>
     </div>
   </Modal>
 
@@ -1134,6 +1173,19 @@
         maxHeight="300px"
       />
     </div>
+
+    {#if warehouses.length > 0}
+      <div class="filter-group">
+        <span class="filter-label" title="Если ничего не выбрано — все склады">Склады</span>
+        <MultiSelect
+          label="Склады"
+          options={warehouseOptions}
+          bind:values={warehouseDraft}
+          allLabel="Все склады"
+          emptyLabel="Нет складов"
+        />
+      </div>
+    {/if}
 
     {#if isStaff}
       <div class="filter-group">
@@ -1491,6 +1543,28 @@
     text-align: center;
   }
 
+  .create-request-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .create-request-plus {
+    position: absolute;
+    right: -6px;
+    bottom: -5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+  }
+
   .toolbar-divider {
     width: 1px;
     height: 24px;
@@ -1640,15 +1714,42 @@
     min-width: 0;
   }
 
-  .tile-status .status-text {
-    white-space: normal;
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: var(--bg);
+    background: color-mix(in srgb, var(--status) 10%, var(--surface));
+    color: var(--status);
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.6;
+  }
+
+  .status-chip::before {
+    content: '';
+    flex: 0 0 auto;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .status-chip-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .tile-meta {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 4px 10px;
+    gap: 6px 14px;
     margin-top: auto;
     padding-top: 8px;
     border-top: 1px solid var(--border-secondary);
@@ -1657,17 +1758,22 @@
   }
 
   .meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
     min-width: 0;
     max-width: 100%;
+  }
+
+  .meta-text {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .tile-meta .meta-item + .meta-item:not(.meta-count)::before {
-    content: '·';
-    margin-right: 6px;
-    color: var(--muted);
+  .meta-item.is-overdue {
+    color: var(--danger);
   }
 
   .meta-count {
@@ -2007,76 +2113,6 @@
     color: var(--text-description);
   }
 
-  .sort-options {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .options-head {
-    display: flex;
-    gap: var(--space-4);
-    margin-bottom: var(--space-1);
-    padding-bottom: var(--space-2);
-    border-bottom: 1px solid var(--border-secondary);
-  }
-
-  .link-btn {
-    padding: 0;
-    border: none;
-    background: none;
-    font: inherit;
-    font-size: 13px;
-    color: var(--primary);
-    cursor: pointer;
-  }
-
-  .link-btn:hover {
-    color: var(--primary-hover);
-    text-decoration: underline;
-  }
-
-  .sort-option {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    font-size: 14px;
-    cursor: pointer;
-  }
-
-  .sort-option input[type='checkbox'] {
-    width: 16px;
-    height: 16px;
-    margin: 0;
-    accent-color: var(--primary);
-    cursor: pointer;
-  }
-
-  .warehouse-option-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .count {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .count.found {
-    padding: 1px 7px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--primary) 12%, white);
-    color: var(--primary);
-    font-weight: 600;
-  }
-
-  .count.zero {
-    opacity: 0.55;
-  }
-
   .sort-list {
     display: flex;
     flex-direction: column;
@@ -2285,4 +2321,40 @@
     color: var(--danger);
   }
 
+  .help {
+    font-size: 14px;
+  }
+
+  .help-intro {
+    margin: 0 0 var(--space-4);
+    font-size: 14px;
+    color: var(--muted);
+  }
+
+  .help-block {
+    margin-bottom: var(--space-4);
+  }
+
+  .help-block:last-child {
+    margin-bottom: 0;
+  }
+
+  .help-block h3 {
+    margin: 0 0 var(--space-2);
+    font-size: 15px;
+  }
+
+  .help-block p {
+    margin: 0;
+    font-size: 14px;
+  }
+
+  .help ul {
+    margin: 0;
+    padding-left: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 14px;
+  }
 </style>

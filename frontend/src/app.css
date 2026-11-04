@@ -102,7 +102,7 @@ main:has(.page-wide) {
 }
 
 .filter-field select,
-.filter-field input {
+.filter-field input:not([type='checkbox']):not([type='radio']) {
   padding: 4px 11px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -141,7 +141,7 @@ main:has(.page-wide) {
 
 .filters-form .filter-fields {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
   margin-top: var(--space-4);
 }
@@ -159,7 +159,7 @@ main:has(.page-wide) {
   font-size: 13px;
 }
 
-.filters-form .filter-field input,
+.filters-form .filter-field input:not([type='checkbox']):not([type='radio']),
 .filters-form .filter-field select {
   width: 100%;
   height: 34px;
@@ -173,32 +173,39 @@ main:has(.page-wide) {
   box-sizing: border-box;
 }
 
-.filters-form .filter-field input:focus,
+.filters-form .filter-field input:not([type='checkbox']):not([type='radio']):focus,
 .filters-form .filter-field select:focus {
   border-color: var(--primary);
   outline: none;
 }
 
-.filters-form .filter-field input:disabled {
+.filters-form .filter-field input:not([type='checkbox']):not([type='radio']):disabled {
   background: var(--fill-tertiary);
   color: var(--text-description);
   cursor: not-allowed;
 }
 
 .filters-form .view-period {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
   gap: var(--space-3);
   margin-top: var(--space-4);
 }
 
 .filters-form .modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
   gap: var(--space-2);
   margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  padding-right: 14px;
+  border-top: 1px solid var(--border-secondary);
+  background: var(--surface);
 }
 
 .crm-tooltip {

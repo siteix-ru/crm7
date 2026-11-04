@@ -17,12 +17,13 @@
     onclose: () => void;
     onchange?: (items: CreateRequestItem[]) => void;
     clientId?: number;
+    priceTypeId?: number;
   }
 
   const MAX_ITEMS = 50;
   const PER_PAGE = 50;
 
-  let { open, items, onclose, onchange, clientId = 0 }: Props = $props();
+  let { open, items, onclose, onchange, clientId = 0, priceTypeId = 0 }: Props = $props();
 
   let warehouses = $state<{ id: number; name: string; positions: number }[]>([]);
   let groups = $state<ItemGroup[]>([]);
@@ -43,6 +44,7 @@
 
   let loadSeq = 0;
   let loadedClientId = -1;
+  let loadedPriceTypeId = -1;
 
   const pricesEnabled = $derived(appSettings.pricesEnabled);
   const groupsEnabled = $derived(appSettings.groupsEnabled);
@@ -65,9 +67,15 @@
 
   $effect(() => {
     void clientId;
+    void priceTypeId;
 
-    if (open && initialized && loadedClientId !== clientId) {
+    if (
+      open
+      && initialized
+      && (loadedClientId !== clientId || loadedPriceTypeId !== priceTypeId)
+    ) {
       loadedClientId = clientId;
+      loadedPriceTypeId = priceTypeId;
       void refresh();
     }
   });
@@ -104,6 +112,7 @@
 
   async function init(): Promise<void> {
     loadedClientId = clientId;
+    loadedPriceTypeId = priceTypeId;
     draft = items.map((item) => ({ ...item }));
     searchInput = '';
     query = '';
@@ -156,7 +165,7 @@
 
     try {
       const [listResult, countsResult] = await Promise.allSettled([
-        listLevels([activeId], filters, 1, PER_PAGE, clientId),
+        listLevels([activeId], filters, 1, PER_PAGE, clientId, priceTypeId),
         searchCounts(filters)
       ]);
 
@@ -201,7 +210,7 @@
     loadingMore = true;
 
     try {
-      const result = await listLevels([activeId], currentFilters(), nextPage, PER_PAGE, clientId);
+      const result = await listLevels([activeId], currentFilters(), nextPage, PER_PAGE, clientId, priceTypeId);
 
       if (seq !== loadSeq) {
         return;
@@ -304,6 +313,10 @@
         position === index ? { ...item, quantity: next } : item
       );
     }
+  }
+
+  function clearDraft(): void {
+    draft = [];
   }
 
   function apply(): void {
@@ -409,7 +422,7 @@
           {#if pricesEnabled}
             <span class="num">Цена</span>
           {/if}
-          <span class="num">Корзина</span>
+          <span class="num">В заявке</span>
         </div>
         {#each levels as level (level.id)}
           {@const picked = quantity(level)}
@@ -508,6 +521,9 @@
         {/if}
       </span>
       <div class="picker-footer-actions">
+        {#if draft.length > 0}
+          <Button variant="ghost" onclick={clearDraft}>Очистить</Button>
+        {/if}
         <Button variant="ghost" onclick={onclose}>Отмена</Button>
         <Button onclick={apply}>
           <Icon name="check" size={14} />
@@ -838,6 +854,8 @@
 
   .picker-footer-actions {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
     gap: var(--space-2);
     margin-left: auto;
   }

@@ -24,8 +24,8 @@ final class RequestRepository
         $pdo = Database::pdo();
 
         $stmt = $pdo->prepare(
-            'INSERT INTO requests (subject, body, client_id, manager_id, status_id, priority, source, due_at, substitution_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR), ?)'
+            'INSERT INTO requests (subject, body, client_id, manager_id, status_id, priority, price_type_id, source, due_at, substitution_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, DATE_ADD(NOW(), INTERVAL ? HOUR), ?)'
         );
 
         $stmt->execute([
@@ -35,6 +35,7 @@ final class RequestRepository
             $data['manager_id'],
             $data['status_id'],
             $data['priority'],
+            $data['price_type_id'] ?? null,
             $data['source'],
             $data['sla_hours'],
             $data['substitution_id'] ?? null,

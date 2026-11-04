@@ -20,6 +20,7 @@
     ariaDescribedby?: string;
     id?: string;
     onblur?: (event: FocusEvent) => void;
+    inline?: boolean;
   }
 
   let {
@@ -40,11 +41,12 @@
     ariaInvalid,
     ariaDescribedby,
     id,
-    onblur
+    onblur,
+    inline = false
   }: Props = $props();
 </script>
 
-<label class="field">
+<label class="field" class:inline>
   {#if label}
     <span class="label">{label}</span>
   {/if}
@@ -77,6 +79,24 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-1);
+  }
+
+  .field.inline {
+    display: grid;
+    grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1.4fr);
+    gap: var(--space-3);
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-secondary);
+  }
+
+  .field.inline .label {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .field.inline .error {
+    grid-column: 2;
   }
 
   .label {

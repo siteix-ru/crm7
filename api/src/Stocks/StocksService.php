@@ -104,7 +104,8 @@ final class StocksService
         array $filters,
         int $page,
         int $perPage,
-        int $clientId = 0
+        int $clientId = 0,
+        int $priceTypeId = 0
     ): array {
         $warehouseIds = array_values(array_unique(array_filter(
             array_map('intval', $warehouseIds),
@@ -130,7 +131,7 @@ final class StocksService
         $perPage = $perPage <= 0 ? 0 : max(10, min(100, $perPage));
         $filters = $this->applyActiveFilter($capabilities, self::normalizeFilters($filters));
 
-        $priceContext = $this->priceContext($user, $clientId);
+        $priceContext = $this->priceContext($user, $clientId, $priceTypeId);
         $typeIds = $priceContext['type_ids'];
         $assignedTypes = $priceContext['types'];
         $assignedTypeIds = array_map(static fn (array $type): int => (int) $type['id'], $assignedTypes);
@@ -700,7 +701,7 @@ final class StocksService
      *
      * @return array{user: array, type_ids: int[], types: array<int, array{id:int,title:string}>}
      */
-    private function priceContext(array $user, int $clientId): array
+    private function priceContext(array $user, int $clientId, int $priceTypeId = 0): array
     {
         $target = $user;
 
@@ -716,9 +717,14 @@ final class StocksService
             return ['user' => $target, 'type_ids' => [], 'types' => []];
         }
 
+        $availableIds = $this->prices->availableTypeIdsForUser($target);
+        $typeIds = $priceTypeId > 0 && in_array($priceTypeId, $availableIds, true)
+            ? [$priceTypeId]
+            : $availableIds;
+
         return [
             'user' => $target,
-            'type_ids' => $this->prices->availableTypeIdsForUser($target),
+            'type_ids' => $typeIds,
             'types' => $this->prices->assignedTypesForUser($target),
         ];
     }

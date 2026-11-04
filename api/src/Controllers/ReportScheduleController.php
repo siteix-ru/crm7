@@ -18,21 +18,21 @@ final class ReportScheduleController extends ApiController
 
     public function index(Request $request): Response
     {
-        $this->requireSettings($request);
+        $this->requireTechAdmin($request);
 
         return Response::ok($this->service->listSchedules());
     }
 
     public function create(Request $request): Response
     {
-        [$user] = $this->requireSettings($request);
+        [$user] = $this->requireTechAdmin($request);
 
         return Response::ok($this->service->saveSchedule(null, $request->bodyAll(), (int) $user['ID']), 201);
     }
 
     public function update(Request $request, array $params): Response
     {
-        [$user] = $this->requireSettings($request);
+        [$user] = $this->requireTechAdmin($request);
 
         return Response::ok($this->service->saveSchedule(
             (int) ($params['id'] ?? 0),
@@ -43,7 +43,7 @@ final class ReportScheduleController extends ApiController
 
     public function remove(Request $request, array $params): Response
     {
-        $this->requireSettings($request);
+        $this->requireTechAdmin($request);
         $this->service->deleteSchedule((int) ($params['id'] ?? 0));
 
         return Response::ok(['deleted' => true]);
@@ -51,20 +51,21 @@ final class ReportScheduleController extends ApiController
 
     public function send(Request $request, array $params): Response
     {
-        $this->requireSettings($request);
+        $this->requireTechAdmin($request);
 
         return Response::ok($this->service->sendScheduleNow((int) ($params['id'] ?? 0)));
     }
 
-    private function requireSettings(Request $request): array
+    private function requireTechAdmin(Request $request): array
     {
         [$user, $capabilities] = $this->context($request);
 
-        if (
-            !in_array('settings.manage', $capabilities, true) &&
-            !in_array('mail.send', $capabilities, true)
-        ) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав');
+        if (!in_array('roles.manage', $capabilities, true)) {
+            throw new HttpException(
+                403,
+                'forbidden',
+                'Доступно только техническому администратору'
+            );
         }
 
         return [$user, $capabilities];

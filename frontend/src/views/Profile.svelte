@@ -271,7 +271,7 @@
         </div>
         <div class="head-text">
           <h1>{auth.name}</h1>
-          <p class="sub">{roleTitle} · {auth.user?.login ?? '—'}</p>
+          <p class="sub">{roleTitle}</p>
         </div>
       </div>
 

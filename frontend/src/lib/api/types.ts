@@ -474,8 +474,10 @@ export interface ItemGroupItem {
 export interface PricePreview {
   enabled: boolean;
   type: { id: number; title: string } | null;
+  types: { id: number; title: string }[];
   items: { price: number | null; sum: number | null }[];
   total: number | null;
+  requires_type: boolean;
 }
 
 export interface RoleInfo {

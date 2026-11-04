@@ -462,21 +462,35 @@
           onclick={() =>
             router.navigate(tab === 'staff' ? '/staff/new' : '/staff/substitutions/new')}
         >
-          <Icon name="plus" size={16} />
+          {#if tab === 'staff'}
+            <span class="create-staff-icon">
+              <Icon name="staff" size={16} />
+              <span class="create-staff-plus" aria-hidden="true">
+                <Icon name="plus" size={10} />
+              </span>
+            </span>
+          {:else}
+            <span class="create-staff-icon">
+              <Icon name="substitutions" size={16} />
+              <span class="create-staff-plus" aria-hidden="true">
+                <Icon name="plus" size={10} />
+              </span>
+            </span>
+          {/if}
         </button>
 
         <span class="toolbar-divider" aria-hidden="true"></span>
       {/if}
 
-      {#if showSubstitutionsTab}
+      {#if showSubstitutionsTab && tab === 'staff'}
         <button
           type="button"
           class="sort-button"
-          title={tab === 'staff' ? 'Замещения' : 'Сотрудники'}
-          aria-label={tab === 'staff' ? 'Замещения' : 'Сотрудники'}
-          onclick={() => router.navigate(tab === 'staff' ? '/substitutions' : '/staff')}
+          title="Замещения"
+          aria-label="Замещения"
+          onclick={() => router.navigate('/substitutions')}
         >
-          <Icon name={tab === 'staff' ? 'substitutions' : 'staff'} size={16} />
+          <Icon name="substitutions" size={16} />
         </button>
 
         <span class="toolbar-divider" aria-hidden="true"></span>
@@ -882,6 +896,28 @@
     height: 6px;
     border-radius: 50%;
     background: var(--primary);
+  }
+
+  .create-staff-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .create-staff-plus {
+    position: absolute;
+    right: -6px;
+    bottom: -5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
   }
 
   .alert {

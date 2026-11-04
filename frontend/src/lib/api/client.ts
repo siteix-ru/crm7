@@ -109,6 +109,7 @@ export interface ApiRequestOptions {
   body?: unknown;
   auth?: boolean;
   signal?: AbortSignal;
+  keepalive?: boolean;
 }
 
 export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
@@ -232,7 +233,8 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       method,
       headers,
       body,
-      signal: options.signal
+      signal: options.signal,
+      keepalive: options.keepalive
     });
   } catch (error) {
     throw new ApiError('network', error instanceof Error ? error.message : 'network error');

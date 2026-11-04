@@ -451,11 +451,22 @@ final class ChatService
 
         $peer = $this->users->findById($peerId);
 
-        if ($peer === null || ($peer['ACTIVE'] ?? 'N') !== 'Y') {
+        if ($peer === null) {
             throw new HttpException(422, 'validation_error', 'Собеседник не найден');
         }
 
         if ((int) $peer['LEVEL'] === 5) {
+            if (($peer['ACTIVE'] ?? 'N') !== 'Y') {
+                throw new HttpException(422, 'validation_error', 'Собеседник не найден');
+            }
+
+            if (
+                !in_array('clients.assign', $capabilities, true)
+                && !$this->clientManagers->canManage($user, $capabilities, $peerId)
+            ) {
+                throw new HttpException(403, 'forbidden', 'Нет доступа к чату клиента');
+            }
+
             $thread = $this->ensureThread($peerId);
 
             return ['id' => (int) ($thread['ID'] ?? 0)];

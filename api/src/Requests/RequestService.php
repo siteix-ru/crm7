@@ -562,6 +562,26 @@ final class RequestService
             throw new HttpException(422, 'client_required', 'Выберите клиента, к которому привязать заявку');
         }
 
+        $targetClient = $newClient !== null
+            ? ['ID' => 0, 'LEVEL' => 5]
+            : $this->users->findById($clientId);
+        $availableTypes = $this->prices->availableTypesForUser($targetClient);
+        $availableIds = array_map(static fn (array $type): int => (int) $type['id'], $availableTypes);
+        $requestedTypeId = (int) ($input['price_type_id'] ?? 0);
+        $priceTypeId = 0;
+
+        if ($requestedTypeId > 0) {
+            if (!in_array($requestedTypeId, $availableIds, true)) {
+                throw new HttpException(422, 'price_type_invalid', 'Выбранный тип цены недоступен клиенту');
+            }
+
+            $priceTypeId = $requestedTypeId;
+        } elseif (count($availableIds) === 1) {
+            $priceTypeId = $availableIds[0];
+        } elseif (count($availableIds) > 1) {
+            throw new HttpException(422, 'price_type_required', 'Выберите тип цены для заявки');
+        }
+
         $managerId = (int) $user['LEVEL'] >= 10 ? (int) $user['ID'] : null;
         $substitutionId = null;
 
@@ -596,7 +616,7 @@ final class RequestService
 
             $items = $this->prices->attachPrices(
                 $items,
-                $this->prices->availableTypeIdsForUser($this->users->findById($clientId))
+                $priceTypeId > 0 ? [$priceTypeId] : []
             );
 
             $id = $this->requests->create([
@@ -606,6 +626,7 @@ final class RequestService
                 'manager_id' => $managerId,
                 'status_id' => 'new',
                 'priority' => $priority,
+                'price_type_id' => $priceTypeId > 0 ? $priceTypeId : null,
                 'source' => 'cabinet',
                 'sla_hours' => $slaHours,
                 'substitution_id' => $substitutionId,
@@ -697,17 +718,44 @@ final class RequestService
         }
 
         if (!$this->prices->enabled()) {
-            return ['enabled' => false, 'type' => null, 'items' => [], 'total' => null];
+            return [
+                'enabled' => false,
+                'type' => null,
+                'types' => [],
+                'items' => [],
+                'total' => null,
+                'requires_type' => false,
+            ];
         }
 
-        $typeIds = $this->prices->availableTypeIdsForUser($target);
-        $rows = $this->prices->previewRows($this->prices->attachPrices($items, $typeIds));
+        $availableTypes = $this->prices->availableTypesForUser($target);
+        $availableIds = array_map(static fn (array $type): int => (int) $type['id'], $availableTypes);
+        $requestedTypeId = (int) ($input['price_type_id'] ?? 0);
+        $selectedTypeId = 0;
+
+        if ($requestedTypeId > 0) {
+            if (!in_array($requestedTypeId, $availableIds, true)) {
+                throw new HttpException(422, 'price_type_invalid', 'Выбранный тип цены недоступен клиенту');
+            }
+
+            $selectedTypeId = $requestedTypeId;
+        } elseif (count($availableIds) === 1) {
+            $selectedTypeId = $availableIds[0];
+        }
+
+        $rows = $this->prices->previewRows($this->prices->attachPrices(
+            $items,
+            $selectedTypeId > 0 ? [$selectedTypeId] : $availableIds
+        ));
+        $type = $selectedTypeId > 0 ? $this->prices->findType($selectedTypeId) : null;
 
         return [
             'enabled' => true,
-            'type' => null,
+            'type' => $type !== null ? ['id' => (int) $type['id'], 'title' => (string) $type['title']] : null,
+            'types' => $availableTypes,
             'items' => $rows,
-            'total' => $this->prices->total($rows),
+            'total' => $availableIds !== [] ? $this->prices->total($rows) : null,
+            'requires_type' => count($availableIds) > 1 && $selectedTypeId === 0,
         ];
     }
 
@@ -735,10 +783,12 @@ final class RequestService
 
             $this->assertVersion($version, $request);
 
-            $items = $this->prices->attachPrices(
-                $items,
-                $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']))
-            );
+            $priceTypeId = (int) ($request['price_type_id'] ?? 0);
+            $typeIds = $priceTypeId > 0
+                ? [$priceTypeId]
+                : $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']));
+
+            $items = $this->prices->attachPrices($items, $typeIds);
 
             $before = $this->requests->itemsForRequests([$id])[$id] ?? [];
 
@@ -879,10 +929,12 @@ final class RequestService
                     throw new HttpException(403, 'sales_disabled', 'Продажи отключены: изменение состава заявки недоступно');
                 }
 
-                $items = $this->prices->attachPrices(
-                    $items,
-                    $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']))
-                );
+                $priceTypeId = (int) ($request['price_type_id'] ?? 0);
+                $typeIds = $priceTypeId > 0
+                    ? [$priceTypeId]
+                    : $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']));
+
+                $items = $this->prices->attachPrices($items, $typeIds);
 
                 $this->requests->replaceItems($id, $items);
                 $this->reservations->apply($id, $items);

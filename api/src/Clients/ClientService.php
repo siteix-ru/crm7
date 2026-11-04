@@ -17,6 +17,7 @@ use App\Repositories\TokenRepository;
 use App\Repositories\UserHistoryRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\ViewLogRepository;
+use App\Users\AvatarService;
 
 final class ClientService
 {
@@ -30,7 +31,8 @@ final class ClientService
         private readonly PriceService $prices = new PriceService(),
         private readonly TokenRepository $tokens = new TokenRepository(),
         private readonly ResetRepository $resets = new ResetRepository(),
-        private readonly MailService $mail = new MailService()
+        private readonly MailService $mail = new MailService(),
+        private readonly AvatarService $avatars = new AvatarService()
     ) {
     }
 
@@ -137,6 +139,22 @@ final class ClientService
             'email_sent' => $mailSent,
             'email' => $email,
         ];
+    }
+
+    public function uploadAvatar(array $actor, array $capabilities, int $clientId, array $file): array
+    {
+        $client = $this->assertClient($clientId);
+        $this->assertCanManageAccount($actor, $capabilities, $clientId);
+
+        return $this->avatars->store($client, $file, $actor, 'client');
+    }
+
+    public function deleteAvatar(array $actor, array $capabilities, int $clientId): array
+    {
+        $client = $this->assertClient($clientId);
+        $this->assertCanManageAccount($actor, $capabilities, $clientId);
+
+        return $this->avatars->remove($client, $actor, 'client');
     }
 
     public function updateContacts(array $actor, array $capabilities, int $clientId, array $input): array

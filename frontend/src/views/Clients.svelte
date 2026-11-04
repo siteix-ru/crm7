@@ -411,7 +411,12 @@
           aria-label="Создать клиента"
           onclick={() => router.navigate('/clients/new')}
         >
-          <Icon name="plus" size={16} />
+          <span class="create-client-icon">
+            <Icon name="user" size={16} />
+            <span class="create-client-plus" aria-hidden="true">
+              <Icon name="plus" size={10} />
+            </span>
+          </span>
         </button>
 
         <span class="toolbar-divider" aria-hidden="true"></span>
@@ -981,6 +986,28 @@
     background: var(--primary);
   }
 
+  .create-client-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .create-client-plus {
+    position: absolute;
+    right: -6px;
+    bottom: -5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+  }
+
   .sort-hint {
     margin: 0 0 var(--space-2);
     font-size: 13px;
@@ -1004,6 +1031,11 @@
     border-radius: var(--radius-sm);
   }
 
+  .sort-row.active {
+    border-color: var(--primary-border);
+    background: var(--primary-bg);
+  }
+
   .sort-row.drag-over {
     border-color: var(--primary);
     box-shadow: inset 0 2px 0 var(--primary);
@@ -1018,6 +1050,10 @@
     height: 24px;
     color: var(--text-description);
     cursor: grab;
+  }
+
+  .sort-drag:active {
+    cursor: grabbing;
   }
 
   .sort-drag.off {
@@ -1040,17 +1076,14 @@
   }
 
   .sort-row-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  .sort-row.active .sort-row-label {
     color: var(--text);
     font-weight: 600;
-  }
-
-  .sort-row:not(.active) .sort-row-label {
-    color: var(--muted);
-    font-weight: 400;
-  }
-
-  .sort-row .dir-btn {
-    margin-left: auto;
   }
 
   .dir-btn {
@@ -1069,8 +1102,8 @@
   }
 
   .dir-btn:hover {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
+    border-color: var(--primary);
+    color: var(--primary);
   }
 
   .dir-btn.on {
@@ -1086,6 +1119,13 @@
     justify-content: flex-end;
     gap: var(--space-2);
     margin-top: var(--space-4);
+  }
+
+  .modal-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-left: auto;
   }
 
   .ellipsis {

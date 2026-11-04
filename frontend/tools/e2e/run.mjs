@@ -162,12 +162,68 @@ const scenarios = [
 
       await expectVisible(page.locator('.client-selected'), 'после выбора нет подтверждения клиента');
       await expectVisible(page.getByText(/ИНН 7700000003/), 'в выбранном клиенте нет ИНН');
+
+      const priceType = page.getByLabel('Тип цены');
+
+      if ((await priceType.count()) > 0) {
+        const current = await priceType.inputValue();
+
+        if (!current || current === '0') {
+          await priceType.selectOption({ index: 1 });
+        }
+      }
+
       assert(!(await submit.isDisabled()), 'после выбора клиента создание заявки должно быть доступно');
 
       await page.locator('.cs-clear').click();
       await expectVisible(input, 'после сброса не вернулось поле поиска');
       await input.fill('Иванов');
       assert(await submit.isDisabled(), 'введённый вручную текст без выбора не должен проходить проверку');
+    }
+  },
+  {
+    name: 'новая заявка: черновик сохраняется и переживает перезагрузку',
+    role: 'manager',
+    async run(page, { session }) {
+      await page.goto(`${BASE}/#/requests/new`, { waitUntil: 'domcontentloaded' });
+
+      const subject = page.getByLabel('Тема заявки');
+      const value = `Черновик e2e ${Date.now()}`;
+
+      await expectVisible(subject, 'нет поля «Тема заявки»');
+      await subject.fill(value);
+      await expectVisible(page.getByText(/Черновик сохранён/), 'черновик не сохранился автоматически');
+
+      const match = page.url().match(/draft=(\d+)/);
+
+      assert(match, 'после сохранения черновика в адресе нет draft=');
+
+      const draftId = Number(match[1]);
+      const updated = `${value} — дополнено`;
+
+      await subject.fill(updated);
+      await page.waitForTimeout(2500);
+
+      const afterUpdate = page.url().match(/draft=(\d+)/);
+
+      assert(
+        afterUpdate !== null && Number(afterUpdate[1]) === draftId,
+        'при изменении черновика создаётся новый вместо обновления текущего'
+      );
+
+      try {
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        await expectVisible(subject, 'после перезагрузки нет поля «Тема заявки»');
+        await page.waitForTimeout(1000);
+        assert((await subject.inputValue()) === updated, 'после перезагрузки тема черновика не восстановилась');
+      } finally {
+        if (session?.token) {
+          await fetch(`${API}/request-drafts/${draftId}`, {
+            method: 'DELETE',
+            headers: { Authorization: `Bearer ${session.token}` }
+          }).catch(() => {});
+        }
+      }
     }
   },
   {
@@ -181,11 +237,11 @@ const scenarios = [
       await expectVisible(card, 'нет заявки с позициями в списке');
       await card.click();
 
-      await expectVisible(page.getByRole('button', { name: /^Состав/ }), 'нет вкладки «Состав»');
+      await expectVisible(page.getByRole('button', { name: /^Заявка/ }), 'нет вкладки «Заявка»');
       await expectVisible(page.getByRole('button', { name: /^Комментарии/ }), 'нет вкладки «Комментарии»');
       await expectVisible(page.getByRole('button', { name: /^История/ }), 'нет вкладки «История»');
 
-      await page.getByRole('button', { name: /^Состав/ }).click();
+      await page.getByRole('button', { name: /^Заявка/ }).click();
       await expectVisible(page.locator('.it-row:not(.it-head)').first(), 'в составе нет позиций');
 
       await page.getByRole('button', { name: /^История/ }).click();
@@ -215,10 +271,19 @@ const scenarios = [
       const priceCard = page.locator('section.card', { hasText: 'Типы цен' });
 
       if ((await priceCard.count()) > 0) {
-        const firstPrice = priceCard.locator('.price-toggle').first();
+        const priceTrigger = priceCard.getByRole('button', { name: 'Типы цен' });
 
-        if ((await firstPrice.count()) > 0) {
-          await firstPrice.click();
+        if ((await priceTrigger.count()) > 0) {
+          await priceTrigger.click();
+
+          const firstOption = page
+            .getByRole('listbox', { name: 'Типы цен' })
+            .getByRole('checkbox')
+            .first();
+
+          if ((await firstOption.count()) > 0) {
+            await firstOption.check();
+          }
         }
       }
 

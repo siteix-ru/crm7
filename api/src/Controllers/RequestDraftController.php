@@ -19,7 +19,9 @@ final class RequestDraftController extends ApiController
     {
         [$user, $capabilities] = $this->context($request);
 
-        return Response::ok($this->service->list($user, $capabilities));
+        return Response::ok(
+            $this->service->list($user, $capabilities, (int) $request->queryParam('client_id', '0'))
+        );
     }
 
     public function show(Request $request, array $params): Response

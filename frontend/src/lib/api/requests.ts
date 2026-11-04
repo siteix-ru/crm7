@@ -163,6 +163,7 @@ export interface CreateRequestPayload {
   body?: string;
   priority?: number;
   client_id?: number;
+  price_type_id?: number;
   new_client?: NewClientPayload;
   items?: CreateRequestItem[];
 }
@@ -185,7 +186,7 @@ export function createRequest(payload: CreateRequestPayload): Promise<CreateRequ
 export function previewRequestPrices(
   items: CreateRequestItem[],
   clientId = 0,
-  newClient = false
+  priceTypeId = 0
 ): Promise<PricePreview> {
   return apiRequest<PricePreview>('/requests/price-preview', {
     method: 'POST',
@@ -193,7 +194,7 @@ export function previewRequestPrices(
     body: {
       items,
       client_id: clientId > 0 ? clientId : undefined,
-      new_client: newClient ? true : undefined
+      price_type_id: priceTypeId > 0 ? priceTypeId : undefined
     }
   });
 }

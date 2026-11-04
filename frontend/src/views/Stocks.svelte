@@ -1097,6 +1097,8 @@
               <Icon name="price" size={16} />
             </button>
           {/if}
+
+          <span class="toolbar-divider" aria-hidden="true"></span>
         {/if}
 
         {#if canEdit}
@@ -1107,9 +1109,16 @@
             aria-label="Добавить номенклатуру"
             onclick={() => router.navigate('/stocks/items/new')}
           >
-            <Icon name="plus" size={16} />
+            <span class="create-stock-icon">
+              <Icon name="stocks" size={16} />
+              <span class="create-stock-plus" aria-hidden="true">
+                <Icon name="plus" size={10} />
+              </span>
+            </span>
           </button>
         {/if}
+
+        <span class="toolbar-divider" aria-hidden="true"></span>
 
         {#if canImport}
           <button
@@ -1995,6 +2004,28 @@
     align-items: center;
     gap: var(--space-2);
     margin-left: auto;
+  }
+
+  .create-stock-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .create-stock-plus {
+    position: absolute;
+    right: -6px;
+    bottom: -5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
   }
 
   .sort-button {

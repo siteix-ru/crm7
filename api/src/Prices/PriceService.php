@@ -161,6 +161,36 @@ final class PriceService
     }
 
     /**
+     * Доступные пользователю типы цен с названиями.
+     *
+     * @return array<int, array{id:int,title:string}>
+     */
+    public function availableTypesForUser(?array $user): array
+    {
+        $ids = $this->availableTypeIdsForUser($user);
+
+        if ($ids === []) {
+            return [];
+        }
+
+        $byId = [];
+
+        foreach ($this->types() as $type) {
+            $byId[(int) $type['id']] = $type;
+        }
+
+        $result = [];
+
+        foreach ($ids as $id) {
+            if (isset($byId[$id])) {
+                $result[] = ['id' => (int) $id, 'title' => (string) $byId[$id]['title']];
+            }
+        }
+
+        return $result;
+    }
+
+    /**
      * Закреплённые типы цен пользователя (пусто, если ничего не закреплено).
      *
      * @return array<int, array{id:int,title:string}>

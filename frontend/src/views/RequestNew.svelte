@@ -1,10 +1,16 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
-  import { createRequest, getRequest, listClients, previewRequestPrices, type CreateRequestItem, type CreateRequestPayload, type CreatedClientAccess } from '../lib/api/requests';
+  import { createRequest, getRequest, listClients, previewRequestPrices, type CreateRequestItem, type CreateRequestPayload } from '../lib/api/requests';
   import { getClientCard } from '../lib/api/clients';
   import { listLevels } from '../lib/api/stocks';
-  import { createDraft, deleteDraft, getDraft, updateDraft } from '../lib/api/drafts';
+  import {
+    createDraft,
+    deleteDraft,
+    getDraft,
+    updateDraft,
+    type RequestDraftPayload
+  } from '../lib/api/drafts';
   import type { ClientItem } from '../lib/api/types';
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
@@ -15,12 +21,12 @@
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Input from '../lib/components/ui/Input.svelte';
-  import Modal from '../lib/components/ui/Modal.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import ItemsPicker from '../lib/components/requests/ItemsPicker.svelte';
 
   let subject = $state('');
   let body = $state('');
+  let descriptionOpen = $state(false);
   let priority = $state(2);
   let clientId = $state(0);
   let error = $state('');
@@ -42,6 +48,8 @@
   let priceRows = $state<{ price: number | null; sum: number | null }[]>([]);
   let priceTotal = $state<number | null>(null);
   let priceType = $state<{ id: number; title: string } | null>(null);
+  let priceTypeId = $state(0);
+  let priceTypes = $state<{ id: number; title: string }[]>([]);
   let previewTimer: ReturnType<typeof setTimeout> | null = null;
 
   const pricesEnabled = $derived(appSettings.pricesEnabled);
@@ -63,59 +71,26 @@
   let selectedClient = $state<PickedClient | null>(null);
   let clientTimer: ReturnType<typeof setTimeout> | null = null;
 
-  type ClientMode = 'existing' | 'new';
-  type NewClientForm = { name: string; inn: string; phone: string; email: string };
-
-  let clientMode = $state<ClientMode>('existing');
-  let newClient = $state<NewClientForm>({ name: '', inn: '', phone: '', email: '' });
-  let errorCode = $state('');
-  let clientAccess = $state<CreatedClientAccess | null>(null);
-  let createdRequestId = $state(0);
-  let accessCopied = $state(false);
-
   const canPickClient = $derived(auth.can('clients.view.all') || auth.can('clients.view.own'));
-  const canCreateClient = $derived(canPickClient && auth.level >= 10);
+  const canCreateClient = $derived(auth.level >= 10);
   const clientRequired = $derived(auth.level >= 10);
   const hasStockErrors = $derived(itemRows.some((row) => stockError(row)));
+  const totalQuantityText = $derived(
+    itemRows
+      .reduce((sum, row) => sum + Number(row.quantity || 0), 0)
+      .toLocaleString('ru-RU', { maximumFractionDigits: 3 })
+  );
 
-  const newClientErrors = $derived.by((): Partial<Record<keyof NewClientForm, string>> => {
-    if (clientMode !== 'new') {
-      return {};
-    }
-
-    const errors: Partial<Record<keyof NewClientForm, string>> = {};
-    const name = newClient.name.trim();
-    const inn = newClient.inn.replace(/\s+/g, '');
-    const phoneDigits = newClient.phone.replace(/\D+/g, '');
-    const email = newClient.email.trim();
-
-    if (name.length < 2) {
-      errors.name = 'Укажите название клиента';
-    }
-
-    if (inn !== '' && /^\d{10}(\d{2})?$/.test(inn) === false) {
-      errors.inn = 'ИНН — 10 или 12 цифр';
-    }
-
-    if (phoneDigits.length > 0 && (phoneDigits.length < 10 || phoneDigits.length > 15)) {
-      errors.phone = 'Телефон — от 10 до 15 цифр';
-    }
-
-    if (email !== '' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) === false) {
-      errors.email = 'Неверный формат e-mail';
-    }
-
-    return errors;
-  });
-
-  const clientReady = $derived(
-    clientMode === 'new' ? Object.keys(newClientErrors).length === 0 : clientId > 0
+  const clientReady = $derived(clientId > 0);
+  const priceTypeRequired = $derived(
+    pricesEnabled && priceTypes.length > 1 && priceTypeId === 0
   );
 
   const PRISTINE_PAYLOAD = JSON.stringify({
     subject: '',
     body: '',
     priority: 2,
+    price_type_id: 0,
     client_id: 0,
     items: []
   });
@@ -125,6 +100,7 @@
       subject: subject.trim(),
       body: body.trim(),
       priority,
+      price_type_id: priceTypeId,
       client_id: clientId,
       items: itemRows
     })
@@ -154,7 +130,7 @@
   $effect(() => {
     const payload = draftPayload;
 
-    if (!appSettings.salesEnabled || clientMode === 'new') {
+    if (!appSettings.salesEnabled) {
       return;
     }
 
@@ -166,13 +142,13 @@
       clearTimeout(saveTimer);
     }
 
-    saveTimer = setTimeout(() => void autoSave(payload), 1500);
+    saveTimer = setTimeout(() => void autoSave(payload), draftId === null ? 0 : 1500);
   });
 
   $effect(() => {
     const payload = itemsPayload;
     void clientId;
-    void clientMode;
+    void priceTypeId;
     void pricesEnabled;
 
     if (previewTimer !== null) {
@@ -184,11 +160,21 @@
       priceRows = [];
       priceTotal = null;
       priceType = null;
+      priceTypes = [];
 
       return;
     }
 
     if (draftLoading || submitting) {
+      return;
+    }
+
+    if (clientRequired && clientId === 0) {
+      priceRows = [];
+      priceTotal = null;
+      priceType = null;
+      priceTypes = [];
+
       return;
     }
 
@@ -198,18 +184,43 @@
   async function refreshPrices(payload: string): Promise<void> {
     const rows = JSON.parse(payload) as CreateRequestItem[];
 
-    if (rows.length === 0) {
-      priceRows = [];
-      priceTotal = 0;
-      priceType = null;
-
-      return;
-    }
-
     try {
-      const preview = await previewRequestPrices(rows, clientId, clientMode === 'new');
+      const preview = await previewRequestPrices(rows, clientId, priceTypeId);
 
       if (!preview.enabled) {
+        priceRows = [];
+        priceTotal = null;
+        priceType = null;
+        priceTypes = [];
+
+        return;
+      }
+
+      const types = preview.types ?? [];
+      priceTypes = types;
+
+      const availableIds = types.map((type) => type.id);
+      let nextTypeId = priceTypeId;
+
+      if (nextTypeId > 0 && !availableIds.includes(nextTypeId)) {
+        nextTypeId = 0;
+      }
+
+      if (nextTypeId === 0 && availableIds.length === 1) {
+        nextTypeId = availableIds[0];
+      }
+
+      if (nextTypeId !== priceTypeId) {
+        priceTypeId = nextTypeId;
+
+        if (nextTypeId > 0) {
+          void refreshPrices(payload);
+        }
+
+        return;
+      }
+
+      if (nextTypeId === 0 && availableIds.length > 1) {
         priceRows = [];
         priceTotal = null;
         priceType = null;
@@ -220,7 +231,11 @@
       priceRows = preview.items;
       priceTotal = preview.total;
       priceType = preview.type;
-    } catch {
+    } catch (cause) {
+      if (cause instanceof ApiError && cause.code === 'price_type_invalid') {
+        priceTypeId = 0;
+      }
+
       // предпросмотр цен не критичен: сервер пересчитает цены при создании заявки
     }
   }
@@ -231,6 +246,8 @@
       saveTimer = null;
     }
 
+    saveDraftOnPageHide();
+
     if (previewTimer !== null) {
       clearTimeout(previewTimer);
       previewTimer = null;
@@ -240,6 +257,12 @@
       clearTimeout(clientTimer);
       clientTimer = null;
     }
+  });
+
+  onMount(() => {
+    window.addEventListener('pagehide', saveDraftOnPageHide);
+
+    return () => window.removeEventListener('pagehide', saveDraftOnPageHide);
   });
 
   onMount(() => {
@@ -270,6 +293,22 @@
         quantity: item.quantity
       }));
     }
+
+    const requestedClient = Number(query.get('client') ?? 0);
+
+    if (requestedClient > 0) {
+      void getClientCard(requestedClient)
+        .then((data) => {
+          selectedClient = { ...data.client };
+          clientId = data.client.id;
+          clientQuery = clientLabel(selectedClient);
+          clientResults = [];
+          clientOpen = false;
+        })
+        .catch(() => {
+          // если клиент недоступен, останется обычный поиск
+        });
+    }
   });
 
   function changeRowQuantity(target: CreateRequestItem, delta: number): void {
@@ -293,6 +332,7 @@
 
       subject = detail.request.subject;
       body = detail.request.body ?? '';
+      descriptionOpen = body.trim() !== '';
       priority = detail.request.priority ?? 2;
       clientId = detail.request.client.id;
       selectedClient = {
@@ -313,6 +353,12 @@
         description: item.description,
         quantity: item.quantity
       }));
+      const copiedTypeIds = new Set(
+        detail.items
+          .map((item) => item.price_type_id)
+          .filter((id): id is number => id !== null && id > 0)
+      );
+      priceTypeId = copiedTypeIds.size === 1 ? [...copiedTypeIds][0] : 0;
       lastSaved = draftPayload;
 
       await loadStock();
@@ -385,85 +431,11 @@
       subject: subject.trim(),
       body: body.trim(),
       priority,
+      price_type_id: priceTypeId > 0 ? priceTypeId : undefined,
       items: itemRows
     };
 
-    if (clientMode === 'new' && canCreateClient) {
-      return {
-        ...base,
-        new_client: {
-          name: newClient.name.trim(),
-          inn: newClient.inn.replace(/\s+/g, ''),
-          phone: newClient.phone.trim(),
-          email: newClient.email.trim()
-        }
-      };
-    }
-
     return { ...base, client_id: clientId > 0 ? clientId : undefined };
-  }
-
-  function setClientMode(mode: ClientMode): void {
-    if (clientMode === mode || submitting) {
-      return;
-    }
-
-    clientMode = mode;
-    error = '';
-    errorCode = '';
-
-    if (mode === 'new') {
-      selectedClient = null;
-      clientId = 0;
-      clientQuery = '';
-      clientResults = [];
-      clientOpen = false;
-
-      if (clientTimer !== null) {
-        clearTimeout(clientTimer);
-        clientTimer = null;
-      }
-    }
-  }
-
-  function findExistingClient(): void {
-    const query = (newClient.inn || newClient.phone || newClient.name).trim();
-
-    clientMode = 'existing';
-    error = '';
-    errorCode = '';
-    clientQuery = query;
-    selectedClient = null;
-    clientId = 0;
-    clientResults = [];
-    clientOpen = true;
-    void searchClients(query);
-  }
-
-  function finishCreated(): void {
-    const id = createdRequestId;
-    clientAccess = null;
-    createdRequestId = 0;
-
-    if (id > 0) {
-      router.navigate(`/requests/${id}`);
-    }
-  }
-
-  async function copyClientAccess(): Promise<void> {
-    if (clientAccess === null) {
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(
-        `Логин: ${clientAccess.login}\nПароль: ${clientAccess.password}`
-      );
-      accessCopied = true;
-      setTimeout(() => (accessCopied = false), 2000);
-    } catch {
-      accessCopied = false;
-    }
   }
 
   function clientLabel(client: PickedClient): string {
@@ -551,12 +523,14 @@
 
       subject = draft.subject;
       body = draft.body;
+      descriptionOpen = body.trim() !== '';
       priority = draft.priority;
+      priceTypeId = draft.price_type_id ?? 0;
       clientId = draft.client_id;
       itemRows = draft.items;
       draftId = draft.id;
       draftDeleted = false;
-      clientMode = 'existing';
+      syncDraftUrl(draft.id);
 
       if (clientId > 0) {
         void getClientCard(clientId)
@@ -586,7 +560,6 @@
   async function submit(event: SubmitEvent): Promise<void> {
     event.preventDefault();
     error = '';
-    errorCode = '';
 
     if (!appSettings.salesEnabled) {
       error = 'Продажи отключены: оформление заявок недоступно';
@@ -599,10 +572,12 @@
     }
 
     if (clientRequired && !clientReady) {
-      error =
-        clientMode === 'new'
-          ? 'Заполните данные нового клиента'
-          : 'Выберите клиента, к которому привязать заявку';
+      error = 'Выберите клиента, к которому привязать заявку';
+      return;
+    }
+
+    if (priceTypeRequired) {
+      error = 'Выберите тип цены для заявки';
       return;
     }
 
@@ -629,25 +604,18 @@
         cart.clear();
       }
 
-      if (data.client_access) {
-        clientAccess = data.client_access;
-        createdRequestId = data.request.id;
-        return;
-      }
-
       router.navigate(`/requests/${data.request.id}`);
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : 'Не удалось создать заявку';
-      errorCode = cause instanceof ApiError ? cause.code : '';
     } finally {
       loading = false;
       submitting = false;
     }
   }
 
-  async function autoSave(payload: string): Promise<void> {
+  async function autoSave(payload: string): Promise<boolean> {
     if (submitting) {
-      return;
+      return false;
     }
 
     draftSaving = true;
@@ -657,6 +625,7 @@
         subject: string;
         body: string;
         priority: number;
+        price_type_id: number;
         client_id: number;
         items: CreateRequestItem[];
       };
@@ -669,11 +638,90 @@
       draftDeleted = false;
       lastSaved = payload;
       draftSavedAt = new Date();
+      syncDraftUrl(saved.id);
+
+      return true;
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : 'Не удалось сохранить черновик';
+
+      return false;
     } finally {
       draftSaving = false;
     }
+  }
+
+  function syncDraftUrl(id: number | null): void {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const hash = id !== null ? `#/requests/new?draft=${id}` : '#/requests/new';
+
+    if (window.location.hash === hash) {
+      return;
+    }
+
+    const url = new URL(window.location.href);
+    url.hash = hash;
+    window.history.replaceState(null, '', url.toString());
+  }
+
+  async function flushDraft(): Promise<boolean> {
+    if (!appSettings.salesEnabled || draftLoading || submitting) {
+      return true;
+    }
+
+    if (draftPayload === lastSaved || draftPayload === PRISTINE_PAYLOAD || draftSaving) {
+      return true;
+    }
+
+    if (saveTimer !== null) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+
+    return autoSave(draftPayload);
+  }
+
+  function saveDraftOnPageHide(): void {
+    if (!appSettings.salesEnabled || draftLoading || submitting || draftSaving) {
+      return;
+    }
+
+    if (draftPayload === lastSaved || draftPayload === PRISTINE_PAYLOAD) {
+      return;
+    }
+
+    if (saveTimer !== null) {
+      clearTimeout(saveTimer);
+      saveTimer = null;
+    }
+
+    const data = JSON.parse(draftPayload) as RequestDraftPayload;
+
+    if (draftId === null) {
+      void createDraft(data, true).catch(() => {});
+    } else {
+      void updateDraft(draftId, data, true).catch(() => {});
+    }
+  }
+
+  async function openClientCard(): Promise<void> {
+    if (selectedClient === null || draftLoading || submitting) {
+      return;
+    }
+
+    const targetId = selectedClient.id;
+
+    if (appSettings.salesEnabled) {
+      const saved = await flushDraft();
+
+      if (!saved) {
+        return;
+      }
+    }
+
+    router.navigate(`/clients/${targetId}`);
   }
 
   async function removeDraft(): Promise<void> {
@@ -689,17 +737,22 @@
       draftId = null;
       subject = '';
       body = '';
+      descriptionOpen = false;
       priority = 2;
+      priceTypeId = 0;
+      priceTypes = [];
+      priceRows = [];
+      priceTotal = null;
+      priceType = null;
       clientId = 0;
       selectedClient = null;
       clientQuery = '';
       clientResults = [];
-      clientMode = 'existing';
-      newClient = { name: '', inn: '', phone: '', email: '' };
       itemRows = [];
       lastSaved = '';
       draftSavedAt = null;
       draftDeleted = true;
+      syncDraftUrl(null);
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : 'Не удалось удалить черновик';
     } finally {
@@ -709,42 +762,54 @@
 </script>
 
 <section class="page">
-  <div class="back-row">
-    <button
-      type="button"
-      class="page-icon-btn"
-      title="К списку заявок"
-      aria-label="К списку заявок"
-      onclick={() => router.navigate('/requests')}
-    >
-      <Icon name="arrow-left" size={16} />
-    </button>
+  <div class="page-hero">
+    <div class="head">
+      <a class="back" href="#/requests" title="К списку заявок" aria-label="К списку заявок">
+        <Icon name="arrow-left" size={16} />
+      </a>
+      <div>
+        <h1>{draftId === null ? 'Новая заявка' : 'Черновик заявки'}</h1>
+        <p class="sub">Оформление заявки и добавление номенклатуры</p>
+      </div>
+      {#if canCreateClient || draftId !== null}
+        <div class="head-actions">
+          {#if canCreateClient}
+            <a
+              class="page-icon-btn"
+              href="#/clients/new"
+              title="Создать клиента"
+              aria-label="Создать клиента"
+            >
+              <span class="create-client-icon">
+                <Icon name="user" size={16} />
+                <span class="create-client-plus" aria-hidden="true">
+                  <Icon name="plus" size={10} />
+                </span>
+              </span>
+            </a>
+          {/if}
+
+          {#if draftId !== null}
+            <button
+              type="button"
+              class="page-icon-btn danger"
+              title="Удалить черновик"
+              aria-label="Удалить черновик"
+              disabled={draftBusy}
+              onclick={() => void removeDraft()}
+            >
+              <Icon name="trash" size={18} />
+            </button>
+          {/if}
+        </div>
+      {/if}
+    </div>
   </div>
 
-  <div class="card">
-    <div class="card-head">
-      <h1>{draftId === null ? 'Новая заявка' : 'Черновик заявки'}</h1>
-
-      <div class="head-right">
-        {#if draftId !== null}
-          <button
-            type="button"
-            class="draft-remove"
-            title="Удалить черновик"
-            aria-label="Удалить черновик"
-            disabled={draftBusy}
-            onclick={() => void removeDraft()}
-          >
-            <Icon name="trash" size={18} />
-          </button>
-        {/if}
-      </div>
-    </div>
-
-    {#if draftLoading}
-      <div class="center"><Spinner size={24} /></div>
-    {:else}
-      {#if !appSettings.salesEnabled}
+  {#if draftLoading}
+    <div class="card"><div class="center"><Spinner size={24} /></div></div>
+  {:else}
+    {#if !appSettings.salesEnabled}
         <div class="alert sales-off">
           <span class="alert-icon"><Icon name="info" size={16} /></span>
           <span>
@@ -754,376 +819,322 @@
         </div>
       {/if}
 
-      <form class="form" onsubmit={submit}>
-        {#if canPickClient}
-          <div class="field">
-            <span class="label">Клиент{#if clientRequired} <span class="req">— обязательно</span>{/if}</span>
-
-            {#if canCreateClient}
-              <div class="client-mode" role="tablist" aria-label="Как выбрать клиента">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={clientMode === 'existing'}
-                  class:active={clientMode === 'existing'}
-                  disabled={submitting}
-                  onclick={() => setClientMode('existing')}
-                >
-                  Существующий клиент
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={clientMode === 'new'}
-                  class:active={clientMode === 'new'}
-                  disabled={submitting}
-                  onclick={() => setClientMode('new')}
-                >
-                  Новый клиент
-                </button>
-              </div>
-            {/if}
-
-            {#if clientMode === 'existing'}
-              {#if selectedClient}
-                <div class="client-selected">
-                  <div class="cs-main">
-                    <span class="cs-name">
-                      {selectedClient.name}{selectedClient.company ? ` — ${selectedClient.company}` : ''}
-                    </span>
-                    <span class="cs-meta">
-                      {#if selectedClient.inn}ИНН {selectedClient.inn}{/if}
-                      {#if selectedClient.inn && (selectedClient.phone || selectedClient.email)} · {/if}
-                      {selectedClient.phone || selectedClient.email || ''}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    class="cs-clear"
-                    aria-label="Сменить клиента"
-                    title="Сменить клиента"
-                    onclick={clearClient}
-                  >
-                    ✕
-                  </button>
-                </div>
-              {:else}
-                <div class="client-search">
-                  <input
-                    class="text-input"
-                    type="text"
-                    bind:value={clientQuery}
-                    placeholder="Имя, компания, ИНН, телефон или e-mail"
-                    autocomplete="off"
-                    oninput={onClientInput}
-                    onfocus={onClientFocus}
-                    onkeydown={onClientKeydown}
-                  />
-
-                  {#if clientOpen}
-                    <div class="client-list" role="listbox">
-                      {#if clientSearching}
-                        <div class="cl-empty">Поиск…</div>
-                      {:else if clientResults.length === 0}
-                        <div class="cl-empty">Ничего не найдено — уточните запрос</div>
-                      {:else}
-                        {#each clientResults as client (client.id)}
-                          <button
-                            type="button"
-                            class="cl-item"
-                            role="option"
-                            aria-selected="false"
-                            onmousedown={(event) => event.preventDefault()}
-                            onclick={() => selectClient(client)}
-                          >
-                            <span class="cl-name">
-                              {client.name}{client.company ? ` — ${client.company}` : ''}
-                            </span>
-                            <span class="cl-meta">
-                              {#if client.inn}ИНН {client.inn}{/if}
-                              {#if client.inn && client.phone} · {/if}
-                              {client.phone ?? ''}
-                              {#if (client.inn || client.phone) && client.email} · {/if}
-                              {client.email ?? ''}
-                            </span>
-                          </button>
-                        {/each}
-                      {/if}
-                    </div>
-                  {/if}
-                </div>
-
-                {#if clientRequired}
-                  <span class="req">
-                    {canCreateClient
-                      ? 'Выберите клиента из списка или переключитесь на «Новый клиент»'
-                      : 'Выберите клиента из списка'}
-                  </span>
-                {/if}
-              {/if}
-            {:else}
-              <div class="new-client">
-                <Input
-                  label="Название клиента"
-                  bind:value={newClient.name}
-                  placeholder="ООО «Ромашка»"
-                  error={newClientErrors.name}
-                  disabled={submitting}
-                  maxlength={255}
-                  autocomplete="organization"
-                />
-                <Input
-                  label="ИНН (необязательно)"
-                  bind:value={newClient.inn}
-                  placeholder="10 или 12 цифр"
-                  error={newClientErrors.inn}
-                  disabled={submitting}
-                  inputmode="numeric"
-                  maxlength={12}
-                />
-                <Input
-                  label="Телефон (необязательно)"
-                  bind:value={newClient.phone}
-                  placeholder="+7 999 000-00-00"
-                  error={newClientErrors.phone}
-                  disabled={submitting}
-                  type="tel"
-                  inputmode="tel"
-                  autocomplete="tel"
-                />
-                <Input
-                  label="E-mail (необязательно)"
-                  bind:value={newClient.email}
-                  placeholder="client@example.ru"
-                  error={newClientErrors.email}
-                  disabled={submitting}
-                  type="email"
-                  inputmode="email"
-                  autocomplete="email"
-                />
-                <p class="new-client-hint">
-                  Достаточно названия — ИНН и контакты можно заполнить позже. После создания для
-                  клиента будет заведена учётная запись: логин и пароль покажем один раз, их нужно
-                  передать клиенту. Контакты нового клиента в черновик не сохраняются.
-                </p>
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        <Input label="Тема заявки" bind:value={subject} placeholder="Коротко: что нужно" />
-
-        <label class="field">
-          <span class="label">Описание</span>
-          <textarea bind:value={body} rows="5" placeholder="Детали: объект, сроки, количество"></textarea>
-        </label>
-
-        <label class="field">
-          <span class="label">Приоритет</span>
-          <select bind:value={priority}>
-            <option value={1}>Низкий</option>
-            <option value={2}>Обычный</option>
-            <option value={3}>Высокий</option>
-          </select>
-        </label>
-
-        <div class="items-block">
-          <div class="items-head">
-            <span class="label">
-              Состав заявки{#if itemRows.length > 0} — {itemRows.length}{/if}
-            </span>
-
-            {#if itemRows.length > 0}
-              <div class="items-head-actions">
-                {#if itemRows.length > 1}
-                  <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка номенклатуры">
-                    {#each ITEMS_SORT_OPTIONS as option (option.value)}
-                      <option value={option.value}>{option.label}</option>
-                    {/each}
-                  </select>
-                {/if}
-
-                <Button
-                  variant="ghost"
-                  disabled={!appSettings.salesEnabled}
-                  onclick={() => (pickerOpen = true)}
-                >
-                  <Icon name="plus" size={14} />
-                  Добавить номенклатуру
-                </Button>
-              </div>
-            {/if}
-          </div>
-
-          {#if itemRows.length === 0}
-            <div class="items-empty">
-              <p class="muted">Номенклатуры пока нет</p>
-              <Button
-                disabled={!appSettings.salesEnabled}
-                onclick={() => (pickerOpen = true)}
-              >
-                <Icon name="plus" size={14} />
-                Добавить номенклатуру
-              </Button>
-            </div>
-          {:else}
-            <div class="item-rows">
-              {#each sortItems(itemRows, itemsSort) as row (itemRows.indexOf(row))}
-                {@const rowIndex = itemRows.indexOf(row)}
-                {@const rowPrice = priceRows[rowIndex]}
-                <div class="item-row" class:stock-error={stockError(row)}>
-                  <div class="ir-main">
-                    <span class="ir-name">{row.name}</span>
-                    {#if row.warehouse_name}<span class="ir-wh">{row.warehouse_name}</span>{/if}
-                    {#if stockError(row)}
-                      <span class="ir-stock-warn">{stockErrorText(row)}</span>
-                    {/if}
-                  </div>
-                  <div class="ir-qty-box">
-                    <button
-                      type="button"
-                      class="step"
-                      aria-label={`Уменьшить: ${row.name}`}
-                      onclick={() => changeRowQuantity(row, -1)}
-                    >
-                      −
-                    </button>
-                    <input
-                      class="text-input ir-qty"
-                      type="number"
-                      min="0"
-                      step="any"
-                      bind:value={row.quantity}
-                      aria-label={`Количество: ${row.name}`}
-                    />
-                    <button
-                      type="button"
-                      class="step"
-                      aria-label={`Увеличить: ${row.name}`}
-                      onclick={() => changeRowQuantity(row, 1)}
-                    >
-                      +
-                    </button>
-                  </div>
-                  {#if row.unit}<span class="ir-unit">{row.unit}</span>{/if}
-                  {#if pricesEnabled}
-                    <span class="ir-price" class:missing={!rowPrice || rowPrice.price === null}>
-                      {formatPrice(rowPrice?.price ?? null)}
-                    </span>
-                    <span class="ir-sum">{formatPrice(rowPrice?.sum ?? null)}</span>
-                  {/if}
-                  <button
-                    type="button"
-                    class="ir-del"
-                    aria-label={`Убрать: ${row.name}`}
-                    onclick={() => removeItemRow(row)}
-                  >
-                    ✕
-                  </button>
-                </div>
-              {/each}
-            </div>
-          {/if}
+    <form class="form" onsubmit={submit}>
+      {#if hasStockErrors}
+        <div class="alert">
+          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+          <span>
+            Номенклатура, отмеченная красным, отсутствует на складе. Удалите её из состава заявки или
+            обратитесь к администратору, чтобы разрешить работу с отрицательными остатками.
+          </span>
         </div>
+      {/if}
 
-        {#if pricesEnabled && itemRows.length > 0}
-          <div class="price-total">
-            <span class="muted">Цены: {priceType?.title ?? 'по минимальной цене'}</span>
-            <strong>Итого: {formatPrice(priceTotal)}</strong>
-          </div>
-        {/if}
+      {#if error}
+        <div class="alert" role="alert">
+          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+          <span>{error}</span>
+        </div>
+      {/if}
 
-        {#if hasStockErrors}
-          <div class="alert">
-            <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-            <span>
-              Номенклатура, отмеченная красным, отсутствует на складе. Удалите её из состава заявки или
-              обратитесь к администратору, чтобы разрешить работу с отрицательными остатками.
-            </span>
-          </div>
-        {/if}
+      <div class="layout">
+        <div class="main">
+      <section class="card">
+        <div class="card-head">
+          <h2>
+            Состав заявки
+            {#if itemRows.length > 0}<span class="items-count">{itemRows.length}</span>{/if}
+          </h2>
 
-        {#if error}
-          <div class="alert" role="alert">
-            <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-            <span>{error}</span>
-            {#if errorCode === 'client_exists' || errorCode === 'phone_taken' || errorCode === 'email_taken'}
-              <button type="button" class="alert-action" onclick={findExistingClient}>
-                Найти существующего клиента
-              </button>
+          <div class="items-head-actions">
+            {#if itemRows.length > 1}
+              <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка номенклатуры">
+                {#each ITEMS_SORT_OPTIONS as option (option.value)}
+                  <option value={option.value}>{option.label}</option>
+                {/each}
+              </select>
             {/if}
-          </div>
-        {/if}
 
-        <div class="modal-actions">
-          <div class="modal-buttons">
-            {#if draftStatusText}
-              <span class="draft-status">{draftStatusText}</span>
-            {/if}
             <Button
-              type="submit"
-              loading={loading}
-              disabled={!appSettings.salesEnabled || (clientRequired && !clientReady) || hasStockErrors}
+              disabled={!appSettings.salesEnabled || priceTypeRequired}
+              onclick={() => (pickerOpen = true)}
             >
-              Создать заявку
+              <Icon name="plus" size={14} />
+              Добавить
             </Button>
           </div>
         </div>
-      </form>
+
+        {#if itemRows.length === 0}
+          <button
+            type="button"
+            class="items-empty"
+            disabled={!appSettings.salesEnabled || priceTypeRequired}
+            onclick={() => (pickerOpen = true)}
+          >
+            <span class="items-empty-icon"><Icon name="stocks" size={26} /></span>
+            <span class="items-empty-title">Состав пока пуст</span>
+            <span class="items-empty-text">Добавьте номенклатуру из складских остатков</span>
+            <span class="items-empty-cta"><Icon name="plus" size={14} /> Добавить номенклатуру</span>
+          </button>
+        {:else}
+          <div class="item-rows" class:no-price={!pricesEnabled}>
+            <div class="item-head">
+              <span>Номенклатура</span>
+              <span class="num">Кол-во</span>
+              {#if pricesEnabled}
+                <span class="num">Цена</span>
+                <span class="num">Сумма</span>
+              {/if}
+              <span></span>
+            </div>
+
+            {#each sortItems(itemRows, itemsSort) as row (itemRows.indexOf(row))}
+              {@const rowIndex = itemRows.indexOf(row)}
+              {@const rowPrice = priceRows[rowIndex]}
+              <div class="item-row" class:stock-error={stockError(row)}>
+                <div class="ir-main">
+                  <span class="ir-name" title={row.name}>{row.name}</span>
+                  {#if row.warehouse_name}<span class="ir-wh">{row.warehouse_name}</span>{/if}
+                  {#if stockError(row)}
+                    <span class="ir-stock-warn">{stockErrorText(row)}</span>
+                  {/if}
+                </div>
+
+                <div class="ir-qty-box">
+                  <button
+                    type="button"
+                    class="step"
+                    aria-label={`Уменьшить: ${row.name}`}
+                    onclick={() => changeRowQuantity(row, -1)}
+                  >
+                    −
+                  </button>
+                  <input
+                    class="text-input ir-qty"
+                    type="number"
+                    min="0"
+                    step="any"
+                    bind:value={row.quantity}
+                    aria-label={`Количество: ${row.name}`}
+                  />
+                  {#if row.unit}<span class="ir-unit">{row.unit}</span>{/if}
+                  <button
+                    type="button"
+                    class="step"
+                    aria-label={`Увеличить: ${row.name}`}
+                    onclick={() => changeRowQuantity(row, 1)}
+                  >
+                    +
+                  </button>
+                </div>
+
+                {#if pricesEnabled}
+                  <span class="ir-price" class:missing={!rowPrice || rowPrice.price === null}>
+                    {formatPrice(rowPrice?.price ?? null)}
+                  </span>
+                  <span class="ir-sum">{formatPrice(rowPrice?.sum ?? null)}</span>
+                {/if}
+
+                <button
+                  type="button"
+                  class="ir-del"
+                  aria-label={`Убрать: ${row.name}`}
+                  title="Убрать из состава"
+                  onclick={() => removeItemRow(row)}
+                >
+                  <Icon name="trash" size={14} />
+                </button>
+              </div>
+            {/each}
+          </div>
+
+          <div class="items-foot">
+            <span>
+              Позиций: <strong>{itemRows.length}</strong> · Единиц:
+              <strong>{totalQuantityText}</strong>
+            </span>
+          </div>
+        {/if}
+      </section>
+        </div>
+
+        <aside class="side">
+          {#if canPickClient}
+            <section class="card client-card">
+              <div class="card-head">
+                <h2>Клиент{#if clientRequired} <span class="req">— обязательно</span>{/if}</h2>
+              </div>
+              <div class="stack">
+                {#if selectedClient}
+                  <div class="client-selected">
+                    <button
+                      type="button"
+                      class="cs-main cs-link"
+                      title="Открыть карточку клиента"
+                      onclick={() => void openClientCard()}
+                    >
+                      <span class="cs-name">
+                        {selectedClient.name}{selectedClient.company ? ` — ${selectedClient.company}` : ''}
+                      </span>
+                      <span class="cs-meta">
+                        {#if selectedClient.inn}ИНН {selectedClient.inn}{/if}
+                        {#if selectedClient.inn && (selectedClient.phone || selectedClient.email)} · {/if}
+                        {selectedClient.phone || selectedClient.email || ''}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      class="cs-clear"
+                      aria-label="Сменить клиента"
+                      title="Сменить клиента"
+                      onclick={clearClient}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                {:else}
+                  <div class="client-search">
+                    <input
+                      class="text-input"
+                      type="text"
+                      bind:value={clientQuery}
+                      placeholder="Имя, компания, ИНН, телефон или e-mail"
+                      autocomplete="off"
+                      oninput={onClientInput}
+                      onfocus={onClientFocus}
+                      onkeydown={onClientKeydown}
+                    />
+
+                    {#if clientOpen}
+                      <div class="client-list" role="listbox">
+                        {#if clientSearching}
+                          <div class="cl-empty">Поиск…</div>
+                        {:else if clientResults.length === 0}
+                          <div class="cl-empty">Ничего не найдено — уточните запрос</div>
+                        {:else}
+                          {#each clientResults as client (client.id)}
+                            <button
+                              type="button"
+                              class="cl-item"
+                              role="option"
+                              aria-selected="false"
+                              onmousedown={(event) => event.preventDefault()}
+                              onclick={() => selectClient(client)}
+                            >
+                              <span class="cl-name">
+                                {client.name}{client.company ? ` — ${client.company}` : ''}
+                              </span>
+                              <span class="cl-meta">
+                                {#if client.inn}ИНН {client.inn}{/if}
+                                {#if client.inn && client.phone} · {/if}
+                                {client.phone ?? ''}
+                                {#if (client.inn || client.phone) && client.email} · {/if}
+                                {client.email ?? ''}
+                              </span>
+                            </button>
+                          {/each}
+                        {/if}
+                      </div>
+                    {/if}
+                  </div>
+
+                  {#if clientRequired}
+                    <span class="req">Выберите клиента из списка</span>
+                  {/if}
+                {/if}
+              </div>
+            </section>
+          {/if}
+
+          <section class="card">
+            <div class="card-head"><h2>Параметры</h2></div>
+            <div class="stack">
+              <Input label="Тема заявки" bind:value={subject} placeholder="Коротко: что нужно" />
+
+              <label class="field">
+                <span class="label">Приоритет</span>
+                <select bind:value={priority}>
+                  <option value={1}>Низкий</option>
+                  <option value={2}>Обычный</option>
+                  <option value={3}>Высокий</option>
+                </select>
+              </label>
+
+              {#if pricesEnabled && priceTypes.length > 0}
+                <label class="field">
+                  <span class="label">Тип цены</span>
+                  <select bind:value={priceTypeId} class:invalid={priceTypeRequired}>
+                    {#if priceTypes.length > 1 && priceTypeId === 0}
+                      <option value={0} disabled>— выберите тип цены —</option>
+                    {/if}
+                    {#each priceTypes as type (type.id)}
+                      <option value={type.id}>{type.title}</option>
+                    {/each}
+                  </select>
+                  {#if priceTypeRequired}
+                    <span class="field-error">Выберите тип цены для заявки</span>
+                  {/if}
+                </label>
+              {/if}
+
+              {#if descriptionOpen}
+                <label class="field">
+                  <span class="label">Описание</span>
+                  <textarea bind:value={body} rows="5" placeholder="Детали: объект, сроки, количество"></textarea>
+                </label>
+                <button type="button" class="link-btn" onclick={() => (descriptionOpen = false)}>
+                  Свернуть описание
+                </button>
+              {:else}
+                <button type="button" class="link-btn" onclick={() => (descriptionOpen = true)}>
+                  <Icon name="plus" size={14} />
+                  Добавить описание
+                </button>
+              {/if}
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head"><h2>Итого</h2></div>
+            {#if priceTypeRequired}
+              <p class="muted">Выберите тип цены, чтобы увидеть стоимость.</p>
+            {:else if pricesEnabled && itemRows.length > 0}
+              <div class="total-row">
+                <span class="muted">Цены: {priceType?.title ?? 'по минимальной цене'}</span>
+                <strong>Итого: {formatPrice(priceTotal)}</strong>
+              </div>
+            {:else}
+              <p class="muted">Добавьте номенклатуру, чтобы рассчитать стоимость.</p>
+            {/if}
+
+            <div class="submit-block">
+              {#if draftStatusText}
+                <span class="draft-status">{draftStatusText}</span>
+              {/if}
+              <Button
+                type="submit"
+                loading={loading}
+                disabled={!appSettings.salesEnabled || (clientRequired && !clientReady) || hasStockErrors || priceTypeRequired}
+              >
+                Создать заявку
+              </Button>
+            </div>
+          </section>
+        </aside>
+      </div>
+    </form>
     {/if}
-  </div>
 
   <ItemsPicker
     open={pickerOpen}
     items={itemRows}
     clientId={clientId}
+    priceTypeId={priceTypeId}
     onclose={() => (pickerOpen = false)}
     onchange={(next) => (itemRows = next)}
   />
 
-  <Modal
-    open={clientAccess !== null}
-    title="Заявка создана"
-    closeButton={false}
-    onclose={finishCreated}
-  >
-    {#if clientAccess}
-      <div class="access">
-        <p class="access-lead">
-          Для клиента <strong>{clientAccess.name}</strong> создана учётная запись.
-        </p>
-
-        <div class="access-card">
-          <div class="access-row">
-            <span class="access-label">Логин</span>
-            <code>{clientAccess.login}</code>
-          </div>
-          <div class="access-row">
-            <span class="access-label">Пароль</span>
-            <code>{clientAccess.password}</code>
-          </div>
-          {#if clientAccess.email}
-            <div class="access-row">
-              <span class="access-label">E-mail</span>
-              <span>{clientAccess.email}</span>
-            </div>
-          {/if}
-        </div>
-
-        <p class="access-note">
-          Пароль показывается один раз — передайте его клиенту. Сменить пароль клиент сможет после
-          входа в личный кабинет.
-        </p>
-
-        <div class="access-actions">
-          <Button variant="ghost" onclick={() => void copyClientAccess()}>
-            {accessCopied ? 'Скопировано' : 'Скопировать доступ'}
-          </Button>
-          <Button onclick={finishCreated}>Перейти к заявке</Button>
-        </div>
-      </div>
-    {/if}
-  </Modal>
 </section>
 
 <style>
@@ -1131,13 +1142,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-    max-width: 720px;
-    margin: 0 auto;
-  }
-
-  .back-row {
-    display: flex;
-    align-self: flex-start;
   }
 
   .card {
@@ -1150,21 +1154,16 @@
 
   .card-head {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
     margin-bottom: var(--space-3);
   }
 
-  h1 {
+  .card-head h2 {
     margin: 0;
-    font-size: 20px;
-  }
-
-  .head-right {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
+    font-size: 16px;
   }
 
   .draft-status {
@@ -1172,31 +1171,28 @@
     font-size: 13px;
   }
 
-  .draft-remove {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 34px;
-    height: 34px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    background: var(--surface);
-    color: var(--muted);
-    cursor: pointer;
-  }
-
-  .draft-remove:hover:not(:disabled) {
-    border-color: var(--danger);
-    color: var(--danger);
-  }
-
-  .draft-remove:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
   .form {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.35fr) minmax(320px, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .main,
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+
+  .stack {
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
@@ -1208,129 +1204,41 @@
     gap: var(--space-1);
   }
 
+  .field select.invalid {
+    border-color: var(--danger);
+    border-bottom-width: 2px;
+    box-shadow: 0 0 0 2px var(--danger-bg);
+  }
+
+  .field-error {
+    color: var(--danger);
+    font-size: 12px;
+  }
+
   .client-search {
     position: relative;
   }
 
-  .client-mode {
+  .create-client-icon {
+    position: relative;
     display: inline-flex;
-    align-self: flex-start;
-    gap: 2px;
-    padding: 2px;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .create-client-plus {
+    position: absolute;
+    right: -6px;
+    bottom: -5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
     border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg);
-  }
-
-  .client-mode button {
-    padding: 5px 12px;
-    border: none;
-    border-radius: 3px;
-    background: none;
-    color: var(--muted);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-    transition: background-color 0.15s ease, color 0.15s ease;
-  }
-
-  .client-mode button:hover:not(:disabled) {
-    color: var(--text);
-  }
-
-  .client-mode button.active {
     background: var(--surface);
     color: var(--text);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .client-mode button:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-
-  .new-client {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--space-3);
-  }
-
-  .new-client > :global(.field:first-child) {
-    grid-column: 1 / -1;
-  }
-
-  .new-client-hint {
-    grid-column: 1 / -1;
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
-  }
-
-  .alert-action {
-    margin-left: auto;
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--primary);
-    font: inherit;
-    font-size: 13px;
-    text-decoration: underline;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-
-  .access {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-  }
-
-  .access-lead {
-    margin: 0;
-    font-size: 14px;
-  }
-
-  .access-card {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg);
-  }
-
-  .access-row {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-3);
-    font-size: 14px;
-  }
-
-  .access-label {
-    color: var(--muted);
-    font-size: 13px;
-  }
-
-  .access-row code {
-    font-family: var(--font-mono, monospace);
-    font-size: 14px;
-    word-break: break-all;
-    text-align: right;
-  }
-
-  .access-note {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
-  }
-
-  .access-actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: var(--space-2);
   }
 
   .client-search .text-input {
@@ -1375,10 +1283,16 @@
   }
 
   .cl-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 14px;
   }
 
   .cl-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
     color: var(--muted);
   }
@@ -1389,14 +1303,23 @@
     color: var(--muted);
   }
 
+  .client-card {
+    padding: var(--space-4);
+  }
+
+  .client-card .card-head {
+    margin-bottom: var(--space-2);
+  }
+
+  .client-card .stack {
+    gap: var(--space-2);
+  }
+
   .client-selected {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 8px 12px;
-    border: 1px solid var(--primary);
-    border-radius: var(--radius-sm);
-    background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+    padding: 0;
   }
 
   .cs-main {
@@ -1407,11 +1330,32 @@
     min-width: 0;
   }
 
+  .cs-link {
+    padding: 0;
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .cs-link:hover .cs-name {
+    color: var(--primary);
+    text-decoration: underline;
+  }
+
   .cs-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 14px;
   }
 
   .cs-meta {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: 12px;
     color: var(--muted);
   }
@@ -1437,20 +1381,6 @@
     color: var(--danger);
   }
 
-  .items-block {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .items-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-  }
-
   .items-head-actions {
     display: flex;
     flex-wrap: wrap;
@@ -1459,15 +1389,98 @@
     margin-left: auto;
   }
 
+  .link-btn {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 6px;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--primary);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .link-btn:hover {
+    color: var(--primary-hover);
+    text-decoration: underline;
+  }
+
+  .items-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 20px;
+    margin-left: 6px;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    vertical-align: middle;
+  }
+
   .items-empty {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-3);
-    padding: var(--space-5) var(--space-3);
+    gap: var(--space-2);
+    width: 100%;
+    padding: var(--space-6) var(--space-3);
     border: 1px dashed var(--border);
     border-radius: var(--radius-md);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
     text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .items-empty:hover:not(:disabled) {
+    border-color: var(--primary);
+    background: color-mix(in srgb, var(--primary) 4%, var(--surface));
+  }
+
+  .items-empty:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .items-empty-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--primary);
+  }
+
+  .items-empty-title {
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  .items-empty-text {
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .items-empty-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    color: var(--primary);
+    font-size: 13px;
+    font-weight: 500;
   }
 
   .items-sort {
@@ -1538,13 +1551,43 @@
     flex-direction: column;
   }
 
+  .item-head,
   .item-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 150px 100px 110px 28px;
     align-items: center;
     gap: var(--space-2);
-    padding: 6px 0;
-    border-bottom: 1px solid var(--border);
+  }
+
+  .item-rows.no-price .item-head,
+  .item-rows.no-price .item-row {
+    grid-template-columns: minmax(0, 1fr) 150px 28px;
+  }
+
+  .item-head {
+    padding: 0 0 6px;
+    border-bottom: 1px solid var(--border-secondary);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .item-head .num {
+    text-align: right;
+  }
+
+  .item-rows .item-row:last-child {
+    border-bottom: none;
+  }
+
+  .item-row {
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-secondary);
     font-size: 14px;
+    transition: background-color 0.12s ease;
+  }
+
+  .item-row:hover {
+    background: var(--fill-tertiary);
   }
 
   .item-row.stock-error {
@@ -1562,7 +1605,6 @@
   .ir-main {
     display: flex;
     flex-direction: column;
-    flex: 1;
     min-width: 0;
   }
 
@@ -1580,22 +1622,24 @@
   .ir-qty-box {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: 4px;
   }
 
   .ir-qty {
-    width: 72px;
+    width: 52px;
+    height: 28px;
+    padding: 0 6px;
     text-align: center;
   }
 
   .ir-unit {
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
+    white-space: nowrap;
   }
 
   .ir-price,
   .ir-sum {
-    min-width: 92px;
     text-align: right;
     white-space: nowrap;
     font-size: 13px;
@@ -1609,32 +1653,53 @@
     color: var(--muted);
   }
 
-  .price-total {
+  .items-foot {
+    display: flex;
+    justify-content: flex-end;
+    padding-top: var(--space-2);
+    color: var(--muted);
+    font-size: 12.5px;
+  }
+
+  .items-foot strong {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .total-row {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-2);
-    padding: 8px 0 0;
-    border-top: 1px dashed var(--border);
   }
 
-  .price-total strong {
+  .total-row strong {
     font-size: 16px;
+  }
+
+  .submit-block {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+
+  .submit-block :global(button) {
+    width: 100%;
   }
 
   .ir-del {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 26px;
-    height: 26px;
+    width: 28px;
+    height: 28px;
     padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    background: var(--surface);
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
     color: var(--muted);
-    font-size: 13px;
     line-height: 1;
     cursor: pointer;
   }
@@ -1648,14 +1713,14 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: 1px solid var(--border);
     border-radius: 50%;
     background: var(--surface);
     color: var(--text);
-    font-size: 16px;
+    font-size: 15px;
     line-height: 1;
     cursor: pointer;
   }
@@ -1663,22 +1728,6 @@
   .step:hover {
     border-color: var(--primary);
     color: var(--primary);
-  }
-
-  .modal-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    margin-top: var(--space-2);
-  }
-
-  .modal-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    margin-left: auto;
   }
 
   .alert {
@@ -1710,34 +1759,31 @@
     color: var(--warning-text);
   }
 
-  @media (max-width: 560px) {
-    .new-client {
-      grid-template-columns: minmax(0, 1fr);
+  @media (max-width: 900px) {
+    .layout {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .item-head {
+      display: none;
     }
 
-    .new-client > :global(.field:first-child) {
-      grid-column: auto;
-    }
-
-    .new-client-hint {
-      grid-column: auto;
-    }
-
-    .client-mode {
-      align-self: stretch;
-    }
-
-    .client-mode button {
-      flex: 1;
-    }
-
-    .item-row {
+    .item-row,
+    .item-rows.no-price .item-row {
+      display: flex;
       flex-wrap: wrap;
+      align-items: center;
+      gap: 6px var(--space-2);
     }
 
-    .ir-price,
-    .ir-sum {
-      min-width: 0;
+    .ir-main {
+      flex: 1 1 100%;
+    }
+
+    .ir-del {
+      margin-left: auto;
     }
   }
 </style>

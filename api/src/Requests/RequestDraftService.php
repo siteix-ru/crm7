@@ -16,22 +16,34 @@ final class RequestDraftService
     ) {
     }
 
-    public function list(array $user, array $capabilities): array
+    public function list(array $user, array $capabilities, int $clientId = 0): array
     {
         $this->requireCreate($capabilities);
+
+        $actorId = (int) $user['ID'];
+        $isStaff = (int) $user['LEVEL'] >= 10;
+
+        if ($clientId > 0 && !$isStaff && $clientId !== $actorId) {
+            throw new HttpException(403, 'forbidden', 'Нет доступа к черновикам клиента');
+        }
+
+        $rows = $clientId > 0 && $isStaff
+            ? $this->drafts->listForClient($clientId)
+            : $this->drafts->listForUser($actorId, $clientId > 0 ? $clientId : null);
 
         $items = array_map(static function (array $row): array {
             $items = json_decode((string) ($row['items'] ?? ''), true);
 
             return [
                 'id' => (int) $row['id'],
+                'client_id' => $row['client_id'] !== null ? (int) $row['client_id'] : 0,
                 'subject' => (string) $row['subject'],
                 'priority' => (int) $row['priority'],
                 'items_count' => is_array($items) ? count($items) : 0,
                 'created_at' => (string) $row['created_at'],
                 'updated_at' => (string) $row['updated_at'],
             ];
-        }, $this->drafts->listForUser((int) $user['ID']));
+        }, $rows);
 
         return ['items' => $items];
     }
@@ -40,7 +52,7 @@ final class RequestDraftService
     {
         $this->requireCreate($capabilities);
 
-        $row = $this->drafts->findForUser($id, (int) $user['ID']);
+        $row = $this->drafts->findAccessible($id, (int) $user['ID'], (int) $user['LEVEL']);
 
         if ($row === null) {
             throw new HttpException(404, 'not_found', 'Черновик не найден');
@@ -77,28 +89,33 @@ final class RequestDraftService
 
         $clientId = (int) ($input['client_id'] ?? 0);
 
-        if ($clientId > 0 && $clientId !== (int) $user['ID']) {
-            if ((int) $user['LEVEL'] < 10) {
+        if ((int) $user['LEVEL'] < 10) {
+            if ($clientId > 0 && $clientId !== (int) $user['ID']) {
                 throw new HttpException(403, 'forbidden', 'Можно сохранять черновики только от своего имени');
             }
-        } else {
+
+            $clientId = (int) $user['ID'];
+        } elseif ($clientId < 0) {
             $clientId = 0;
         }
 
         $items = RequestItems::normalize($input['items'] ?? []);
+
+        $priceTypeId = (int) ($input['price_type_id'] ?? 0);
 
         $data = [
             'client_id' => $clientId > 0 ? $clientId : null,
             'subject' => $subject,
             'body' => $body,
             'priority' => $priority,
+            'price_type_id' => $priceTypeId > 0 ? $priceTypeId : null,
             'items' => json_encode($items, JSON_UNESCAPED_UNICODE),
         ];
 
         if ($id === null) {
             $id = $this->drafts->create((int) $user['ID'], $data);
         } else {
-            if ($this->drafts->findForUser($id, (int) $user['ID']) === null) {
+            if ($this->drafts->findAccessible($id, (int) $user['ID'], (int) $user['LEVEL']) === null) {
                 throw new HttpException(404, 'not_found', 'Черновик не найден');
             }
 
@@ -112,7 +129,7 @@ final class RequestDraftService
     {
         $this->requireCreate($capabilities);
 
-        if ($this->drafts->findForUser($id, (int) $user['ID']) === null) {
+        if ($this->drafts->findAccessible($id, (int) $user['ID'], (int) $user['LEVEL']) === null) {
             throw new HttpException(404, 'not_found', 'Черновик не найден');
         }
 
@@ -137,6 +154,7 @@ final class RequestDraftService
             'subject' => (string) $row['subject'],
             'body' => (string) ($row['body'] ?? ''),
             'priority' => (int) $row['priority'],
+            'price_type_id' => (int) ($row['price_type_id'] ?? 0),
             'client_id' => $row['client_id'] !== null ? (int) $row['client_id'] : 0,
             'items' => is_array($items) ? $items : [],
             'created_at' => (string) $row['created_at'],

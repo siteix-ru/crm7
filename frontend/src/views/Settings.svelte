@@ -123,17 +123,21 @@
   let mailTab = $state<MailTab>('smtp');
 
   const canManageSettings = $derived(auth.can('settings.manage'));
+  const canManageTech = $derived(auth.can('roles.manage'));
   const canManageMail = $derived(auth.can('mail.manage'));
-  const canSendMail = $derived(auth.can('mail.send'));
 
   const visibleMailTabs = $derived(
-    mailTabs.filter((item) => (item.code === 'smtp' ? canManageMail : canSendMail))
+    mailTabs.filter((item) => (item.code === 'smtp' ? canManageMail : canManageTech))
   );
 
   const visibleSettingsTabs = $derived(
     settingsTabs.filter((item) => {
+      if (item.code === 'modules' || item.code === 'database') {
+        return canManageTech;
+      }
+
       if (item.code === 'mail') {
-        return mailEnabled && (canManageMail || canSendMail);
+        return mailEnabled && (canManageMail || canManageTech);
       }
 
       return canManageSettings;
@@ -163,7 +167,7 @@
     try {
       const canSettings = auth.can('settings.manage');
       const canSmtp = auth.can('mail.manage');
-      const canSend = auth.can('mail.send');
+      const canMailAdmin = auth.can('roles.manage');
 
       if (canSettings) {
         system = await getSystemSettings();
@@ -191,10 +195,14 @@
         photoSizeCard = String(system.photo_size_card);
         photoSizeMax = String(system.photo_size_max);
 
-        db = await getDatabaseSettings();
+        if (auth.can('roles.manage')) {
+          db = await getDatabaseSettings();
 
-        if (db) {
-          dbPort = String(db.port);
+          if (db) {
+            dbPort = String(db.port);
+          }
+        } else {
+          db = null;
         }
       } else {
         if (!appSettings.loaded) {
@@ -213,7 +221,7 @@
         settings = null;
       }
 
-      if (mailEnabled && canSend) {
+      if (mailEnabled && canMailAdmin) {
         templates = await listTemplates();
         queue = await listQueue();
         schedules = await listSchedules();
@@ -252,7 +260,7 @@
         portInput = String(settings.port);
       }
 
-      if (auth.can('mail.send')) {
+      if (auth.can('roles.manage')) {
         templates = await listTemplates();
         queue = await listQueue();
         schedules = await listSchedules();
@@ -934,7 +942,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'mail' && mailTab === 'templates' && canSendMail}
+    {#if tab === 'mail' && mailTab === 'templates' && canManageTech}
       <div class="card">
         <h2>Шаблоны писем</h2>
       <p class="hint">Подстановки: {'{title}'}, {'{body}'}, {'{request_number}'}, {'{link}'}</p>
@@ -966,7 +974,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'mail' && mailTab === 'schedules' && canSendMail}
+    {#if tab === 'mail' && mailTab === 'schedules' && canManageTech}
       <div class="card">
         <h2>Расписание отчётов</h2>
       <p class="hint">
@@ -1096,7 +1104,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'mail' && mailTab === 'queue' && canSendMail}
+    {#if tab === 'mail' && mailTab === 'queue' && canManageTech}
       <div class="card">
         <div class="queue-head">
           <div>

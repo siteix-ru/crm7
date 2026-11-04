@@ -21,6 +21,7 @@
     type StaffUser,
     type UserConversionPreview
   } from '../lib/api/staff';
+  import { startThread } from '../lib/api/chat';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { auth } from '../lib/stores/auth.svelte';
   import { router } from '../lib/router.svelte';
@@ -87,6 +88,17 @@
   let password = $state('');
   let passwordOpen = $state(false);
   let copied = $state(false);
+  let chatBusy = $state(false);
+
+  const canChat = $derived(
+    Boolean(
+      staff
+      && appSettings.chatEnabled
+      && auth.can('chat.use')
+      && (auth.user?.level ?? 0) >= 10
+      && auth.user?.id !== id
+    )
+  );
 
   let loginOpen = $state(false);
   let loginDraft = $state('');
@@ -201,6 +213,24 @@
       historyError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить историю';
     } finally {
       historyLoading = false;
+    }
+  }
+
+  async function openChat(): Promise<void> {
+    if (!staff || chatBusy) {
+      return;
+    }
+
+    chatBusy = true;
+    actionError = '';
+
+    try {
+      const thread = await startThread(staff.id);
+      router.navigate(`/chat?thread=${thread.id}`);
+    } catch (cause) {
+      actionError = cause instanceof ApiError ? cause.message : 'Не удалось открыть чат';
+    } finally {
+      chatBusy = false;
     }
   }
 
@@ -465,19 +495,38 @@
       {#if staff}
         <span class="state" class:on={staff.active}>{staffStateTitle(staff.active)}</span>
       {/if}
-      <div class="bookmarks" role="tablist" aria-label="Разделы сотрудника">
-        <button
-          type="button"
-          class="bookmark"
-          class:active={tab === 'profile'}
-          role="tab"
-          aria-selected={tab === 'profile'}
-          title="Профиль"
-          aria-label="Профиль"
-          onclick={() => (tab = 'profile')}
-        >
-          <Icon name="staff" size={18} />
-        </button>
+      <div class="head-actions">
+        <div class="bookmarks" role="tablist" aria-label="Разделы сотрудника">
+          <button
+            type="button"
+            class="bookmark"
+            class:active={tab === 'profile'}
+            role="tab"
+            aria-selected={tab === 'profile'}
+            title="Профиль"
+            aria-label="Профиль"
+            onclick={() => (tab = 'profile')}
+          >
+            <Icon name="staff" size={18} />
+          </button>
+        </div>
+
+        {#if canChat}
+          <button
+            type="button"
+            class="bookmark"
+            title="Написать в чат"
+            aria-label="Написать в чат"
+            disabled={chatBusy}
+            onclick={() => void openChat()}
+          >
+            {#if chatBusy}
+              <Spinner size={16} />
+            {:else}
+              <Icon name="chat" size={18} />
+            {/if}
+          </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -991,6 +1040,12 @@
 
   .state.on {
     color: var(--success-text);
+  }
+
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
   }
 
   .bookmarks {

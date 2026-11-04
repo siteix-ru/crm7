@@ -32,6 +32,7 @@
 
   let open = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
+  let containerEl = $state<HTMLDivElement | null>(null);
   let menuStyle = $state('');
 
   const summary = $derived.by(() => {
@@ -59,14 +60,25 @@
       return;
     }
 
-    updatePosition();
+    const container = containerEl;
     const handleScroll = () => updatePosition();
+    const handlePointerDown = (event: PointerEvent) => {
+      if (container === null || container.contains(event.target as Node)) {
+        return;
+      }
+
+      open = false;
+    };
+
+    updatePosition();
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleScroll);
+    document.addEventListener('pointerdown', handlePointerDown, true);
 
     return () => {
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', handleScroll);
+      document.removeEventListener('pointerdown', handlePointerDown, true);
     };
   });
 
@@ -111,17 +123,9 @@
     onchange?.(values);
   }
 
-  function handleFocusOut(event: FocusEvent): void {
-    const next = event.relatedTarget as Node | null;
-    const current = event.currentTarget as HTMLElement | null;
-
-    if (next === null || current === null || !current.contains(next)) {
-      open = false;
-    }
-  }
 </script>
 
-<div class="multi" onfocusout={handleFocusOut}>
+<div class="multi" bind:this={containerEl}>
   <button
     type="button"
     class="trigger"

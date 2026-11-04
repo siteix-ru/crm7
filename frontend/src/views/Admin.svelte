@@ -148,7 +148,7 @@ let usersPerPage = $state(20);
 
     if (canManageUsers) {
       void loadRoles();
-    } else if (auth.can('settings.manage')) {
+    } else if (canManageRoles) {
       tab = 'modules';
       void loadModules();
     }
@@ -594,7 +594,7 @@ let usersPerPage = $state(20);
     </div>
 
     <div class="tabs tab-scroll">
-      {#if auth.can('settings.manage')}
+      {#if canManageRoles}
         <button type="button" class:active={tab === 'modules'} onclick={() => void openTab('modules')}>Модули</button>
       {/if}
       <button type="button" class:active={tab === 'roles'} onclick={() => void openTab('roles')}>Роли</button>
@@ -641,6 +641,7 @@ let usersPerPage = $state(20);
                   <input
                     type="checkbox"
                     checked={module.enabled}
+                    disabled={!canManageRoles}
                     aria-label={module.enabled ? `Выключить модуль «${module.title}»` : `Включить модуль «${module.title}»`}
                     onchange={() => toggleModuleEnabled(module.code)}
                   />

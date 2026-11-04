@@ -2,8 +2,6 @@
   import { onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
   import {
-    emailWarehouses,
-    exportWarehouses,
     listWarehouseDirectory,
     type WarehouseDirectoryItem,
     type WarehouseType
@@ -13,7 +11,6 @@
   import { addHistory } from '../lib/search-history';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
-  import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
@@ -117,9 +114,6 @@
   let viewOpen = $state(false);
   let viewDraft = $state<'list' | 'tiles'>('list');
   let helpOpen = $state(false);
-  let exportOpen = $state(false);
-
-  const emailAllowed = $derived(appSettings.emailExportEnabled && appSettings.mailConfigured);
 
   const filtered = $derived.by(() => {
     const term = query.trim().toLowerCase();
@@ -401,25 +395,6 @@
     persist();
   }
 
-  async function doExport(format: string, byEmail: boolean): Promise<void> {
-    exportOpen = false;
-    busy = true;
-    error = '';
-    message = '';
-
-    try {
-      if (byEmail) {
-        const result = await emailWarehouses(format);
-        message = result.sent ? `Отправлено на ${result.email}` : 'Не удалось отправить';
-      } else {
-        await exportWarehouses(format);
-      }
-    } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось выполнить экспорт';
-    } finally {
-      busy = false;
-    }
-  }
 </script>
 
 <section class="page">
@@ -491,18 +466,12 @@
           aria-label="Добавить склад"
           onclick={() => router.navigate('/warehouses/new')}
         >
-          <Icon name="plus" size={16} />
-        </button>
-
-        <button
-          type="button"
-          class="sort-button"
-          title="Экспорт списка складов"
-          aria-label="Экспорт списка складов"
-          disabled={busy || sorted.length === 0}
-          onclick={() => (exportOpen = true)}
-        >
-          <Icon name="export" size={16} />
+          <span class="create-warehouse-icon">
+            <Icon name="warehouse" size={16} />
+            <span class="create-warehouse-plus" aria-hidden="true">
+              <Icon name="plus" size={10} />
+            </span>
+          </span>
         </button>
 
         <span class="toolbar-divider" aria-hidden="true"></span>
@@ -734,15 +703,6 @@
   </div>
 </Modal>
 
-<ExportModal
-  open={exportOpen}
-  title="Экспорт списка складов"
-  email={auth.user?.email ?? ''}
-  emailAllowed={emailAllowed}
-  onpick={(format, byEmail) => void doExport(format, byEmail)}
-  onclose={() => (exportOpen = false)}
-/>
-
 <style>
   .page {
     display: flex;
@@ -802,6 +762,28 @@
     align-items: center;
     gap: var(--space-2);
     margin-left: auto;
+  }
+
+  .create-warehouse-icon {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .create-warehouse-plus {
+    position: absolute;
+    right: -6px;
+    bottom: -5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
   }
 
   .sort-button {

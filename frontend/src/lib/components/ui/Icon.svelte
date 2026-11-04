@@ -13,12 +13,15 @@
   import CheckOutlined from '@ant-design/icons-svg/es/asn/CheckOutlined';
   import CloseCircleFilled from '@ant-design/icons-svg/es/asn/CloseCircleFilled';
   import CloseOutlined from '@ant-design/icons-svg/es/asn/CloseOutlined';
+  import CommentOutlined from '@ant-design/icons-svg/es/asn/CommentOutlined';
   import CopyOutlined from '@ant-design/icons-svg/es/asn/CopyOutlined';
   import DatabaseOutlined from '@ant-design/icons-svg/es/asn/DatabaseOutlined';
   import DeleteOutlined from '@ant-design/icons-svg/es/asn/DeleteOutlined';
+  import HistoryOutlined from '@ant-design/icons-svg/es/asn/HistoryOutlined';
   import DollarOutlined from '@ant-design/icons-svg/es/asn/DollarOutlined';
   import DownloadOutlined from '@ant-design/icons-svg/es/asn/DownloadOutlined';
   import EditOutlined from '@ant-design/icons-svg/es/asn/EditOutlined';
+  import FileAddOutlined from '@ant-design/icons-svg/es/asn/FileAddOutlined';
   import FileTextOutlined from '@ant-design/icons-svg/es/asn/FileTextOutlined';
   import FilterOutlined from '@ant-design/icons-svg/es/asn/FilterOutlined';
   import GroupOutlined from '@ant-design/icons-svg/es/asn/GroupOutlined';
@@ -30,9 +33,11 @@
   import LogoutOutlined from '@ant-design/icons-svg/es/asn/LogoutOutlined';
   import MailOutlined from '@ant-design/icons-svg/es/asn/MailOutlined';
   import MessageOutlined from '@ant-design/icons-svg/es/asn/MessageOutlined';
+  import PaperClipOutlined from '@ant-design/icons-svg/es/asn/PaperClipOutlined';
   import PieChartOutlined from '@ant-design/icons-svg/es/asn/PieChartOutlined';
   import PictureOutlined from '@ant-design/icons-svg/es/asn/PictureOutlined';
   import PlusOutlined from '@ant-design/icons-svg/es/asn/PlusOutlined';
+  import ProfileOutlined from '@ant-design/icons-svg/es/asn/ProfileOutlined';
   import QuestionCircleOutlined from '@ant-design/icons-svg/es/asn/QuestionCircleOutlined';
   import ReloadOutlined from '@ant-design/icons-svg/es/asn/ReloadOutlined';
   import SafetyCertificateOutlined from '@ant-design/icons-svg/es/asn/SafetyCertificateOutlined';
@@ -46,6 +51,8 @@
   import TableOutlined from '@ant-design/icons-svg/es/asn/TableOutlined';
   import TagsOutlined from '@ant-design/icons-svg/es/asn/TagsOutlined';
   import TeamOutlined from '@ant-design/icons-svg/es/asn/TeamOutlined';
+  import UserAddOutlined from '@ant-design/icons-svg/es/asn/UserAddOutlined';
+  import UserOutlined from '@ant-design/icons-svg/es/asn/UserOutlined';
   import type { IconDefinition } from '@ant-design/icons-svg/es/types';
   import { renderIconDefinitionToSVGElement } from '@ant-design/icons-svg/es/helpers';
 
@@ -73,11 +80,16 @@
     clients: TeamOutlined,
     close: CloseOutlined,
     'close-circle': CloseCircleFilled,
+    comments: CommentOutlined,
     copy: CopyOutlined,
     database: DatabaseOutlined,
     edit: EditOutlined,
+    files: PaperClipOutlined,
+    history: HistoryOutlined,
+    overview: ProfileOutlined,
     export: DownloadOutlined,
     filter: FilterOutlined,
+    'file-plus': FileAddOutlined,
     group: GroupOutlined,
     holder: HolderOutlined,
     help: QuestionCircleOutlined,
@@ -103,6 +115,8 @@
     tags: TagsOutlined,
     trash: DeleteOutlined,
     types: AppstoreOutlined,
+    user: UserOutlined,
+    'user-plus': UserAddOutlined,
     view: TableOutlined,
     warehouse: ShopOutlined
   };

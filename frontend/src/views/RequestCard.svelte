@@ -58,14 +58,22 @@
   let busy = $state(false);
 
   const showPrices = $derived(detail !== null && detail.prices?.enabled === true);
+  const totalQuantity = $derived(
+    detail ? detail.items.reduce((sum, item) => sum + Number(item.quantity || 0), 0) : 0
+  );
+  const totalQuantityText = $derived(
+    totalQuantity.toLocaleString('ru-RU', { maximumFractionDigits: 3 })
+  );
 
   let targetStatus = $state('');
   let transitionComment = $state('');
   let cancelReason = $state('');
-  let cardTab = $state<CardTab>('summary');
+  let cardTab = $state<CardTab>('request');
   let historyTab = $state<'timeline' | 'assignments' | 'views'>('timeline');
   let cancelOpen = $state(false);
   let statusOpen = $state(false);
+  let transferOpen = $state(false);
+  let activityOpen = $state(false);
   let actionNotice = $state('');
   let chatUnread = $state(0);
 
@@ -155,7 +163,7 @@
       detail = await updateRequestItems(id, items, detail.request.version, comment);
       actionNotice = 'Состав обновлён';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить состав';
+      handleActionError(cause, 'Не удалось изменить состав');
     } finally {
       busy = false;
     }
@@ -179,7 +187,7 @@
 
       return true;
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить состав';
+      handleActionError(cause, 'Не удалось изменить состав');
 
       return false;
     } finally {
@@ -198,18 +206,13 @@
 
     const ok = await persistItems(next);
 
-    if (!ok && detail) {
-      try {
-        detail = await getRequest(id);
-        chatUnread = detail.chat.unread ?? 0;
-      } catch {
-        // не удалось обновить версию — повтор ниже обработает ошибку
-      }
-
-      await persistItems(next);
-    }
-
     itemsApplyBusy = false;
+
+    if (!ok) {
+      pendingItems = null;
+
+      return;
+    }
 
     if (pendingItems !== null) {
       void flushItemsApply();
@@ -305,7 +308,11 @@
   let chatBody = $state('');
   let chatMessages = $state<ChatMessage[]>([]);
 
-  type CardTab = 'summary' | 'items' | 'comments' | 'chat' | 'files' | 'history' | 'action' | 'transfer';
+  type CardTab = 'request' | 'comments' | 'chat' | 'files' | 'history';
+
+  const AUTO_REFRESH_MS = 15000;
+  let loadSeq = 0;
+  let autoRefreshBusy = false;
 
   onMount(() => {
     void load();
@@ -330,26 +337,197 @@
       .catch(() => {
         activityTypes = [];
       });
+
+    const timer = window.setInterval(() => {
+      void autoRefresh();
+    }, AUTO_REFRESH_MS);
+    const onFocus = (): void => {
+      void autoRefresh();
+    };
+    const onVisibility = (): void => {
+      if (document.visibilityState === 'visible') {
+        void autoRefresh();
+      }
+    };
+
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
   });
 
-  async function load(): Promise<void> {
-    loading = true;
-    error = '';
+  async function load(options: { silent?: boolean; force?: boolean } = {}): Promise<void> {
+    const silent = options.silent === true;
+    const force = options.force === true;
+    const seq = ++loadSeq;
+    const previousVersion = detail?.request.version ?? null;
+
+    if (!silent) {
+      loading = true;
+      error = '';
+    }
 
     try {
-      detail = await getRequest(id);
+      const data = await getRequest(id);
+
+      if (seq !== loadSeq) {
+        return;
+      }
+
+      if (silent && !force && !autoRefreshAllowed()) {
+        return;
+      }
+
+      if (silent && previousVersion !== null && data.request.version < previousVersion) {
+        return;
+      }
+
+      detail = data;
       chatUnread = detail.chat.unread ?? 0;
 
-      try {
-        attachments = (await listAttachments(id)).items;
-      } catch {
-        attachments = [];
+      if (
+        silent
+        && !force
+        && previousVersion !== null
+        && data.request.version > previousVersion
+        && actionNotice === ''
+        && actionError === ''
+      ) {
+        actionNotice = 'Заявка обновлена: есть изменения от других пользователей';
       }
+
+      try {
+        const attachmentData = await listAttachments(id);
+
+        if (seq === loadSeq) {
+          attachments = attachmentData.items;
+        }
+      } catch {
+        if (seq === loadSeq) {
+          attachments = [];
+        }
+      }
+
+      error = '';
     } catch (cause) {
+      if (seq !== loadSeq) {
+        return;
+      }
+
+      if (silent && !(cause instanceof ApiError && cause.status === 404)) {
+        return;
+      }
+
+      if (cause instanceof ApiError && cause.status === 404) {
+        detail = null;
+        attachments = [];
+        error = 'Заявка удалена или недоступна';
+        return;
+      }
+
       error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить заявку';
     } finally {
-      loading = false;
+      if (seq === loadSeq && !silent) {
+        loading = false;
+      }
     }
+  }
+
+  function anyModalOpen(): boolean {
+    return statusOpen
+      || subjectOpen
+      || bodyOpen
+      || priorityOpen
+      || dueOpen
+      || cancelOpen
+      || transferOpen
+      || activityOpen
+      || itemModalOpen
+      || deleteOpen
+      || pickerOpen;
+  }
+
+  function autoRefreshAllowed(): boolean {
+    if (document.visibilityState === 'hidden') {
+      return false;
+    }
+
+    if (loading || busy || uploading || chatBusy || chatLoading) {
+      return false;
+    }
+
+    if (itemsApplyBusy || itemsApplyTimer !== null || pendingItems !== null) {
+      return false;
+    }
+
+    return !anyModalOpen();
+  }
+
+  async function autoRefresh(): Promise<void> {
+    if (autoRefreshBusy || !autoRefreshAllowed()) {
+      return;
+    }
+
+    autoRefreshBusy = true;
+
+    try {
+      await load({ silent: true });
+
+      if (cardTab === 'chat' && detail && detail.chat.thread_id > 0) {
+        await loadChat(true);
+
+        if (chatUnread > 0) {
+          chatUnread = 0;
+          const lastId = chatMessages.reduce((max, message) => Math.max(max, message.id), 0);
+          void markThreadRead(detail.chat.thread_id, lastId).catch(() => {});
+        }
+      }
+    } finally {
+      autoRefreshBusy = false;
+    }
+  }
+
+  function closeActionModals(): void {
+    statusOpen = false;
+    subjectOpen = false;
+    bodyOpen = false;
+    priorityOpen = false;
+    dueOpen = false;
+    cancelOpen = false;
+    transferOpen = false;
+    activityOpen = false;
+    itemModalOpen = false;
+    deleteOpen = false;
+    pickerOpen = false;
+  }
+
+  function handleActionError(cause: unknown, fallback: string): void {
+    if (cause instanceof ApiError) {
+      if (cause.status === 409) {
+        actionError = cause.code === 'version_conflict'
+          ? 'Заявка изменена другим пользователем. Данные обновлены — проверьте изменения и повторите действие.'
+          : cause.message;
+        closeActionModals();
+        void load({ silent: true, force: true });
+        return;
+      }
+
+      if (cause.status === 404) {
+        detail = null;
+        attachments = [];
+        error = 'Заявка удалена или недоступна';
+        return;
+      }
+
+      actionError = cause.message;
+      return;
+    }
+
+    actionError = fallback;
   }
 
   async function onFileSelected(event: Event): Promise<void> {
@@ -401,11 +579,33 @@
 
     try {
       detail = await claimRequest(id);
+      actionNotice = 'Заявка взята в работу';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось взять заявку';
+      handleActionError(cause, 'Не удалось взять заявку');
     } finally {
       busy = false;
     }
+  }
+
+  function openTransfer(): void {
+    if (!detail?.can.assign) {
+      return;
+    }
+
+    transferTarget = 0;
+    transferComment = '';
+    transferOpen = true;
+  }
+
+  function openActivity(): void {
+    if (!detail?.can.activity) {
+      return;
+    }
+
+    activityType = '';
+    activityBody = '';
+    activityOccurredAt = localNow();
+    activityOpen = true;
   }
 
   function localNow(): string {
@@ -462,7 +662,7 @@
       subjectOpen = false;
       actionNotice = 'Название обновлено';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить название';
+      handleActionError(cause, 'Не удалось изменить название');
     } finally {
       metaBusy = false;
     }
@@ -481,7 +681,7 @@
       bodyOpen = false;
       actionNotice = 'Описание обновлено';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить описание';
+      handleActionError(cause, 'Не удалось изменить описание');
     } finally {
       metaBusy = false;
     }
@@ -519,7 +719,7 @@
       priorityOpen = false;
       actionNotice = 'Приоритет обновлён';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить приоритет';
+      handleActionError(cause, 'Не удалось изменить приоритет');
     } finally {
       metaBusy = false;
     }
@@ -542,7 +742,7 @@
       dueOpen = false;
       actionNotice = 'Срок обновлён';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось изменить срок';
+      handleActionError(cause, 'Не удалось изменить срок');
     } finally {
       metaBusy = false;
     }
@@ -563,7 +763,7 @@
       statusOpen = false;
       actionNotice = 'Статус изменён';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось сменить статус';
+      handleActionError(cause, 'Не удалось сменить статус');
     } finally {
       busy = false;
     }
@@ -592,7 +792,7 @@
       cancelReason = '';
       cancelOpen = false;
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось отменить заявку';
+      handleActionError(cause, 'Не удалось отменить заявку');
     } finally {
       busy = false;
     }
@@ -621,9 +821,11 @@
       );
       transferTarget = 0;
       transferComment = '';
+      transferOpen = false;
+      actionNotice = 'Заявка передана';
       cardTab = 'history';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось передать заявку';
+      handleActionError(cause, 'Не удалось передать заявку');
     } finally {
       busy = false;
     }
@@ -707,20 +909,26 @@
     pickerOpen = true;
   }
 
-  async function loadChat(): Promise<void> {
+  async function loadChat(silent = false): Promise<void> {
     if (!detail || detail.chat.thread_id <= 0) {
       return;
     }
 
-    chatLoading = true;
+    if (!silent) {
+      chatLoading = true;
+    }
 
     try {
       const data = await listMessages(detail.chat.thread_id, 0, id);
       chatMessages = data.items;
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить сообщения';
+      if (!silent) {
+        actionError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить сообщения';
+      }
     } finally {
-      chatLoading = false;
+      if (!silent) {
+        chatLoading = false;
+      }
     }
   }
 
@@ -758,7 +966,7 @@
       chatBody = '';
       await loadChat();
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось отправить сообщение';
+      handleActionError(cause, 'Не удалось отправить сообщение');
     } finally {
       chatBusy = false;
     }
@@ -783,8 +991,11 @@
       activityType = '';
       activityBody = '';
       activityOccurredAt = localNow();
+      activityOpen = false;
+      actionNotice = 'Действие добавлено';
+      cardTab = 'history';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось добавить действие';
+      handleActionError(cause, 'Не удалось добавить действие');
     } finally {
       busy = false;
     }
@@ -802,7 +1013,7 @@
       detail = await addComment(id, commentBody);
       commentBody = '';
     } catch (cause) {
-      actionError = cause instanceof ApiError ? cause.message : 'Не удалось добавить комментарий';
+      handleActionError(cause, 'Не удалось добавить комментарий');
     } finally {
       busy = false;
     }
@@ -811,73 +1022,42 @@
 </script>
 
 <section class="page page-wide">
-  <div class="topbar page-hero">
-    <button
-      type="button"
-      class="page-icon-btn"
-      title="К списку заявок"
-      aria-label="К списку заявок"
-      onclick={() => router.navigate('/requests')}
-    >
-      <Icon name="arrow-left" size={16} />
-    </button>
+  <div class="page-hero">
+    <div class="head">
+      <button
+        type="button"
+        class="back"
+        title="К списку заявок"
+        aria-label="К списку заявок"
+        onclick={() => router.navigate('/requests')}
+      >
+        <Icon name="arrow-left" size={16} />
+      </button>
 
-    {#if detail}
-      <div class="actions">
-        {#if appSettings.salesEnabled && auth.can('requests.create')}
-          <button
-            type="button"
-            class="page-icon-btn"
-            title="Копировать заявку"
-            aria-label="Копировать заявку"
-            onclick={() => router.navigate(`/requests/new?copy=${id}`)}
-          >
-            <Icon name="copy" size={16} />
-          </button>
-        {/if}
-        {#if detail.can.claim}
-          <button
-            type="button"
-            class="page-icon-btn"
-            title="Взять в работу"
-            aria-label="Взять в работу"
-            disabled={busy}
-            onclick={claim}
-          >
-            {#if busy}
-              <Spinner size={16} />
+      {#if detail}
+        <div class="head-text">
+          <div class="hero-badges">
+            <span class="number">{detail.request.number}</span>
+            {#if detail.can.transition_to.length > 0}
+              <button
+                type="button"
+                class="status-button"
+                title="Изменить статус"
+                onclick={openStatus}
+              >
+                <StatusBadge title={detail.request.status.title} color={detail.request.status.color} />
+              </button>
             {:else}
-              <Icon name="check-circle" size={16} />
+              <StatusBadge title={detail.request.status.title} color={detail.request.status.color} />
             {/if}
-          </button>
-        {/if}
-        {#if detail.can.cancel}
-          <button
-            type="button"
-            class="page-icon-btn danger"
-            title="Отмена заявки"
-            aria-label="Отмена заявки"
-            onclick={() => (cancelOpen = true)}
-          >
-            <Icon name="close-circle" size={16} />
-          </button>
-        {/if}
-      </div>
-    {/if}
-  </div>
+            {#if detail.request.is_overdue}
+              <span class="overdue-badge">Просрочена</span>
+            {/if}
+            {#if !detail.request.manager}
+              <span class="search-badge">Поиск менеджера</span>
+            {/if}
+          </div>
 
-  {#if loading}
-    <div class="center"><Spinner size={26} /></div>
-  {:else if error}
-    <div class="alert" role="alert">
-      <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-      <span>{error}</span>
-    </div>
-  {:else if detail}
-    <div class="card">
-      <div class="card-head">
-        <div class="title-block">
-          <div class="number">{detail.request.number}</div>
           <h1>
             {#if detail.can.edit_text}
               <button
@@ -892,125 +1072,10 @@
               {detail.request.subject}
             {/if}
           </h1>
-        </div>
 
-        <div class="badges">
-          {#if detail.can.transition_to.length > 0}
-            <button
-              type="button"
-              class="status-button"
-              title="Изменить статус"
-              onclick={openStatus}
-            >
-              <StatusBadge title={detail.request.status.title} color={detail.request.status.color} />
-            </button>
-          {:else}
-            <StatusBadge title={detail.request.status.title} color={detail.request.status.color} />
-          {/if}
-          {#if !detail.request.manager}
-            <span class="search-badge">Поиск менеджера</span>
-          {/if}
-        </div>
-      </div>
-
-      {#if actionError}
-        <div class="alert" role="alert">
-          <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-          <span>{actionError}</span>
-        </div>
-      {/if}
-
-      {#if actionNotice}
-        <div class="notice">
-          <span class="notice-icon"><Icon name="check-circle" size={16} /></span>
-          <span>{actionNotice}</span>
-        </div>
-      {/if}
-    </div>
-
-    <div class="card-tabs tab-scroll">
-      <button
-        type="button"
-        class="card-tab"
-        class:active={cardTab === 'summary'}
-        onclick={() => void openCardTab('summary')}
-      >
-        Сводная
-      </button>
-      <button
-        type="button"
-        class="card-tab"
-        class:active={cardTab === 'items'}
-        onclick={() => void openCardTab('items')}
-      >
-        Состав{detail.items.length > 0 ? ` (${detail.items.length})` : ''}
-      </button>
-      {#if detail.can.comment}
-        <button
-          type="button"
-          class="card-tab"
-          class:active={cardTab === 'comments'}
-          onclick={() => void openCardTab('comments')}
-        >
-          Комментарии{detail.comments.length > 0 ? ` (${detail.comments.length})` : ''}
-        </button>
-      {/if}
-      <button
-        type="button"
-        class="card-tab"
-        class:active={cardTab === 'chat'}
-        class:unread={chatUnread > 0}
-        onclick={() => void openCardTab('chat')}
-      >
-        Чат
-        {#if chatUnread > 0}
-          <span class="tab-dot" title="Есть новые сообщения"></span>
-        {/if}
-      </button>
-      <button
-        type="button"
-        class="card-tab"
-        class:active={cardTab === 'files'}
-        onclick={() => void openCardTab('files')}
-      >
-        Файлы{attachments.length > 0 ? ` (${attachments.length})` : ''}
-      </button>
-      <button
-        type="button"
-        class="card-tab"
-        class:active={cardTab === 'history'}
-        onclick={() => void openCardTab('history')}
-      >
-        История
-      </button>
-      {#if detail.can.activity}
-        <button
-          type="button"
-          class="card-tab"
-          class:active={cardTab === 'action'}
-          onclick={() => void openCardTab('action')}
-        >
-          Добавить действие
-        </button>
-      {/if}
-      {#if detail.can.assign}
-        <button
-          type="button"
-          class="card-tab"
-          class:active={cardTab === 'transfer'}
-          onclick={() => void openCardTab('transfer')}
-        >
-          Передать заявку
-        </button>
-      {/if}
-    </div>
-
-    {#if cardTab === 'summary'}
-      <div class="card">
-        <dl class="info">
-          <div>
-            <dt>Клиент</dt>
-            <dd>
+          <div class="sub hero-meta">
+            <span class="meta-chip">
+              <Icon name="user" size={14} />
               {#if isStaff}
                 <a class="manager-link" href={`#/clients/${detail.request.client.id}`}>
                   {detail.request.client.name}
@@ -1018,82 +1083,225 @@
               {:else}
                 {detail.request.client.name}
               {/if}
-              {#if detail.request.client.inn}
-                <span class="client-inn">ИНН {detail.request.client.inn}</span>
-              {/if}
-            </dd>
-          </div>
-          <div>
-            <dt>Менеджер</dt>
-            <dd>
-              {#if detail.request.manager}
-                <a class="manager-link" href={`#/users/${detail.request.manager.id}`}>
-                  {detail.request.manager.name}
-                </a>
-              {:else}
-                не назначен
-              {/if}
-            </dd>
-          </div>
-          <div>
-            <dt>Приоритет</dt>
-            <dd>
-              {#if detail.can.meta}
-                <button type="button" class="meta-link" title="Изменить приоритет" onclick={openPriority}>
-                  {priorityLabel(detail.request.priority)}
-                </button>
-              {:else}
-                {priorityLabel(detail.request.priority)}
-              {/if}
-            </dd>
-          </div>
-          <div>
-            <dt>Создана</dt>
-            <dd>{formatDateTime(detail.request.created_at)}</dd>
-          </div>
-          <div>
-            <dt>Обновлена</dt>
-            <dd>{formatDateTime(detail.request.updated_at)}</dd>
-          </div>
-          <div>
-            <dt>Срок</dt>
-            <dd class:overdue-text={detail.request.is_overdue}>
-              {#if detail.can.meta}
-                <button type="button" class="meta-link" title="Изменить срок" onclick={openDue}>
-                  {formatDateTime(detail.request.due_at)}
-                </button>
-              {:else}
-                {formatDateTime(detail.request.due_at)}
-              {/if}
-              {#if detail.request.is_overdue}(просрочена){/if}
-            </dd>
-          </div>
-          {#if detail.request.closed_at}
-            <div>
-              <dt>Закрыта</dt>
-              <dd>{formatDateTime(detail.request.closed_at)}</dd>
-            </div>
-          {/if}
-        </dl>
+            </span>
 
-        {#if detail.request.body || detail.can.edit_text}
-          {#if detail.can.edit_text}
+            <span class="meta-chip" class:priority-high={detail.request.priority === 3}>
+              <Icon name="info" size={14} />
+              {priorityLabel(detail.request.priority)}
+            </span>
+
+            {#if detail.request.due_at}
+              <span class="meta-chip" class:overdue={detail.request.is_overdue}>
+                <Icon name="calendar" size={14} />
+                {formatDateTime(detail.request.due_at)}
+              </span>
+            {/if}
+
+            {#if detail.request.manager}
+              <span class="meta-chip">
+                <Icon name="staff" size={14} />
+                {#if isStaff}
+                  <a class="manager-link" href={`#/users/${detail.request.manager.id}`}>
+                    {detail.request.manager.name}
+                  </a>
+                {:else}
+                  {detail.request.manager.name}
+                {/if}
+              </span>
+            {/if}
+          </div>
+        </div>
+
+        <div class="head-actions">
+          <div class="hero-tabs" aria-label="Разделы заявки">
             <button
               type="button"
-              class="body text-edit body-edit"
-              title="Редактировать описание"
-              onclick={openBody}
+              class="hero-tab"
+              class:active={cardTab === 'request'}
+              title={`Заявка${detail.items.length > 0 ? `: ${detail.items.length} поз.` : ''}`}
+              aria-label={`Заявка${detail.items.length > 0 ? `, позиций: ${detail.items.length}` : ''}`}
+              onclick={() => void openCardTab('request')}
             >
-              {detail.request.body || 'Описание не заполнено'}
+              <Icon name="overview" size={18} />
+              {#if detail.items.length > 0}
+                <span class="tab-count">{detail.items.length > 99 ? '99+' : detail.items.length}</span>
+              {/if}
             </button>
-          {:else}
-            <div class="body">{detail.request.body}</div>
+
+            {#if detail.can.comment}
+              <button
+                type="button"
+                class="hero-tab"
+                class:active={cardTab === 'comments'}
+                title={`Комментарии${detail.comments.length > 0 ? `: ${detail.comments.length}` : ''}`}
+                aria-label={`Комментарии${detail.comments.length > 0 ? `, ${detail.comments.length}` : ''}`}
+                onclick={() => void openCardTab('comments')}
+              >
+                <Icon name="comments" size={18} />
+                {#if detail.comments.length > 0}
+                  <span class="tab-count">
+                    {detail.comments.length > 99 ? '99+' : detail.comments.length}
+                  </span>
+                {/if}
+              </button>
+            {/if}
+
+            <button
+              type="button"
+              class="hero-tab"
+              class:active={cardTab === 'chat'}
+              class:unread={chatUnread > 0}
+              title="Чат по заявке"
+              aria-label="Чат по заявке"
+              onclick={() => void openCardTab('chat')}
+            >
+              <Icon name="chat" size={18} />
+              {#if chatUnread > 0}
+                <span class="hero-dot" title="Есть новые сообщения"></span>
+              {/if}
+            </button>
+
+            <button
+              type="button"
+              class="hero-tab"
+              class:active={cardTab === 'files'}
+              title={`Файлы${attachments.length > 0 ? `: ${attachments.length}` : ''}`}
+              aria-label={`Файлы${attachments.length > 0 ? `, ${attachments.length}` : ''}`}
+              onclick={() => void openCardTab('files')}
+            >
+              <Icon name="files" size={18} />
+              {#if attachments.length > 0}
+                <span class="tab-count">
+                  {attachments.length > 99 ? '99+' : attachments.length}
+                </span>
+              {/if}
+            </button>
+
+            <button
+              type="button"
+              class="hero-tab"
+              class:active={cardTab === 'history'}
+              title="История"
+              aria-label="История"
+              onclick={() => void openCardTab('history')}
+            >
+              <Icon name="history" size={18} />
+            </button>
+          </div>
+
+          <div class="hero-actions">
+            {#if appSettings.salesEnabled && auth.can('requests.create')}
+              <button
+                type="button"
+                class="page-icon-btn"
+                title="Копировать заявку"
+                aria-label="Копировать заявку"
+                onclick={() => router.navigate(`/requests/new?copy=${id}`)}
+              >
+                <Icon name="copy" size={16} />
+              </button>
+            {/if}
+
+            {#if detail.can.claim}
+              <button
+                type="button"
+                class="page-icon-btn"
+                title="Взять в работу"
+                aria-label="Взять в работу"
+                disabled={busy}
+                onclick={claim}
+              >
+                {#if busy}
+                  <Spinner size={16} />
+                {:else}
+                  <Icon name="check-circle" size={16} />
+                {/if}
+              </button>
+            {/if}
+
+            {#if detail.can.cancel}
+              <button
+                type="button"
+                class="page-icon-btn danger"
+                title="Отмена заявки"
+                aria-label="Отмена заявки"
+                onclick={() => (cancelOpen = true)}
+              >
+                <Icon name="close-circle" size={16} />
+              </button>
+            {/if}
+          </div>
+        </div>
+      {:else}
+        <div class="head-text">
+          <h1>Заявка</h1>
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  {#if actionError}
+    <div class="alert" role="alert">
+      <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+      <span>{actionError}</span>
+      <button
+        type="button"
+        class="notify-close"
+        aria-label="Закрыть уведомление"
+        onclick={() => (actionError = '')}
+      >
+        <Icon name="close" size={14} />
+      </button>
+    </div>
+  {/if}
+
+  {#if actionNotice}
+    <div class="notice">
+      <span class="notice-icon"><Icon name="check-circle" size={16} /></span>
+      <span>{actionNotice}</span>
+      <button
+        type="button"
+        class="notify-close"
+        aria-label="Закрыть уведомление"
+        onclick={() => (actionNotice = '')}
+      >
+        <Icon name="close" size={14} />
+      </button>
+    </div>
+  {/if}
+
+  {#if loading}
+    <div class="center"><Spinner size={26} /></div>
+  {:else if error}
+    <div class="alert" role="alert">
+      <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+      <span>{error}</span>
+    </div>
+    <div class="row">
+      <Button variant="ghost" onclick={() => router.navigate('/requests')}>
+        К списку заявок
+      </Button>
+    </div>
+  {:else if detail}
+    <div class="layout">
+      <div class="main">
+    {#if cardTab === 'request'}
+      <div class="card">
+        <div class="card-head">
+          <h2>Описание</h2>
+          {#if detail.can.edit_text}
+            <button type="button" class="link-btn" onclick={openBody}>
+              {detail.request.body ? 'Изменить' : 'Добавить'}
+            </button>
           {/if}
+        </div>
+        {#if detail.request.body}
+          <div class="overview-text">{detail.request.body}</div>
+        {:else}
+          <p class="muted">Описание не заполнено</p>
         {/if}
       </div>
-    {/if}
 
-    {#if cardTab === 'items'}
       <div class="card">
         <div class="items-head">
           <h2>Состав заявки</h2>
@@ -1109,9 +1317,7 @@
 
             {#if detail.can.edit_items}
               <Button variant="ghost" onclick={openPicker}>
-                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true">
-                  <path d="M12 5v14M5 12h14" />
-                </svg>
+                <Icon name="plus" size={16} />
                 Добавить
               </Button>
             {/if}
@@ -1185,7 +1391,7 @@
                     aria-label={`Удалить: ${item.name}`}
                     onclick={() => removeItem(item)}
                   >
-                    ✕
+                    <Icon name="trash" size={14} />
                   </button>
                 {:else}
                   <span></span>
@@ -1208,7 +1414,12 @@
 
     {#if cardTab === 'comments' && detail.can.comment}
       <div class="card">
-        <h2>Комментарии</h2>
+        <div class="card-head">
+          <h2>Комментарии</h2>
+          {#if detail.comments.length > 0}
+            <span class="muted">{detail.comments.length}</span>
+          {/if}
+        </div>
         <p class="muted comment-hint">Служебные пометки для сотрудников</p>
 
         {#if detail.comments.length === 0}
@@ -1241,10 +1452,16 @@
 
     {#if cardTab === 'chat'}
       <div class="card">
-        <h2>Чат по заявке</h2>
+        <div class="card-head">
+          <h2>Чат по заявке</h2>
+          {#if detail.chat.thread_id > 0}
+            <a class="link-btn" href={`#/chat?thread=${detail.chat.thread_id}`}>
+              Открыть диалог →
+            </a>
+          {/if}
+        </div>
         <p class="muted chat-hint">
-          Заявка {detail.request.number} · переписка с {isStaff ? 'клиентом' : 'менеджером'} ·
-          <a class="manager-link" href={`#/chat?thread=${detail.chat.thread_id}`}>открыть весь диалог</a>
+          Заявка {detail.request.number} · переписка с {isStaff ? 'клиентом' : 'менеджером'}
         </p>
 
         {#if chatLoading}
@@ -1300,7 +1517,12 @@
 
     {#if cardTab === 'files'}
       <div class="card">
-        <h2>Файлы заявки</h2>
+        <div class="card-head">
+          <h2>Файлы заявки</h2>
+          {#if attachments.length > 0}
+            <span class="muted">{attachments.length}</span>
+          {/if}
+        </div>
 
         {#if attachments.length === 0}
           <p class="muted">Файлов пока нет</p>
@@ -1338,6 +1560,9 @@
 
     {#if cardTab === 'history'}
       <div class="card">
+        <div class="card-head">
+          <h2>История</h2>
+        </div>
         <div class="tabs tab-scroll">
           <button
             type="button"
@@ -1435,83 +1660,187 @@
       </div>
     {/if}
 
-    {#if cardTab === 'action' && detail.can.activity}
-      <div class="card">
-        <h2>Добавить действие</h2>
-
-        <div class="form">
-          <div class="action-row">
-            <select bind:value={activityType}>
-              <option value="" disabled>Выберите действие</option>
-              {#each activityTypes as type}
-                <option value={type.code}>{type.title}</option>
-              {/each}
-            </select>
-
-            <label class="field action-date">
-              <span>Дата и время</span>
-              <input type="datetime-local" bind:value={activityOccurredAt} />
-            </label>
-          </div>
-
-          <textarea
-            bind:value={activityBody}
-            rows="2"
-            placeholder="Комментарий (для «Другое» обязателен)"
-          ></textarea>
-
-          <div class="row">
-            <Button
-              loading={busy}
-              disabled={!activityType || (activityType.startsWith('other') && activityBody.trim().length < 3)}
-              onclick={submitActivity}
-            >
-              Добавить
-            </Button>
-          </div>
-        </div>
       </div>
-    {/if}
 
-    {#if cardTab === 'transfer' && detail.can.assign}
-      <div class="card">
-        <h2>Передача заявки</h2>
-        <div class="form">
-          <p class="muted">
-            Текущий менеджер: {detail.request.manager?.name ?? 'не назначен'}
-          </p>
-
-          <select bind:value={transferTarget} required>
-            <option value={0} disabled>Выберите менеджера</option>
-            {#each transferableManagers as manager}
-              <option value={manager.id}>{manager.name}</option>
-            {/each}
-          </select>
-
-          <textarea
-            bind:value={transferComment}
-            rows="2"
-            placeholder="Пояснение: почему передаёте (обязательно)"
-          ></textarea>
-
-          <div class="row">
-            <Button
-              loading={busy}
-              disabled={transferTarget <= 0 || transferComment.trim().length < 3}
-              onclick={submitTransfer}
+      <aside class="side">
+        <div class="card side-client-card">
+          {#if isStaff}
+            <a
+              class="side-client side-client-link"
+              href={`#/clients/${detail.request.client.id}`}
+              title="Открыть карточку клиента"
             >
-              Передать заявку
-            </Button>
+              <span class="side-client-name">{detail.request.client.name}</span>
+              <span class="side-client-open" aria-hidden="true">
+                <Icon name="arrow-right" size={14} />
+              </span>
+            </a>
+          {:else}
+            <div class="side-client">
+              <span class="side-client-name">{detail.request.client.name}</span>
+            </div>
+          {/if}
 
-            {#if detail.previous_manager && detail.previous_manager.id !== detail.request.manager?.id}
-              <Button variant="ghost" disabled={busy} onclick={returnToPrevious}>
-                Вернуть: {detail.previous_manager.name}
-              </Button>
+          <div class="side-contacts">
+            {#if detail.request.client.inn}
+              <span class="side-meta">ИНН {detail.request.client.inn}</span>
+            {/if}
+            {#if detail.request.client.phone}
+              <a class="side-meta side-contact" href={`tel:${detail.request.client.phone}`}>
+                {detail.request.client.phone}
+              </a>
             {/if}
           </div>
         </div>
-      </div>
-    {/if}
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Параметры</h2>
+          </div>
+          <dl class="side-info">
+            <div>
+              <dt>Менеджер</dt>
+              <dd>
+                {#if detail.request.manager}
+                  {#if isStaff}
+                    <a class="manager-link" href={`#/users/${detail.request.manager.id}`}>
+                      {detail.request.manager.name}
+                    </a>
+                  {:else}
+                    {detail.request.manager.name}
+                  {/if}
+                {:else}
+                  <span class="muted">Не назначен</span>
+                {/if}
+              </dd>
+              {#if detail.can.assign}
+                <button
+                  type="button"
+                  class="param-edit"
+                  title="Изменить менеджера"
+                  aria-label="Изменить менеджера"
+                  onclick={openTransfer}
+                >
+                  <Icon name="edit" size={14} />
+                </button>
+              {/if}
+            </div>
+            <div>
+              <dt>Статус</dt>
+              <dd>
+                <StatusBadge
+                  title={detail.request.status.title}
+                  color={detail.request.status.color}
+                />
+              </dd>
+              {#if detail.can.transition_to.length > 0}
+                <button
+                  type="button"
+                  class="param-edit"
+                  title="Изменить статус"
+                  aria-label="Изменить статус"
+                  onclick={openStatus}
+                >
+                  <Icon name="edit" size={14} />
+                </button>
+              {/if}
+            </div>
+            <div>
+              <dt>Приоритет</dt>
+              <dd>{priorityLabel(detail.request.priority)}</dd>
+              {#if detail.can.meta}
+                <button
+                  type="button"
+                  class="param-edit"
+                  title="Изменить приоритет"
+                  aria-label="Изменить приоритет"
+                  onclick={openPriority}
+                >
+                  <Icon name="edit" size={14} />
+                </button>
+              {/if}
+            </div>
+            <div>
+              <dt>Срок</dt>
+              <dd class:overdue-text={detail.request.is_overdue}>
+                {#if detail.request.due_at}
+                  {formatDateTime(detail.request.due_at)}
+                {:else}
+                  <span class="muted">Не указан</span>
+                {/if}
+              </dd>
+              {#if detail.can.meta}
+                <button
+                  type="button"
+                  class="param-edit"
+                  title="Изменить срок"
+                  aria-label="Изменить срок"
+                  onclick={openDue}
+                >
+                  <Icon name="edit" size={14} />
+                </button>
+              {/if}
+            </div>
+            <div>
+              <dt>Создана</dt>
+              <dd>{formatDateTime(detail.request.created_at)}</dd>
+            </div>
+            <div>
+              <dt>Обновлена</dt>
+              <dd>{formatDateTime(detail.request.updated_at)}</dd>
+            </div>
+            {#if detail.request.closed_at}
+              <div>
+                <dt>Закрыта</dt>
+                <dd>{formatDateTime(detail.request.closed_at)}</dd>
+              </div>
+            {/if}
+          </dl>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Итого</h2>
+          </div>
+          <dl class="side-info">
+            <div>
+              <dt>Позиций</dt>
+              <dd>{detail.items.length}</dd>
+            </div>
+            <div>
+              <dt>Единиц</dt>
+              <dd>{totalQuantityText}</dd>
+            </div>
+            {#if showPrices}
+              <div>
+                <dt>Сумма</dt>
+                <dd class="side-total">{formatPrice(detail.prices.total)}</dd>
+              </div>
+              {#if detail.prices.type}
+                <div>
+                  <dt>Тип цен</dt>
+                  <dd>{detail.prices.type.title}</dd>
+                </div>
+              {/if}
+            {/if}
+          </dl>
+        </div>
+
+        {#if detail.can.activity}
+          <div class="card">
+            <div class="card-head">
+              <h2>Действия</h2>
+            </div>
+            <div class="side-actions">
+              <Button variant="ghost" onclick={openActivity}>
+                <Icon name="plus" size={16} />
+                Добавить действие
+              </Button>
+            </div>
+          </div>
+        {/if}
+      </aside>
+    </div>
 
     <Modal open={itemModalOpen} title="Количество" onclose={() => (itemModalOpen = false)}>
       <div class="form">
@@ -1672,6 +2001,86 @@
       </div>
     </Modal>
 
+    <Modal open={activityOpen} title="Добавить действие" onclose={() => (activityOpen = false)}>
+      <div class="form">
+        <div class="action-row">
+          <select bind:value={activityType}>
+            <option value="" disabled>Выберите действие</option>
+            {#each activityTypes as type}
+              <option value={type.code}>{type.title}</option>
+            {/each}
+          </select>
+
+          <label class="field action-date">
+            <span>Дата и время</span>
+            <input type="datetime-local" bind:value={activityOccurredAt} />
+          </label>
+        </div>
+
+        <textarea
+          bind:value={activityBody}
+          rows="2"
+          placeholder="Комментарий (для «Другое» обязателен)"
+        ></textarea>
+
+        <div class="modal-actions">
+          <div class="modal-buttons">
+            <Button variant="ghost" disabled={busy} onclick={() => (activityOpen = false)}>
+              Отмена
+            </Button>
+            <Button
+              loading={busy}
+              disabled={!activityType || (activityType.startsWith('other') && activityBody.trim().length < 3)}
+              onclick={submitActivity}
+            >
+              Добавить
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+
+    <Modal open={transferOpen} title="Передать заявку" onclose={() => (transferOpen = false)}>
+      <div class="form">
+        <p class="muted">
+          Текущий менеджер: {detail.request.manager?.name ?? 'не назначен'}
+        </p>
+
+        <select bind:value={transferTarget} required>
+          <option value={0} disabled>Выберите менеджера</option>
+          {#each transferableManagers as manager}
+            <option value={manager.id}>{manager.name}</option>
+          {/each}
+        </select>
+
+        <textarea
+          bind:value={transferComment}
+          rows="2"
+          placeholder="Пояснение: почему передаёте (обязательно)"
+        ></textarea>
+
+        <div class="modal-actions">
+          <div class="modal-buttons">
+            <Button variant="ghost" disabled={busy} onclick={() => (transferOpen = false)}>
+              Отмена
+            </Button>
+            {#if detail.previous_manager && detail.previous_manager.id !== detail.request.manager?.id}
+              <Button variant="ghost" disabled={busy} onclick={returnToPrevious}>
+                Вернуть: {detail.previous_manager.name}
+              </Button>
+            {/if}
+            <Button
+              loading={busy}
+              disabled={transferTarget <= 0 || transferComment.trim().length < 3}
+              onclick={submitTransfer}
+            >
+              Передать заявку
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Modal>
+
     <ItemsPicker
       open={pickerOpen}
       items={itemRows}
@@ -1692,11 +2101,309 @@
     margin-inline: auto;
   }
 
-  .topbar {
+  .layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .main,
+  .side {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+    min-width: 0;
+  }
+
+  @media (max-width: 1180px) {
+    .layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  .hero-badges {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .overdue-badge {
+    padding: 2px 10px;
+    border: 1px solid var(--error-border);
+    border-radius: 999px;
+    background: var(--danger-bg);
+    color: var(--danger);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .hero-tabs {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 2px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+  }
+
+  .hero-tab {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: calc(var(--radius-sm) - 2px);
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  }
+
+  .hero-tab:hover {
+    background: var(--surface);
+    color: var(--text);
+  }
+
+  .hero-tab.active {
+    border-color: var(--border);
+    background: var(--surface);
+    color: var(--primary);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .hero-tab.unread {
+    color: var(--primary);
+  }
+
+  .tab-count {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--warning);
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 16px;
+    text-align: center;
+  }
+
+  .hero-dot {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--primary);
+  }
+
+  .hero-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .hero-meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px var(--space-4);
+  }
+
+  .meta-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .meta-chip.overdue {
+    color: var(--danger);
+  }
+
+  .meta-chip.priority-high {
+    color: var(--warning-text);
+  }
+
+  .notify-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-left: auto;
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .notify-close:hover {
+    color: var(--text);
+  }
+
+  .link-btn {
+    padding: 0;
+    border: none;
+    background: none;
+    font: inherit;
+    font-size: 13px;
+    color: var(--primary);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .link-btn:hover {
+    text-decoration: underline;
+  }
+
+  .overview-text {
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+  }
+
+  .side-client-card {
+    padding: var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .side-client {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .side-client-link {
+    margin: -2px;
+    padding: 2px;
+    border-radius: var(--radius-sm);
+    color: inherit;
+    text-decoration: none;
+  }
+
+  .side-client-link:hover {
+    background: var(--bg);
+  }
+
+  .side-client-link:hover .side-client-name,
+  .side-client-link:hover .side-client-open {
+    color: var(--primary);
+  }
+
+  .side-client-name {
+    overflow: hidden;
+    flex: 1;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 14px;
+    font-weight: 600;
+  }
+
+  .side-client-open {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: var(--muted);
+  }
+
+  .side-contacts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px var(--space-3);
+  }
+
+  .side-meta {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .side-contact {
+    text-decoration: none;
+  }
+
+  .side-contact:hover {
+    color: var(--primary);
+  }
+
+  .side-info {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .side-info > div {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .side-info dt {
+    flex: 0 0 auto;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .side-info dd {
+    flex: 1;
+    min-width: 0;
+    margin: 0;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: right;
+  }
+
+  .param-edit {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: 50%;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .param-edit:hover {
+    border-color: var(--border);
+    background: var(--surface);
+    color: var(--primary);
+  }
+
+  .side-total {
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .side-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .side-actions :global(button) {
+    justify-content: flex-start;
+    width: 100%;
   }
 
   .manager-link {
@@ -1715,7 +2422,6 @@
     display: flex;
     align-items: flex-start;
     gap: var(--space-2);
-    margin-top: var(--space-3);
     padding: 8px 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -1815,7 +2521,7 @@
   .items-table {
     display: flex;
     flex-direction: column;
-    margin: 0 -12px;
+    overflow-x: auto;
   }
 
   .items-head-right {
@@ -1827,6 +2533,7 @@
   .it-row {
     display: grid;
     grid-template-columns: minmax(180px, 2fr) 150px minmax(120px, 1fr) 36px;
+    min-width: 640px;
     align-items: center;
     gap: var(--space-3);
     padding: 8px 12px;
@@ -1886,13 +2593,6 @@
     color: var(--muted);
     font-size: 13px;
     white-space: pre-wrap;
-  }
-
-  .client-inn {
-    margin-left: var(--space-2);
-    color: var(--muted);
-    font-size: 13px;
-    white-space: nowrap;
   }
 
   .it-qty-col {
@@ -1983,7 +2683,6 @@
     border-radius: 50%;
     background: var(--surface);
     color: var(--muted);
-    font-size: 13px;
     line-height: 1;
     cursor: pointer;
   }
@@ -2030,7 +2729,7 @@
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
-    padding: var(--space-5);
+    padding: var(--space-4);
     box-shadow: var(--shadow-sm);
     display: flex;
     flex-direction: column;
@@ -2042,13 +2741,6 @@
     align-items: flex-start;
     justify-content: space-between;
     gap: var(--space-3);
-  }
-
-  .badges {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: var(--space-1);
   }
 
   .status-button {
@@ -2070,49 +2762,6 @@
     border: 1px solid var(--warning);
     border-radius: 999px;
     padding: 2px 10px;
-  }
-
-  .card-tabs {
-    display: flex;
-    gap: var(--space-6);
-    flex-wrap: wrap;
-    border-bottom: 1px solid var(--border-secondary);
-  }
-
-  .card-tab {
-    padding: 12px 0;
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: none;
-    color: var(--text);
-    cursor: pointer;
-    font: inherit;
-    font-size: 14px;
-    transition: color 0.2s ease;
-  }
-
-  .card-tab:hover {
-    color: var(--primary);
-  }
-
-  .card-tab.unread {
-    color: var(--primary);
-    font-weight: 500;
-  }
-
-  .tab-dot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    margin-left: 6px;
-    border-radius: 50%;
-    background: var(--primary);
-    vertical-align: middle;
-  }
-
-  .card-tab.active {
-    color: var(--primary);
-    border-bottom-color: var(--primary);
   }
 
   .tabs {
@@ -2152,9 +2801,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
-    max-height: 46vh;
-    overflow-y: auto;
-    padding-right: 4px;
   }
 
   .chat-msg {
@@ -2307,13 +2953,6 @@
     margin-bottom: 2px;
   }
 
-  .info {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: var(--space-3);
-    margin: 0;
-  }
-
   dt {
     font-size: 12px;
     color: var(--muted);
@@ -2326,21 +2965,6 @@
 
   .overdue-text {
     color: var(--danger);
-  }
-
-  .body {
-    white-space: pre-wrap;
-    background: var(--bg);
-    border-radius: var(--radius-sm);
-    padding: var(--space-3);
-    margin-top: var(--space-3);
-  }
-
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: var(--space-2);
   }
 
   .form {
@@ -2433,23 +3057,6 @@
     margin-top: var(--space-3);
   }
 
-  .meta-link {
-    display: inline-flex;
-    align-items: baseline;
-    padding: 0;
-    border: none;
-    background: none;
-    font: inherit;
-    color: inherit;
-    cursor: pointer;
-    border-bottom: 1px dashed transparent;
-  }
-
-  .meta-link:hover {
-    color: var(--primary);
-    border-bottom-color: var(--primary);
-  }
-
   .radio-list {
     display: flex;
     flex-direction: column;
@@ -2503,11 +3110,6 @@
     outline: none;
   }
 
-  .title-block {
-    min-width: 0;
-    flex: 1;
-  }
-
   h1 {
     margin: 0;
     overflow-wrap: anywhere;
@@ -2527,16 +3129,8 @@
     overflow-wrap: anywhere;
   }
 
-  .title-edit:hover,
-  .body-edit:hover {
+  .title-edit:hover {
     color: var(--primary);
-  }
-
-  .body-edit {
-    display: block;
-    width: 100%;
-    white-space: pre-wrap;
-    background: var(--bg);
   }
 
   .radio {

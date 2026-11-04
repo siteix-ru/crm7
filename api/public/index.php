@@ -264,6 +264,8 @@ $router->post('/clients/{id}/activate', [$clients, 'activate']);
 $router->post('/clients/{id}/reject', [$clients, 'reject']);
 $router->post('/clients/{id}/block', [$clients, 'block']);
 $router->post('/clients/{id}/unblock', [$clients, 'unblock']);
+$router->post('/clients/{id}/avatar', [$clients, 'uploadAvatar']);
+$router->delete('/clients/{id}/avatar', [$clients, 'deleteAvatar']);
 $router->patch('/clients/{id}', [$clients, 'update']);
 $router->patch('/clients/{id}/login', [$clients, 'changeLogin']);
 $router->post('/clients/{id}/reset-password', [$clients, 'resetPassword']);

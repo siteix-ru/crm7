@@ -74,7 +74,8 @@ final class StocksController extends ApiController
             $this->filters($request),
             (int) $request->queryParam('page', '1'),
             (int) $request->queryParam('per_page', '50'),
-            (int) $request->queryParam('client_id', '0')
+            (int) $request->queryParam('client_id', '0'),
+            (int) $request->queryParam('price_type_id', '0')
         ));
     }
 

@@ -13,6 +13,7 @@
   import Icon from '../lib/components/ui/Icon.svelte';
   import Input from '../lib/components/ui/Input.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
   const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -36,7 +37,7 @@
   let managers = $state<ManagerItem[]>([]);
   let managerId = $state('');
   let priceTypes = $state<PriceType[]>([]);
-  let selectedPriceTypes = $state<number[]>([]);
+  let selectedPriceTypes = $state<string[]>([]);
   let optionsLoading = $state(false);
   let created = $state<ClientCreateResult | null>(null);
   let createdOpen = $state(false);
@@ -44,6 +45,9 @@
 
   const canAssign = $derived(auth.can('clients.assign') && appSettings.managerAssignEnabled);
   const canAssignPrices = $derived(appSettings.pricesEnabled && auth.can('prices.assign'));
+  const priceTypeOptions = $derived(
+    priceTypes.map((type) => ({ value: String(type.id), label: type.title }))
+  );
   const allowed = $derived(auth.level >= 10);
 
   onMount(() => {
@@ -69,6 +73,9 @@
     if (needPrices) {
       try {
         priceTypes = (await listPriceTypes()).items;
+
+        const retail = priceTypes.find((type) => type.code === 'retail');
+        selectedPriceTypes = retail ? [String(retail.id)] : [];
       } catch (cause) {
         failures.push(cause instanceof ApiError ? cause.message : 'Не удалось загрузить типы цен');
       }
@@ -137,7 +144,7 @@
         email: form.email.trim(),
         login: form.login.trim(),
         manager_id: managerId === '' ? null : Number(managerId),
-        price_type_ids: selectedPriceTypes
+        price_type_ids: selectedPriceTypes.map(Number)
       });
       createdOpen = true;
     } catch (cause) {
@@ -145,20 +152,6 @@
     } finally {
       saving = false;
     }
-  }
-
-  function togglePriceType(id: number): void {
-    selectedPriceTypes = selectedPriceTypes.includes(id)
-      ? selectedPriceTypes.filter((value) => value !== id)
-      : [...selectedPriceTypes, id];
-  }
-
-  function selectAllPriceTypes(): void {
-    selectedPriceTypes = priceTypes.map((type) => type.id);
-  }
-
-  function clearPriceTypes(): void {
-    selectedPriceTypes = [];
   }
 
   async function copyValue(value: string, key: string): Promise<void> {
@@ -210,78 +203,103 @@
       <div class="layout">
         <div class="main">
           <section class="card">
-            <h2>Данные клиента</h2>
-            <div class="grid">
-              <Input
-                label="Имя клиента *"
-                bind:value={form.name}
-                maxlength={255}
-                error={errors.name}
-                placeholder="Например, Иван Петров"
-              />
-              <Input
-                label="Должность"
-                bind:value={form.position}
-                maxlength={255}
-                error={errors.position}
-                placeholder="Например, директор"
-              />
-              <Input
-                label="Компания"
-                bind:value={form.company}
-                maxlength={255}
-                error={errors.company}
-                placeholder="Название компании"
-              />
-              <Input
-                label="ИНН"
-                bind:value={form.inn}
-                inputmode="numeric"
-                maxlength={12}
-                error={errors.inn}
-                placeholder="10 или 12 цифр"
-              />
-              <Input
-                label="Город"
-                bind:value={form.city}
-                maxlength={128}
-                error={errors.city}
-                placeholder="Например, Москва"
-              />
-              <Input
-                label="Адрес"
-                bind:value={form.address}
-                maxlength={255}
-                error={errors.address}
-                placeholder="Улица, дом, офис"
-              />
-            </div>
-          </section>
+            <h2>Личные данные</h2>
+            <div class="form-groups">
+              <div class="form-group">
+                <span class="form-group-title">Контактное лицо</span>
+                <div class="grid">
+                  <Input
+                    inline
+                    label="Имя клиента *"
+                    bind:value={form.name}
+                    maxlength={255}
+                    error={errors.name}
+                    placeholder="Например, Иван Петров"
+                  />
+                  <Input
+                    inline
+                    label="Должность"
+                    bind:value={form.position}
+                    maxlength={255}
+                    error={errors.position}
+                    placeholder="Например, директор"
+                  />
+                </div>
+              </div>
 
-          <section class="card">
-            <div class="card-head">
-              <h2>Контакты</h2>
-              <HelpTip text="E-mail используется для писем о доступе и сбросе пароля." />
-            </div>
-            <div class="grid">
-              <Input
-                label="Телефон"
-                type="tel"
-                inputmode="tel"
-                bind:value={form.phone}
-                maxlength={32}
-                error={errors.phone}
-                placeholder="+7 999 000-00-00"
-              />
-              <Input
-                label="E-mail"
-                type="email"
-                inputmode="email"
-                bind:value={form.email}
-                maxlength={255}
-                error={errors.email}
-                placeholder="client@example.ru"
-              />
+              <div class="form-group">
+                <span class="form-group-title">Компания</span>
+                <div class="grid">
+                  <Input
+                    inline
+                    label="Компания"
+                    bind:value={form.company}
+                    maxlength={255}
+                    error={errors.company}
+                    placeholder="Название компании"
+                  />
+                  <Input
+                    inline
+                    label="ИНН"
+                    bind:value={form.inn}
+                    inputmode="numeric"
+                    maxlength={12}
+                    error={errors.inn}
+                    placeholder="10 или 12 цифр"
+                  />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <span class="form-group-title">Адрес</span>
+                <div class="grid">
+                  <Input
+                    inline
+                    label="Город"
+                    bind:value={form.city}
+                    maxlength={128}
+                    error={errors.city}
+                    placeholder="Например, Москва"
+                  />
+                  <Input
+                    inline
+                    label="Адрес"
+                    bind:value={form.address}
+                    maxlength={255}
+                    error={errors.address}
+                    placeholder="Улица, дом, офис"
+                  />
+                </div>
+              </div>
+
+              <div class="form-group">
+                <div class="form-group-head">
+                  <span class="form-group-title">Контакты</span>
+                  <HelpTip text="E-mail используется для писем о доступе и сбросе пароля." />
+                </div>
+                <div class="grid">
+                  <Input
+                    inline
+                    label="Телефон"
+                    type="tel"
+                    inputmode="tel"
+                    bind:value={form.phone}
+                    maxlength={32}
+                    error={errors.phone}
+                    placeholder="+7 999 000-00-00"
+                  />
+                  <Input
+                    inline
+                    label="E-mail"
+                    type="email"
+                    inputmode="email"
+                    bind:value={form.email}
+                    maxlength={255}
+                    error={errors.email}
+                    placeholder="client@example.ru"
+                  />
+                </div>
+              </div>
             </div>
           </section>
 
@@ -292,14 +310,17 @@
                 text="Логин можно не указывать: он будет создан из e-mail или телефона. Пароль генерируется автоматически и показывается один раз после создания. Передайте клиенту логин и пароль — повторно пароль посмотреть нельзя."
               />
             </div>
-            <div class="grid">
-              <Input
-                label="Логин"
-                bind:value={form.login}
-                maxlength={64}
-                error={errors.login}
-                placeholder="Если пусто — сгенерируем"
-              />
+            <div class="form-group">
+              <div class="grid">
+                <Input
+                  inline
+                  label="Логин"
+                  bind:value={form.login}
+                  maxlength={64}
+                  error={errors.login}
+                  placeholder="Если пусто — сгенерируем"
+                />
+              </div>
             </div>
           </section>
         </div>
@@ -321,7 +342,7 @@
                 <label class="field">
                   <span class="label">Ответственный менеджер</span>
                   <select class="input" bind:value={managerId}>
-                    <option value="">Автор (я)</option>
+                    <option value="">{auth.name}</option>
                     {#each managers as manager (manager.id)}
                       <option value={String(manager.id)}>{manager.name}</option>
                     {/each}
@@ -342,30 +363,14 @@
               {:else if priceTypes.length === 0}
                 <p class="hint">Типы цен не настроены.</p>
               {:else}
-                <div class="price-toggles">
-                  {#each priceTypes as type (type.id)}
-                    <button
-                      type="button"
-                      class="price-toggle"
-                      class:on={selectedPriceTypes.includes(type.id)}
-                      aria-pressed={selectedPriceTypes.includes(type.id)}
-                      onclick={() => togglePriceType(type.id)}
-                    >
-                      {#if selectedPriceTypes.includes(type.id)}
-                        <Icon name="check" size={14} />
-                      {/if}
-                      {type.title}
-                    </button>
-                  {/each}
-                </div>
-                <div class="price-actions">
-                  <button type="button" class="link-btn" onclick={selectAllPriceTypes}>
-                    Включить все
-                  </button>
-                  <button type="button" class="link-btn" onclick={clearPriceTypes}>
-                    Выключить все
-                  </button>
-                </div>
+                <MultiSelect
+                  label="Типы цен"
+                  options={priceTypeOptions}
+                  bind:values={selectedPriceTypes}
+                  allLabel="Все типы цен"
+                  emptyValuesLabel="Базовый тип"
+                  maxHeight="280px"
+                />
               {/if}
             </section>
           {/if}
@@ -521,6 +526,41 @@
     gap: var(--space-3);
   }
 
+  .form-groups {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .form-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .form-group-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .form-group-title {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+  }
+
+  .form-group .grid {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  .form-group :global(.field.inline:last-child) {
+    border-bottom: none;
+  }
+
   .field {
     display: flex;
     flex-direction: column;
@@ -602,61 +642,6 @@
     display: flex;
     justify-content: center;
     padding: var(--space-2);
-  }
-
-  .price-toggles {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .price-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 6px 12px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    font: inherit;
-    font-size: 13px;
-    color: var(--text-description);
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
-  }
-
-  .price-toggle:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .price-toggle.on {
-    border-color: var(--primary);
-    background: color-mix(in srgb, var(--primary) 10%, var(--surface));
-    color: var(--primary);
-    font-weight: 500;
-  }
-
-  .price-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-top: var(--space-3);
-  }
-
-  .link-btn {
-    padding: 0;
-    border: none;
-    background: transparent;
-    color: var(--primary);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .link-btn:hover {
-    color: var(--primary-hover);
-    text-decoration: underline;
   }
 
   .form-actions {
