@@ -195,7 +195,7 @@
       <PriceTypeEdit id={0} />
     {:else if priceTypeEditMatch}
       <PriceTypeEdit id={Number(priceTypeEditMatch.id)} />
-    {:else if (route === '/stocks/warehouses' || route === '/stocks/warehouses/new' || warehouseEditMatch || warehouseMatch) && (!appSettings.warehousesEnabled || !(auth.can('stocks.view') || auth.can('stocks.import') || auth.can('stocks.edit') || auth.can('settings.manage')))}
+    {:else if (route === '/stocks/warehouses' || route === '/stocks/warehouses/new' || warehouseEditMatch || warehouseMatch) && (!appSettings.warehousesEnabled || !(auth.can('stocks.import') || auth.can('stocks.edit') || auth.can('stocks.manage')))}
       <NotFound />
     {:else if route === '/stocks/warehouses'}
       <Warehouses />
@@ -208,11 +208,17 @@
     {:else if (itemNewMatch || itemEditMatch) && !appSettings.stockEditEnabled}
       <NotFound />
     {:else if itemNewMatch}
-      <ItemEdit id={0} />
+      {#key 'new'}
+        <ItemEdit id={0} />
+      {/key}
     {:else if itemEditMatch}
-      <ItemEdit id={Number(itemEditMatch.id)} />
+      {#key itemEditMatch.id}
+        <ItemEdit id={Number(itemEditMatch.id)} />
+      {/key}
     {:else if itemCardMatch}
-      <ItemCard id={Number(itemCardMatch.id)} />
+      {#key itemCardMatch.id}
+        <ItemCard id={Number(itemCardMatch.id)} />
+      {/key}
     {:else if route === '/reports'}
       <Reports />
     {:else if route === '/substitutions'}

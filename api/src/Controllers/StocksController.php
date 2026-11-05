@@ -55,6 +55,7 @@ final class StocksController extends ApiController
     public function searchCounts(Request $request): Response
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStocksView($capabilities);
 
         return Response::ok($this->service->searchCounts(
             $user,
@@ -135,6 +136,7 @@ final class StocksController extends ApiController
     public function export(Request $request): Response|DownloadResponse
     {
         [$user, $capabilities] = $this->context($request);
+        $this->requireStocksView($capabilities);
 
         $result = $this->service->export(
             $user,
@@ -322,6 +324,18 @@ final class StocksController extends ApiController
     {
         if (!$this->settings->stockEditEnabled()) {
             throw new HttpException(403, 'module_disabled', 'Управление номенклатурой отключено');
+        }
+    }
+
+    private function requireStocksView(array $capabilities): void
+    {
+        if (
+            !in_array('stocks.view', $capabilities, true)
+            && !in_array('stocks.edit', $capabilities, true)
+            && !in_array('stocks.import', $capabilities, true)
+            && !in_array('stocks.manage', $capabilities, true)
+        ) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для работы с номенклатурой');
         }
     }
 

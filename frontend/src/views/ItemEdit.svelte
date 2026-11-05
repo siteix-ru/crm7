@@ -814,6 +814,7 @@
         warehousePrices = buildWarehousePrices(result.item);
       }
 
+      baseline = editSnapshot();
       message = 'Изменения сохранены';
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : 'Не удалось сохранить номенклатуру';

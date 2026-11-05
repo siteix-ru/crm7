@@ -625,7 +625,15 @@ final class PriceService
 
     public function importPrice(string $stockSid, string $nameSid, int $typeId, float $price): void
     {
-        if ($stockSid === '' || $nameSid === '' || $typeId <= 0 || !$this->enabled()) {
+        if (
+            $stockSid === ''
+            || $nameSid === ''
+            || $typeId <= 0
+            || !$this->enabled()
+            || !is_finite($price)
+            || $price < 0
+            || $price > 1_000_000_000
+        ) {
             return;
         }
 

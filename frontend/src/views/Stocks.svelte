@@ -89,6 +89,7 @@
   let file = $state<File | null>(null);
   let actualDate = $state(todayLocal());
   let importOpen = $state(false);
+  let importConfirm = $state(false);
   let importError = $state('');
   let importTab = $state<'import' | 'history'>('import');
   let importMappingColumns = $state<string[]>([]);
@@ -107,11 +108,14 @@
   let priceTypesDraft = $state<string[]>([]);
 
   let groups = $state<ItemGroup[]>([]);
+  let groupsLoaded = $state(false);
+  let groupsPromise: Promise<void> | null = null;
+  let countsSeq = 0;
 
   const warehousesEnabled = $derived(appSettings.warehousesEnabled);
   const canManageWarehouses = $derived(
     warehousesEnabled &&
-      (auth.can('stocks.view') || auth.can('stocks.import') || auth.can('stocks.edit'))
+      (auth.can('stocks.import') || auth.can('stocks.edit') || auth.can('stocks.manage'))
   );
   const sortFields = $derived(
     warehousesEnabled
@@ -230,7 +234,7 @@
   );
 
   $effect(() => {
-    if (groupsEnabled && groups.length === 0) {
+    if (groupsEnabled && !groupsLoaded) {
       void loadGroups();
     }
   });
@@ -267,23 +271,33 @@
     }
   }
 
-  async function loadGroups(): Promise<void> {
-    try {
-      const data = await listItemGroups();
-      groups = data.items;
-      hasUngrouped = data.has_ungrouped;
-    } catch {
-      groups = [];
+  function loadGroups(): Promise<void> {
+    if (groupsPromise !== null) {
+      return groupsPromise;
     }
 
-    if (!groupsPreselected && stockGroups.length === 0) {
-      stockGroups = groups.map((item) => item.id);
-    }
+    groupsPromise = (async () => {
+      try {
+        const data = await listItemGroups();
+        groups = data.items;
+        hasUngrouped = data.has_ungrouped;
+      } catch {
+        groups = [];
+      } finally {
+        groupsLoaded = true;
+      }
 
-    if (!hasUngrouped) {
-      stockNoGroup = false;
-      groupNoGroupDraft = false;
-    }
+      if (!groupsPreselected && stockGroups.length === 0) {
+        stockGroups = groups.map((item) => item.id);
+      }
+
+      if (!hasUngrouped) {
+        stockNoGroup = false;
+        groupNoGroupDraft = false;
+      }
+    })();
+
+    return groupsPromise;
   }
 
   const groupFilterActive = $derived.by(() => {
@@ -358,9 +372,7 @@
       return rows;
     }
 
-    const filtered = rows.filter((row) => priceTypeFilter.includes(row.id));
-
-    return filtered.length > 0 ? filtered : rows;
+    return rows.filter((row) => priceTypeFilter.includes(row.id));
   }
 
   function addToCart(level: StockLevel): void {
@@ -384,7 +396,11 @@
   onMount(() => {
     void init();
 
-    const timer = setInterval(() => void loadLevels(true), config.listPollMs);
+    const timer = setInterval(() => {
+      if (!loadingLevels) {
+        void loadLevels(true);
+      }
+    }, config.listPollMs);
 
     return () => clearInterval(timer);
   });
@@ -394,6 +410,10 @@
     error = '';
 
     try {
+      if (groupsEnabled) {
+        await loadGroups();
+      }
+
       const data = await listWarehouses();
       warehouses = data.items;
       canImport = data.can_import && appSettings.stockEditEnabled;
@@ -426,6 +446,8 @@
   }
 
   async function refreshCounts(): Promise<void> {
+    const seq = ++countsSeq;
+
     if (!hasFilters || groupFilterEmpty) {
       counts = {};
       return;
@@ -433,10 +455,30 @@
 
     try {
       const data = await searchCounts(filters);
-      counts = data.counts;
+
+      if (seq === countsSeq) {
+        counts = data.counts;
+      }
     } catch {
-      counts = {};
+      if (seq === countsSeq) {
+        counts = {};
+      }
     }
+  }
+
+  function resetFilters(): void {
+    query = '';
+    searchInput = '';
+    stockGroups = groups.map((item) => item.id);
+    stockNoGroup = hasUngrouped;
+    statusActive = true;
+    statusInactive = true;
+    qtyOp = '';
+    qty = '';
+    priceTypeFilter = [];
+    page = 1;
+    saveStockFilters();
+    void applyFilters();
   }
 
   async function applyFilters(): Promise<void> {
@@ -482,8 +524,7 @@
 
     const next = [...sortDraft];
     const [moved] = next.splice(fromIndex, 1);
-    const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
-    next.splice(insertAt, 0, moved);
+    next.splice(toIndex, 0, moved);
     sortDraft = next;
   }
 
@@ -783,6 +824,10 @@
   }
 
   async function loadLevels(silent = false): Promise<void> {
+    if (silent && loadingLevels) {
+      return;
+    }
+
     if (selectedIds.length === 0 || groupFilterEmpty) {
       ++loadSeq;
       levels = [];
@@ -822,7 +867,7 @@
         error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить остатки';
       }
     } finally {
-      if (seq === loadSeq && !silent) {
+      if (seq === loadSeq) {
         loadingLevels = false;
       }
     }
@@ -904,6 +949,7 @@
       return;
     }
 
+    importConfirm = false;
     busy = true;
     importError = '';
     message = '';
@@ -963,6 +1009,9 @@
 
   function openImport(tab: 'import' | 'history' = 'import'): void {
     selectImportTab(tab);
+    file = null;
+    importError = '';
+    importConfirm = false;
     importMappingColumns = [];
     importMapping = {};
     importOpen = true;
@@ -971,6 +1020,7 @@
   function onFileChange(event: Event): void {
     const input = event.target as HTMLInputElement;
     file = input.files?.[0] ?? null;
+    importConfirm = false;
   }
 
 </script>
@@ -1259,10 +1309,26 @@
               <span>{importError}</span>
             </div>
           {/if}
-          <div class="modal-actions">
-            <Button variant="ghost" onclick={() => (importOpen = false)}>Отмена</Button>
-            <Button loading={busy} disabled={file === null} onclick={() => void doImport()}>Загрузить</Button>
-          </div>
+          {#if importConfirm}
+            <div class="import-confirm">
+              <strong>Заменить остатки?</strong>
+              <p>
+                Файл <b>{file?.name}</b> от {actualDate} заменит остатки номенклатуры. Позиции,
+                которых нет в файле, будут обнулены.
+              </p>
+              <div class="modal-actions">
+                <Button variant="ghost" onclick={() => (importConfirm = false)}>Отмена</Button>
+                <Button loading={busy} onclick={() => void doImport()}>Импортировать</Button>
+              </div>
+            </div>
+          {:else}
+            <div class="modal-actions">
+              <Button variant="ghost" onclick={() => (importOpen = false)}>Отмена</Button>
+              <Button loading={busy} disabled={file === null} onclick={() => (importConfirm = true)}>
+                Загрузить
+              </Button>
+            </div>
+          {/if}
         {/if}
       {:else if jobs.length === 0 && updates.length === 0}
         <p class="empty">Импортов ещё не было</p>
@@ -1646,7 +1712,12 @@
     {:else if selectedIds.length === 0}
       <div class="empty">Нет выбранных складов — нет номенклатуры</div>
     {:else if levels.length === 0}
-      <div class="empty">Ничего не найдено</div>
+      <div class="empty">
+        <span>Ничего не найдено</span>
+        {#if hasFilters || groupFilterEmpty}
+          <Button variant="ghost" onclick={resetFilters}>Сбросить фильтры</Button>
+        {/if}
+      </div>
     {:else}
       <div class="levels-wrap">
       {#if viewMode === 'list'}
@@ -1928,6 +1999,20 @@
     font-size: 13px;
     line-height: 1.5;
     color: var(--text-description);
+  }
+
+  .import-confirm {
+    padding: var(--space-3);
+    border: 1px solid var(--warning);
+    border-radius: var(--radius-sm);
+    background: var(--warning-bg);
+  }
+
+  .import-confirm p {
+    margin: var(--space-2) 0 var(--space-3);
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text);
   }
 
   .import-field {

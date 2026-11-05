@@ -16,20 +16,27 @@
 
   const photoSize = $derived<'preview' | 'card'>(variant === 'tile' ? 'card' : 'preview');
 
-  let urls = $state<Record<number, string | null>>({});
+  let urls = $state<Record<string, string | null>>({});
   let touchX = 0;
+  const loaded = new Map<string, string | null>();
 
   $effect(() => {
     let cancelled = false;
+    const required = variant === 'tile' ? photos : photos.slice(0, 1);
 
-    for (const photo of photos) {
-      if (urls[photo.id] !== undefined) {
+    for (const photo of required) {
+      const key = `${photo.id}:${photoSize}`;
+
+      if (loaded.has(key)) {
         continue;
       }
 
+      loaded.set(key, null);
       void loadItemPhotoUrl(photo.id, photoSize).then((url) => {
+        loaded.set(key, url);
+
         if (!cancelled) {
-          urls[photo.id] = url;
+          urls[key] = url;
         }
       });
     }
@@ -47,7 +54,8 @@
 
   const isCarousel = $derived(variant === 'tile');
   const currentId = $derived(isCarousel ? (photos[index]?.id ?? null) : (photos[0]?.id ?? null));
-  const currentUrl = $derived(currentId === null ? null : urls[currentId] ?? null);
+  const currentKey = $derived(currentId === null ? null : `${currentId}:${photoSize}`);
+  const currentUrl = $derived(currentKey === null ? null : urls[currentKey] ?? null);
   const photoAspect = $derived(appSettings.photoAspect);
   const photoFactor = $derived(appSettings.photoFactor);
   const photoFit = $derived(appSettings.photoFit);
@@ -57,6 +65,10 @@
   }
 
   function onKeydown(event: KeyboardEvent): void {
+    if (event.target !== event.currentTarget) {
+      return;
+    }
+
     if (onopen !== undefined && (event.key === 'Enter' || event.key === ' ')) {
       event.preventDefault();
       open();
@@ -210,8 +222,15 @@
     transition: opacity 0.15s ease;
   }
 
-  .gallery:hover .nav {
+  .gallery:hover .nav,
+  .gallery:focus-within .nav {
     opacity: 1;
+  }
+
+  @media (hover: none) {
+    .nav {
+      opacity: 1;
+    }
   }
 
   .nav.prev {

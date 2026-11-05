@@ -819,6 +819,7 @@ final class StocksService
 
     public function export(array $user, array $capabilities, array $warehouseIds, array $filters, string $format): array
     {
+        $this->requireView($capabilities);
         $filters = $this->applyActiveFilter($capabilities, self::normalizeFilters($filters));
         $format = TableExport::normalizeFormat($format);
 
@@ -2618,7 +2619,9 @@ final class StocksService
             return null;
         }
 
-        return (float) $clean;
+        $quantity = (float) $clean;
+
+        return is_finite($quantity) && $quantity >= 0 ? $quantity : null;
     }
 
     private function readCsv(string $path): array
