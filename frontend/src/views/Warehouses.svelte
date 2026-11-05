@@ -414,7 +414,16 @@
   <div class="page-hero">
   <div class="filters">
     <div class="head">
-      <h1>Склады</h1>
+      <button
+        type="button"
+        class="back"
+        title="Назад к номенклатуре"
+        aria-label="Назад к номенклатуре"
+        onclick={() => router.navigate('/stocks')}
+      >
+        <Icon name="arrow-left" size={16} />
+      </button>
+      <h1>Управление складами</h1>
     </div>
 
     {#if !loading}
@@ -464,7 +473,7 @@
           class="sort-button"
           title="Добавить склад"
           aria-label="Добавить склад"
-          onclick={() => router.navigate('/warehouses/new')}
+          onclick={() => router.navigate('/stocks/warehouses/new')}
         >
           <span class="create-warehouse-icon">
             <Icon name="warehouse" size={16} />
@@ -521,12 +530,12 @@
           {#each paged as item (item.id)}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="level" onclick={() => router.navigate(`/warehouses/${item.id}`)}>
+            <div class="level" onclick={() => router.navigate(`/stocks/warehouses/${item.id}`)}>
               <div class="name-col col-name">
                 <div class="name-line">
                   <a
                     class="name"
-                    href={`#/warehouses/${item.id}`}
+                    href={`#/stocks/warehouses/${item.id}`}
                     title="Открыть склад"
                     onclick={(event) => event.stopPropagation()}
                   >
@@ -719,9 +728,29 @@
 
   .head {
     display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-1);
+    flex-direction: row;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .back {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 auto;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .back:hover {
+    border-color: var(--primary-hover);
+    color: var(--primary-hover);
   }
 
   h1 {

@@ -209,7 +209,9 @@ final class RequestService
 
     private function itemsAddedText(array $items): string
     {
-        return 'Добавлено ' . $this->itemsCountText(count($items)) . ":\n" . $this->itemsBrief($items);
+        return $this->limitText(
+            'Добавлено ' . $this->itemsCountText(count($items)) . ":\n" . $this->itemsBrief($items)
+        );
     }
 
     private function itemsDiffText(array $before, array $after): string
@@ -451,12 +453,17 @@ final class RequestService
             'request' => $this->mapRequest($request),
             'items' => $decoratedItems['items'],
             'prices' => $decoratedItems['prices'],
-            'history' => array_map([$this, 'mapHistory'], $this->history->listByRequest($id)),
+            'history' => array_map(
+                fn (array $row): array => $this->mapHistory($row, $isStaff),
+                $this->history->listByRequest($id)
+            ),
             'comments' => array_map(
                 [$this, 'mapComment'],
                 $this->comments->listByRequest($id, $isStaff)
             ),
-            'assignments' => array_map([$this, 'mapAssignment'], $this->assignments->listByRequest($id)),
+            'assignments' => $isStaff
+                ? array_map([$this, 'mapAssignment'], $this->assignments->listByRequest($id))
+                : [],
             'activities' => array_map([$this, 'mapActivity'], array_values(array_filter(
                 $this->activities->listByRequest($id),
                 static fn (array $row): bool => $isStaff
@@ -802,14 +809,23 @@ final class RequestService
             $this->reservations->apply($id, $items);
 
             $diff = $this->itemsDiffText($before, $items);
-
-            if ($comment !== '') {
-                $comment = mb_substr($comment, 0, 500);
-                $diff = $diff !== '' ? $diff . "\n" . $comment : $comment;
-            }
+            $comment = $comment !== '' ? mb_substr($comment, 0, 500) : '';
+            $isStaff = (int) $user['LEVEL'] >= 10;
 
             if ($diff !== '') {
                 $this->activities->add($id, (int) $user['ID'], 'items', 'Состав заявки изменён', $diff);
+            }
+
+            if ($comment !== '') {
+                $this->activities->add(
+                    $id,
+                    (int) $user['ID'],
+                    'items',
+                    'Комментарий к составу',
+                    $comment,
+                    null,
+                    $isStaff
+                );
             }
 
             $this->notifications->notifyParticipants(
@@ -1154,7 +1170,11 @@ final class RequestService
                     $comment = trim((string) ($input['comment'] ?? ''));
 
                     if (mb_strlen($comment) < 3) {
-                        throw new HttpException(422, 'comment_required', 'Комментарий к изменению срока обязателен');
+                        throw new HttpException(422, 'comment_required', 'Укажите комментарий (не менее 3 символов)');
+                    }
+
+                    if (mb_strlen($comment) > 5000) {
+                        throw new HttpException(422, 'validation_error', 'Комментарий слишком длинный');
                     }
 
                     $this->requests->updateDueAt($id, $dueAt);
@@ -1166,15 +1186,26 @@ final class RequestService
                         'Срок изменён',
                         ($current !== null ? 'Было: ' . $current : 'Срок не был задан')
                             . ' → Стало: ' . $dueAt
-                            . '. ' . $comment
                     );
+
+                    if ($comment !== '') {
+                        $this->activities->add(
+                            $id,
+                            (int) $user['ID'],
+                            'due',
+                            'Комментарий к сроку',
+                            $comment,
+                            null,
+                            true
+                        );
+                    }
 
                     $this->notifications->notifyParticipants(
                         $request,
                         (int) $user['ID'],
                         'request.due',
                         'Заявка ' . (string) $request['number'] . ': изменён срок',
-                        'Новый срок: ' . $dueAt . '. ' . $comment,
+                        'Новый срок: ' . $dueAt,
                         ['request_number' => (string) $request['number']]
                     );
                 }
@@ -1238,6 +1269,10 @@ final class RequestService
         $toStatus = trim((string) ($input['to_status'] ?? ''));
         $comment = trim((string) ($input['comment'] ?? ''));
         $version = isset($input['version']) ? (int) $input['version'] : null;
+
+        if (mb_strlen($comment) > 5000) {
+            throw new HttpException(422, 'validation_error', 'Комментарий слишком длинный');
+        }
 
         if (!$this->statuses->exists($toStatus)) {
             throw new HttpException(422, 'validation_error', 'Неизвестный статус');
@@ -1332,7 +1367,7 @@ final class RequestService
                 (int) $user['ID'],
                 'request.status',
                 'Заявка ' . (string) $request['number'] . ': ' . $fromTitle . ' → ' . (string) $target['title'],
-                $comment,
+                null,
                 ['request_number' => (string) $request['number']]
             );
 
@@ -1399,6 +1434,10 @@ final class RequestService
 
         if (mb_strlen($comment) < 3) {
             throw new HttpException(422, 'comment_required', 'Передача заявки требует пояснения');
+        }
+
+        if (mb_strlen($comment) > 5000) {
+            throw new HttpException(422, 'validation_error', 'Комментарий слишком длинный');
         }
 
         $hasManager = array_key_exists('manager_id', $input)
@@ -1506,9 +1545,9 @@ final class RequestService
                     (int) $request['client_id'],
                     'request.assign',
                     $managerId !== null
-                        ? 'Заявка ' . $number . ': менеджер ' . $managerName
-                        : 'Заявка ' . $number . ': поиск менеджера',
-                    $comment,
+                        ? 'Заявка ' . $number . ': назначен ' . $managerName
+                        : 'Заявка ' . $number . ': снят менеджер',
+                    null,
                     $id,
                     ['request_number' => $number]
                 );
@@ -1593,7 +1632,8 @@ final class RequestService
             $body = mb_substr($body, 0, 2000);
         }
 
-        $isInternal = $isManagerRole ? (bool) ($input['is_internal'] ?? true) : false;
+        $isInternal = $audience === 'manager'
+            || ($isManagerRole && (bool) ($input['is_internal'] ?? true));
         $attachmentId = (int) ($input['attachment_id'] ?? 0);
 
         if ($attachmentId > 0) {
@@ -1677,7 +1717,8 @@ final class RequestService
 
         $this->assertCanView($user, $capabilities, $request);
 
-        $isInternal = (bool) ($input['is_internal'] ?? true);
+        $isInternal = $this->canManage($user, $capabilities, $request)
+            && (bool) ($input['is_internal'] ?? true);
         $this->comments->add($id, (int) $user['ID'], $body, $isInternal);
 
         return $this->detail($user, $capabilities, $id);
@@ -1855,7 +1896,7 @@ final class RequestService
         ];
     }
 
-    private function mapHistory(array $row): array
+    private function mapHistory(array $row, bool $isStaff): array
     {
         return [
             'id' => (int) $row['id'],
@@ -1871,7 +1912,7 @@ final class RequestService
             'to' => $row['to_status_id'] !== null
                 ? ['code' => (string) $row['to_status_id'], 'title' => (string) ($row['to_title'] ?? '')]
                 : null,
-            'comment' => (string) ($row['comment'] ?? ''),
+            'comment' => $isStaff ? (string) ($row['comment'] ?? '') : '',
             'created_at' => (string) $row['created_at'],
         ];
     }
@@ -1916,10 +1957,10 @@ final class RequestService
                 ? (bool) $row['is_internal']
                 : ((string) ($row['audience'] ?? 'all') === 'manager'),
             'manual' => $row['audience'] !== null,
-            'attachment' => $row['attachment_id'] !== null
+            'attachment' => $row['attachment_id'] !== null && $row['attachment_name'] !== null
                 ? [
                     'id' => (int) $row['attachment_id'],
-                    'name' => (string) ($row['attachment_name'] ?? ''),
+                    'name' => (string) $row['attachment_name'],
                     'size' => (int) ($row['attachment_size'] ?? 0),
                     'mime' => (string) ($row['attachment_mime'] ?? ''),
                 ]

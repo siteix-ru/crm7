@@ -35,6 +35,14 @@ final class RequestActivityRepository
         ]);
     }
 
+    public function clearAttachment(int $attachmentId): void
+    {
+        $stmt = Database::pdo()->prepare(
+            'UPDATE request_activities SET attachment_id = NULL WHERE attachment_id = ?'
+        );
+        $stmt->execute([$attachmentId]);
+    }
+
     public function listByRequest(int $requestId): array
     {
         $stmt = Database::pdo()->prepare(

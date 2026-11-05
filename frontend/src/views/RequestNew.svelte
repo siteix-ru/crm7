@@ -1132,7 +1132,9 @@
     clientId={clientId}
     priceTypeId={priceTypeId}
     onclose={() => (pickerOpen = false)}
-    onchange={(next) => (itemRows = next)}
+    onchange={(next) => {
+      itemRows = next;
+    }}
   />
 
 </section>

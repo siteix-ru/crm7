@@ -44,6 +44,7 @@
   import SendOutlined from '@ant-design/icons-svg/es/asn/SendOutlined';
   import SettingOutlined from '@ant-design/icons-svg/es/asn/SettingOutlined';
   import ShopOutlined from '@ant-design/icons-svg/es/asn/ShopOutlined';
+  import SlidersOutlined from '@ant-design/icons-svg/es/asn/SlidersOutlined';
   import ShoppingCartOutlined from '@ant-design/icons-svg/es/asn/ShoppingCartOutlined';
   import SortAscendingOutlined from '@ant-design/icons-svg/es/asn/SortAscendingOutlined';
   import SearchOutlined from '@ant-design/icons-svg/es/asn/SearchOutlined';
@@ -85,6 +86,7 @@
     database: DatabaseOutlined,
     download: DownloadOutlined,
     edit: EditOutlined,
+    events: AuditOutlined,
     files: PaperClipOutlined,
     history: HistoryOutlined,
     overview: ProfileOutlined,
@@ -109,6 +111,7 @@
     reports: BarChartOutlined,
     requests: FileTextOutlined,
     settings: SettingOutlined,
+    sliders: SlidersOutlined,
     sort: SortAscendingOutlined,
     staff: IdcardOutlined,
     stocks: DatabaseOutlined,

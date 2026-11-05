@@ -45,8 +45,10 @@
       router.navigate('/stocks');
     } else if (!appSettings.cartEnabled && path === '/cart') {
       router.navigate('/stocks');
-    } else if (!appSettings.warehousesEnabled && path.startsWith('/warehouses')) {
+    } else if (!appSettings.warehousesEnabled && path.startsWith('/stocks/warehouses')) {
       router.navigate('/stocks');
+    } else if (path.startsWith('/warehouses')) {
+      router.navigate(`/stocks${path}`);
     } else if (!appSettings.reportsEnabled && (path === '/reports' || path === '/my-reports')) {
       router.navigate('/stocks');
     } else if (!appSettings.chatEnabled && path === '/chat') {
@@ -78,17 +80,11 @@
 
   const showMyReports = $derived(appSettings.reportsEnabled && !canViewReports);
 
-  const showWarehouses = $derived(
-    appSettings.warehousesEnabled &&
-      (auth.can('stocks.view') || auth.can('stocks.import') || auth.can('stocks.edit'))
-  );
-
   const navCount = $derived(
     3 +
       (showReports ? 1 : 0) +
       (showClients ? 1 : 0) +
       (showStaff ? 1 : 0) +
-      (showWarehouses ? 1 : 0) +
       (showSettings ? 1 : 0)
   );
 
@@ -139,12 +135,6 @@
           <Icon name="stocks" size={20} />
           <span class="nav-label">Номенклатура</span>
         </a>
-        {#if showWarehouses}
-          <a href="#/warehouses" class:active={path.startsWith('/warehouses')} title="Склады">
-            <Icon name="warehouse" size={20} />
-            <span class="nav-label">Склады</span>
-          </a>
-        {/if}
         {#if appSettings.requestsEnabled}
           <a href="#/requests" class:active={path.startsWith('/requests')} title="Заявки">
             <Icon name="requests" size={20} />

@@ -93,8 +93,8 @@
   const groupEditMatch = $derived(matchRoute('/stocks/groups/:id', route));
   const typeEditMatch = $derived(matchRoute('/stocks/types/:id', route));
   const priceTypeEditMatch = $derived(matchRoute('/stocks/price-types/:id', route));
-  const warehouseMatch = $derived(matchRoute('/warehouses/:id', route));
-  const warehouseEditMatch = $derived(matchRoute('/warehouses/:id/edit', route));
+  const warehouseMatch = $derived(matchRoute('/stocks/warehouses/:id', route));
+  const warehouseEditMatch = $derived(matchRoute('/stocks/warehouses/:id/edit', route));
 </script>
 
 {#if !auth.ready || (auth.isAuthenticated && (filterPrefs.loadedFor !== auth.user?.id || appSettings.loadedFor !== auth.user?.id))}
@@ -122,7 +122,9 @@
     {:else if route === '/cart'}
       <Cart />
     {:else if requestMatch}
-      <RequestCard id={Number(requestMatch.id)} />
+      {#key requestMatch.id}
+        <RequestCard id={Number(requestMatch.id)} />
+      {/key}
     {:else if (route === '/clients' || route === '/clients/new' || clientMatch) && (!appSettings.clientsEnabled || auth.level < 10 || !(auth.can('clients.view.all') || auth.can('clients.view.own')))}
       <NotFound />
     {:else if route === '/clients'}
@@ -193,9 +195,11 @@
       <PriceTypeEdit id={0} />
     {:else if priceTypeEditMatch}
       <PriceTypeEdit id={Number(priceTypeEditMatch.id)} />
-    {:else if route === '/warehouses'}
+    {:else if (route === '/stocks/warehouses' || route === '/stocks/warehouses/new' || warehouseEditMatch || warehouseMatch) && (!appSettings.warehousesEnabled || !(auth.can('stocks.view') || auth.can('stocks.import') || auth.can('stocks.edit') || auth.can('settings.manage')))}
+      <NotFound />
+    {:else if route === '/stocks/warehouses'}
       <Warehouses />
-    {:else if route === '/warehouses/new'}
+    {:else if route === '/stocks/warehouses/new'}
       <WarehouseCard id={0} />
     {:else if warehouseEditMatch}
       <WarehouseCard id={Number(warehouseEditMatch.id)} />

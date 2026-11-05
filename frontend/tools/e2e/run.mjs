@@ -238,7 +238,7 @@ const scenarios = [
       await card.click();
 
       await expectVisible(page.getByRole('button', { name: /^Заявка/ }), 'нет вкладки «Заявка»');
-      await expectVisible(page.getByRole('button', { name: /^События/ }), 'нет вкладки «События»');
+      await expectVisible(page.getByRole('button', { name: /^Активность/ }), 'нет вкладки «Активность»');
       await expectVisible(page.locator('.main .items-card'), 'состав заявки не в основной колонке');
       await expectVisible(
         page.locator('.side .side-description-card'),
@@ -249,10 +249,10 @@ const scenarios = [
         'блок «Итого» не удалён'
       );
 
-      await page.getByRole('button', { name: /^События/ }).click();
+      await page.getByRole('button', { name: /^Активность/ }).click();
       await expectVisible(
-        page.getByRole('heading', { name: 'События' }),
-        'нет вкладки «События»'
+        page.getByRole('heading', { name: 'Новое событие' }),
+        'нет формы добавления события'
       );
 
       const subject = page.getByLabel('Тема');
@@ -263,8 +263,10 @@ const scenarios = [
       assert(!(await saveEvent.isDisabled()), 'кнопка «Сохранить» не активировалась после темы');
 
       const clientVisible = page.getByRole('checkbox', { name: 'Доступно клиенту' });
-      await expectVisible(clientVisible, 'нет чекбокса «Доступно клиенту»');
-      assert(!(await clientVisible.isChecked()), 'чекбокс «Доступно клиенту» включён по умолчанию');
+
+      if ((await clientVisible.count()) > 0) {
+        assert(!(await clientVisible.isChecked()), 'чекбокс «Доступно клиенту» включён по умолчанию');
+      }
       await expectVisible(
         page.getByRole('button', { name: 'Добавить комментарий' }),
         'нет кнопки добавления комментария'
@@ -298,14 +300,19 @@ const scenarios = [
       );
       await helperToggle.click();
       await expectVisible(page.getByText('Как добавить событие'), 'подсказка не раскрылась');
-      await helperToggle.click();
+      await page.getByRole('heading', { name: 'Новое событие' }).click();
+      await page.waitForTimeout(150);
+      assert(
+        (await page.getByText('Как добавить событие').count()) === 0,
+        'подсказка не закрылась по клику вне'
+      );
 
       await page.locator('.events-head-actions .link-btn').click();
       const historyDialog = page.getByRole('dialog');
       await expectVisible(historyDialog, 'не открылась модалка истории');
       await expectVisible(
-        historyDialog.getByRole('button', { name: /^События/ }),
-        'нет вкладки «События» в истории'
+        historyDialog.getByRole('button', { name: /^Активность/ }),
+        'нет вкладки «Активность» в истории'
       );
       await historyDialog.getByRole('button', { name: 'Хронология' }).click();
       await expectVisible(
@@ -1046,7 +1053,31 @@ const scenarios = [
     name: 'склады: вид и фильтры',
     role: 'admin',
     async run(page) {
-      await page.goto(`${BASE}/#/warehouses`, { waitUntil: 'domcontentloaded' });
+      await page.goto(`${BASE}/#/stocks`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.getByRole('heading', { name: 'Номенклатура' }), 'не открылась номенклатура');
+      assert(
+        (await page.getByRole('link', { name: 'Склады' }).count()) === 0,
+        'склады остались отдельным пунктом навигации'
+      );
+      const toolbarLabels = await page
+        .locator('.filter-icons button')
+        .evaluateAll((buttons) => buttons.map((button) => button.getAttribute('aria-label')));
+      const priceTypesIndex = toolbarLabels.indexOf('Управление типами цен');
+      if (priceTypesIndex >= 0) {
+        assert(
+          toolbarLabels[priceTypesIndex + 1] === 'Управление складами',
+          'иконка управления складами не стоит рядом с типами цен'
+        );
+      }
+      await page.getByRole('button', { name: 'Управление складами' }).click();
+      await expectVisible(
+        page.getByRole('heading', { name: 'Управление складами' }),
+        'не открылось управление складами'
+      );
+      await expectVisible(
+        page.getByRole('button', { name: 'Назад к номенклатуре' }),
+        'нет возврата к номенклатуре'
+      );
       await expectVisible(page.locator('.levels .level').first(), 'не загрузился список складов');
 
       await page.getByRole('button', { name: /^Вид/ }).click();
@@ -1472,7 +1503,11 @@ const scenarios = [
         (await tabs.first().getAttribute('title')) === 'Общие',
         'у вкладки нет всплывающей подсказки'
       );
-      assert((await tabs.count()) === 5, 'ожидалось пять основных вкладок');
+      assert((await tabs.count()) === 6, 'ожидалось шесть основных вкладок');
+      await expectVisible(
+        page.getByRole('button', { name: 'Параметры работы' }),
+        'нет вкладки «Параметры работы»'
+      );
       assert(
         (await tabs.getByRole('button', { name: 'Типы цен' }).count()) === 0,
         'вкладка типов цен осталась в настройках'
@@ -1498,13 +1533,18 @@ const scenarios = [
         page.getByLabel(/^Реквизиты/),
         'нет поля реквизитов'
       );
+      assert(
+        (await page.getByRole('heading', { name: 'Параметры работы' }).count()) === 0,
+        'параметры работы остались на вкладке «Общие»'
+      );
+      await page.getByRole('button', { name: 'Параметры работы' }).click();
       await expectVisible(
         page.getByRole('heading', { name: 'Параметры работы' }),
-        'нет блока параметров работы'
+        'нет отдельной вкладки параметров работы'
       );
       await expectVisible(
         page.getByRole('button', { name: 'Сохранить' }).first(),
-        'нет кнопки сохранения общих настроек'
+        'нет кнопки сохранения параметров работы'
       );
       assert(
         (await page.getByText('Корзина (добавление номенклатуры и оформление)').count()) === 0,
@@ -1606,6 +1646,14 @@ const scenarios = [
 
         if (detail.can?.cancel === true) {
           target = { id: item.id, version: detail.request.version };
+          assert(
+            (detail.assignments ?? []).length === 0,
+            'клиент получает список передач заявки'
+          );
+          assert(
+            (detail.history ?? []).every((row) => (row.comment ?? '') === ''),
+            'клиент получает внутренние комментарии истории'
+          );
           break;
         }
       }

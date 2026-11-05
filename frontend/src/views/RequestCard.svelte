@@ -71,6 +71,8 @@
   let historyModalOpen = $state(false);
   let historyModalTab = $state<'events' | 'timeline' | 'assignments' | 'views'>('events');
   let helperOpen = $state(false);
+  let helperToggleEl = $state<HTMLButtonElement | null>(null);
+  let helperEl = $state<HTMLDivElement | null>(null);
   let statusOpen = $state(false);
   let transferOpen = $state(false);
   let shareWithClient = $state(false);
@@ -199,30 +201,12 @@
       .filter((item) => item.quantity > 0);
   }
 
-  async function applyItems(items: CreateRequestItem[], comment = ''): Promise<void> {
-    if (!detail) {
-      return;
-    }
-
-    busy = true;
-    actionError = '';
-
-    try {
-      detail = await updateRequestItems(id, items, detail.request.version, comment);
-      actionNotice = 'Состав обновлён';
-    } catch (cause) {
-      handleActionError(cause, 'Не удалось изменить состав');
-    } finally {
-      busy = false;
-    }
-  }
-
-  let itemsApplyTimer: ReturnType<typeof setTimeout> | null = null;
-  let itemsApplyBusy = false;
-  let pendingItems: CreateRequestItem[] | null = null;
-
-  async function persistItems(items: CreateRequestItem[]): Promise<boolean> {
-    if (!detail) {
+  async function applyItems(
+    items: CreateRequestItem[],
+    comment = '',
+    version = detail?.request.version ?? 0
+  ): Promise<boolean> {
+    if (!detail || busy) {
       return false;
     }
 
@@ -230,7 +214,7 @@
     actionError = '';
 
     try {
-      detail = await updateRequestItems(id, items, detail.request.version, '');
+      detail = await updateRequestItems(id, items, version, comment);
       actionNotice = 'Состав обновлён';
 
       return true;
@@ -243,57 +227,82 @@
     }
   }
 
-  async function flushItemsApply(): Promise<void> {
-    if (itemsApplyBusy || pendingItems === null || !detail) {
-      return;
+  let pickerVersion = 0;
+
+  async function persistItems(
+    items: CreateRequestItem[],
+    version = detail?.request.version ?? 0
+  ): Promise<boolean> {
+    if (!detail || busy) {
+      return false;
     }
 
-    const next = pendingItems;
-    pendingItems = null;
-    itemsApplyBusy = true;
+    busy = true;
+    actionError = '';
 
-    const ok = await persistItems(next);
+    try {
+      detail = await updateRequestItems(id, items, version, '');
+      actionNotice = 'Состав обновлён';
 
-    itemsApplyBusy = false;
+      return true;
+    } catch (cause) {
+      handleActionError(cause, 'Не удалось изменить состав');
 
-    if (!ok) {
-      pendingItems = null;
-
-      return;
-    }
-
-    if (pendingItems !== null) {
-      void flushItemsApply();
+      return false;
+    } finally {
+      busy = false;
     }
   }
 
-  function scheduleItemsApply(items: CreateRequestItem[]): void {
-    itemRows = items;
-    pendingItems = items;
-
-    if (itemsApplyTimer !== null) {
-      clearTimeout(itemsApplyTimer);
+  function itemsMatchDetail(items: CreateRequestItem[]): boolean {
+    if (!detail) {
+      return false;
     }
 
-    itemsApplyTimer = setTimeout(() => {
-      itemsApplyTimer = null;
-      void flushItemsApply();
-    }, 500);
+    const current = detail.items.map((item) => ({
+      name: item.name,
+      unit: item.unit,
+      quantity: item.quantity,
+      warehouse_id: item.warehouse_id,
+      warehouse_name: item.warehouse_name,
+      description: item.description,
+      stock_level_id: item.stock_level_id
+    }));
+
+    return JSON.stringify(current) === JSON.stringify(items);
+  }
+
+  async function applyPickerItems(items: CreateRequestItem[]): Promise<boolean> {
+    const version = pickerVersion || detail?.request.version || 0;
+    itemRows = items;
+
+    if (itemsMatchDetail(items)) {
+      return true;
+    }
+
+    return persistItems(items, version);
   }
 
   function closePicker(): void {
     pickerOpen = false;
-
-    if (itemsApplyTimer !== null) {
-      clearTimeout(itemsApplyTimer);
-      itemsApplyTimer = null;
-    }
-
-    void flushItemsApply();
   }
 
   async function saveItemQty(): Promise<void> {
-    const quantity = Number(itemModalQty ?? 0);
+    if (busy) {
+      return;
+    }
+
+    const rawQuantity = String(itemModalQty ?? '').trim();
+
+    if (rawQuantity === '') {
+      return;
+    }
+
+    const quantity = Number(rawQuantity.replace(',', '.'));
+
+    if (!Number.isFinite(quantity)) {
+      return;
+    }
 
     if (quantity <= 0) {
       deleteItemId = itemModalId;
@@ -305,8 +314,11 @@
       return;
     }
 
-    await applyItems(itemPayload(new Map([[itemModalId, quantity]])));
-    itemModalOpen = false;
+    const ok = await applyItems(itemPayload(new Map([[itemModalId, quantity]])));
+
+    if (ok) {
+      itemModalOpen = false;
+    }
   }
 
   function removeItem(item: RequestItemRow): void {
@@ -318,8 +330,15 @@
   }
 
   async function confirmDelete(): Promise<void> {
-    await applyItems(itemPayload(new Map(), deleteItemId), deleteComment.trim());
-    deleteOpen = false;
+    if (busy) {
+      return;
+    }
+
+    const ok = await applyItems(itemPayload(new Map(), deleteItemId), deleteComment.trim());
+
+    if (ok) {
+      deleteOpen = false;
+    }
   }
 
   async function cancelDelete(): Promise<void> {
@@ -353,6 +372,7 @@
   let attachments = $state<RequestAttachment[]>([]);
   let uploading = $state(false);
   let uploadFile = $state<File | null>(null);
+  let uploadInternal = $state(true);
   let fileComment = $state('');
   let fileCommentOpen = $state(false);
 
@@ -445,10 +465,45 @@
     };
   });
 
+  onMount(() => {
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!helperOpen) {
+        return;
+      }
+
+      const target = event.target;
+
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (helperEl?.contains(target) || helperToggleEl?.contains(target)) {
+        return;
+      }
+
+      helperOpen = false;
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && helperOpen) {
+        helperOpen = false;
+        helperToggleEl?.focus();
+      }
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  });
+
   async function load(options: { silent?: boolean; force?: boolean } = {}): Promise<void> {
     const silent = options.silent === true;
     const force = options.force === true;
     const seq = ++loadSeq;
+    const detailRef = detail;
     const previousVersion = detail?.request.version ?? null;
 
     if (!silent) {
@@ -460,6 +515,10 @@
       const data = await getRequest(id);
 
       if (seq !== loadSeq) {
+        return;
+      }
+
+      if (silent && detail !== detailRef) {
         return;
       }
 
@@ -546,10 +605,6 @@
       return false;
     }
 
-    if (itemsApplyBusy || itemsApplyTimer !== null || pendingItems !== null) {
-      return false;
-    }
-
     return !anyModalOpen();
   }
 
@@ -564,12 +619,19 @@
       await load({ silent: true });
 
       if (cardTab === 'chat' && detail && detail.chat.thread_id > 0) {
-        await loadChat(true);
+        const loaded = await loadChat(true);
 
-        if (chatUnread > 0) {
-          chatUnread = 0;
+        if (loaded && chatUnread > 0) {
           const lastId = chatMessages.reduce((max, message) => Math.max(max, message.id), 0);
-          void markThreadRead(detail.chat.thread_id, lastId).catch(() => {});
+
+          if (lastId > 0) {
+            try {
+              await markThreadRead(detail.chat.thread_id, lastId);
+              chatUnread = 0;
+            } catch {
+              // Игнорируем
+            }
+          }
         }
       }
     } finally {
@@ -653,18 +715,20 @@
   async function submitFileUpload(event: SubmitEvent): Promise<void> {
     event.preventDefault();
 
-    if (!detail || !uploadFile) return;
+    if (!detail || !uploadFile || uploading) return;
 
     uploading = true;
     actionError = '';
 
     try {
-      const list = await uploadAttachment(id, uploadFile, false, fileComment.trim());
+      const isInternal = isStaff ? uploadInternal : false;
+      const list = await uploadAttachment(id, uploadFile, isInternal, fileComment.trim());
       attachments = list.items;
       uploadFile = null;
+      uploadInternal = true;
       fileComment = '';
       fileCommentOpen = false;
-      actionNotice = 'Файл загружен';
+      actionNotice = isInternal ? 'Внутренний файл загружен' : 'Файл загружен';
     } catch (cause) {
       actionError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить файл';
     } finally {
@@ -678,7 +742,7 @@
   }
 
   async function confirmFileDelete(): Promise<void> {
-    if (!fileToDelete) {
+    if (!fileToDelete || busy) {
       return;
     }
 
@@ -721,6 +785,10 @@
   }
 
   async function claim(): Promise<void> {
+    if (busy) {
+      return;
+    }
+
     busy = true;
     actionError = '';
 
@@ -779,7 +847,7 @@
   }
 
   async function saveSubject(): Promise<void> {
-    if (!detail) {
+    if (!detail || metaBusy) {
       return;
     }
 
@@ -798,7 +866,7 @@
   }
 
   async function saveBody(): Promise<void> {
-    if (!detail) {
+    if (!detail || metaBusy) {
       return;
     }
 
@@ -836,7 +904,7 @@
   }
 
   async function savePriority(): Promise<void> {
-    if (!detail) {
+    if (!detail || metaBusy) {
       return;
     }
 
@@ -855,7 +923,7 @@
   }
 
   async function saveDue(): Promise<void> {
-    if (!detail) {
+    if (!detail || metaBusy) {
       return;
     }
 
@@ -880,7 +948,7 @@
   async function submitTransition(event: SubmitEvent): Promise<void> {
     event.preventDefault();
 
-    if (!detail) return;
+    if (!detail || busy) return;
 
     busy = true;
     actionError = '';
@@ -917,7 +985,7 @@
   );
 
   async function submitTransfer(): Promise<void> {
-    if (!detail) return;
+    if (!detail || busy) return;
 
     busy = true;
     actionError = '';
@@ -1027,12 +1095,7 @@
       return;
     }
 
-    if (itemsApplyTimer !== null) {
-      clearTimeout(itemsApplyTimer);
-      itemsApplyTimer = null;
-    }
-
-    pendingItems = null;
+    pickerVersion = detail.request.version;
     itemRows = detail.items.map((item) => ({
       name: item.name,
       unit: item.unit,
@@ -1058,9 +1121,9 @@
     });
   }
 
-  async function loadChat(silent = false): Promise<void> {
+  async function loadChat(silent = false): Promise<boolean> {
     if (!detail || detail.chat.thread_id <= 0) {
-      return;
+      return false;
     }
 
     const followBottom =
@@ -1078,10 +1141,14 @@
       if (silent && followBottom) {
         void scrollChatToBottom();
       }
+
+      return true;
     } catch (cause) {
       if (!silent) {
         actionError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить сообщения';
       }
+
+      return false;
     } finally {
       if (!silent) {
         chatLoading = false;
@@ -1098,17 +1165,19 @@
     cardTab = next;
 
     if (next === 'chat') {
-      await loadChat();
+      const loaded = await loadChat();
       await scrollChatToBottom();
 
-      if (detail && detail.chat.thread_id > 0 && chatUnread > 0) {
-        chatUnread = 0;
+      if (loaded && detail && detail.chat.thread_id > 0 && chatUnread > 0) {
         const lastId = chatMessages.reduce((max, message) => Math.max(max, message.id), 0);
 
-        try {
-          await markThreadRead(detail.chat.thread_id, lastId);
-        } catch {
-          // некритично
+        if (lastId > 0) {
+          try {
+            await markThreadRead(detail.chat.thread_id, lastId);
+            chatUnread = 0;
+          } catch {
+            // Игнорируем
+          }
         }
       }
     }
@@ -1117,7 +1186,7 @@
   async function sendChat(event: SubmitEvent): Promise<void> {
     event.preventDefault();
 
-    if (!detail || !chatBody.trim()) {
+    if (!detail || !chatBody.trim() || chatBusy) {
       return;
     }
 
@@ -1204,12 +1273,12 @@
   async function saveEvent(event: SubmitEvent): Promise<void> {
     event.preventDefault();
 
-    if (!detail || !canSaveEvent) return;
+    if (!detail || !canSaveEvent || busy) return;
 
     busy = true;
     actionError = '';
 
-    const isInternal = detail.can.comment ? !shareWithClient : false;
+    const isInternal = detail.can.comment_internal ? !shareWithClient : false;
 
     try {
       let attachmentId = uploadedAttachment?.id ?? null;
@@ -1315,11 +1384,11 @@
                 type="button"
                 class="hero-tab"
                 class:active={cardTab === 'comments'}
-                title={`События${discussionCount > 0 ? `: ${discussionCount}` : ''}`}
-                aria-label={`События${discussionCount > 0 ? `, ${discussionCount}` : ''}`}
+                title={`Активность${discussionCount > 0 ? `: ${discussionCount}` : ''}`}
+                aria-label={`Активность${discussionCount > 0 ? `, ${discussionCount}` : ''}`}
                 onclick={() => void openCardTab('comments')}
               >
-                <Icon name="comments" size={18} />
+                <Icon name="events" size={18} />
                 {#if discussionCount > 0}
                   <span class="tab-count">
                     {discussionCount > 99 ? '99+' : discussionCount}
@@ -1481,7 +1550,7 @@
 
     {#snippet historyTimeline()}
       {#if timeline.length === 0}
-        <p class="muted">Событий пока нет</p>
+        <p class="muted">Записей пока нет</p>
       {:else}
         <ol class="timeline">
           {#each timeline as event (`${event.kind}-${event.id}`)}
@@ -1552,7 +1621,7 @@
     {#snippet eventComposer()}
       <div class="card event-composer-card">
         <div class="card-head event-card-head">
-          <h2>События</h2>
+          <h2>Новое событие</h2>
           <button
             type="button"
             class="helper-toggle"
@@ -1560,24 +1629,26 @@
             aria-label="Подсказка по событиям"
             aria-expanded={helperOpen}
             aria-controls="event-helper"
+            bind:this={helperToggleEl}
             onclick={() => (helperOpen = !helperOpen)}
           >
             <Icon name="info" size={16} />
           </button>
 
           {#if helperOpen}
-            <div class="event-helper" id="event-helper">
+            <div class="event-helper" id="event-helper" bind:this={helperEl}>
               <div class="event-helper-head">
                 <Icon name="info" size={15} />
                 <span>Как добавить событие</span>
               </div>
               <ul>
-                <li>Укажите тему — этого достаточно для сохранения.</li>
+                <li>Тема обязательна, комментарий и файл — при необходимости.</li>
                 <li>Тему можно выбрать из подсказок или ввести свою.</li>
-                <li>Комментарий и файл добавляются при необходимости.</li>
                 <li>Для темы «Другое» нужен комментарий от 3 символов.</li>
-                {#if detail?.can.comment}
+                {#if detail?.can.comment_internal}
                   <li>«Доступно клиенту» открывает событие и файл клиенту.</li>
+                {:else if detail?.can.comment}
+                  <li>Ваши события видны клиенту.</li>
                 {:else}
                   <li>Ваши события и файлы видны сотрудникам.</li>
                 {/if}
@@ -1585,10 +1656,6 @@
             </div>
           {/if}
         </div>
-
-        <p class="muted event-composer-hint">
-          Тема обязательна, комментарий и файл — при необходимости.
-        </p>
 
         <form class="form composer" onsubmit={saveEvent}>
           <label class="field">
@@ -1692,7 +1759,7 @@
             </div>
           {/if}
 
-          {#if detail?.can.comment}
+          {#if detail?.can.comment_internal}
             <div class="visibility-row">
               <label class="visibility-toggle">
                 <input type="checkbox" bind:checked={shareWithClient} />
@@ -1862,7 +1929,7 @@
       <div class="card event-list-card">
         <div class="card-head">
           <div class="events-title">
-            <h2>Список событий</h2>
+            <h2>Лента активности</h2>
             {#if discussionCount > 0}
               <span class="events-count" title={`Всего событий: ${discussionCount}`}>
                 {discussionCount}
@@ -1880,7 +1947,7 @@
         {#if discussion.length === 0}
           <div class="events-empty">
             <span class="events-empty-icon"><Icon name="history" size={20} /></span>
-            <strong>Событий пока нет</strong>
+            <strong>Активности пока нет</strong>
             <span class="muted">Добавьте событие — оно появится здесь.</span>
           </div>
         {:else}
@@ -2021,16 +2088,18 @@
                 >
                   <Icon name="download" size={15} />
                 </button>
-                <button
-                  type="button"
-                  class="file-action danger"
-                  title="Удалить файл"
-                  aria-label="Удалить файл"
-                  disabled={busy}
-                  onclick={() => requestFileDelete(file)}
-                >
-                  <Icon name="trash" size={15} />
-                </button>
+                {#if file.can_delete}
+                  <button
+                    type="button"
+                    class="file-action danger"
+                    title="Удалить файл"
+                    aria-label="Удалить файл"
+                    disabled={busy}
+                    onclick={() => requestFileDelete(file)}
+                  >
+                    <Icon name="trash" size={15} />
+                  </button>
+                {/if}
               </div>
             </li>
           {/each}
@@ -2169,6 +2238,13 @@
                     maxlength="1000"
                     placeholder="Комментарий к файлу"
                   ></textarea>
+                </label>
+              {/if}
+
+              {#if isStaff}
+                <label class="visibility-toggle">
+                  <input type="checkbox" bind:checked={uploadInternal} />
+                  <span>Внутренний файл — не показывать клиенту</span>
                 </label>
               {/if}
 
@@ -2314,7 +2390,7 @@
           class:active={historyModalTab === 'events'}
           onclick={() => (historyModalTab = 'events')}
         >
-          События ({discussion.length})
+          Активность ({discussion.length})
         </button>
         <button
           type="button"
@@ -2346,7 +2422,7 @@
 
       {#if historyModalTab === 'events'}
         {#if discussion.length === 0}
-          <p class="muted">Событий пока нет</p>
+          <p class="muted">Активности пока нет</p>
         {:else}
           <div class="discussion events-modal-scroll">
             {#each discussion as item (`${item.kind}-${item.id}`)}
@@ -2468,7 +2544,7 @@
       <div class="form">
         <p class="muted">
           Создать новую заявку на основе «{detail.request.number}»? Текущая заявка останется без
-          изменений.
+          изменений. Перенесутся тема, описание, клиент, приоритет и состав; файлы и история — нет.
         </p>
 
         <div class="row">
@@ -2630,8 +2706,9 @@
       open={pickerOpen}
       items={itemRows}
       clientId={detail.request.client.id}
+      priceTypeId={detail.prices.type?.id ?? 0}
       onclose={closePicker}
-      onchange={scheduleItemsApply}
+      onchange={applyPickerItems}
     />
   {/if}
 </section>
@@ -2946,6 +3023,8 @@
 
   .notice,
   .alert {
+    position: relative;
+    z-index: 60;
     display: flex;
     align-items: flex-start;
     gap: var(--space-2);
@@ -3913,11 +3992,6 @@
   .event-card-head {
     position: relative;
     align-items: center;
-  }
-
-  .event-composer-hint {
-    margin-top: -4px;
-    font-size: 12px;
   }
 
   .event-composer-card .composer > .row :global(button.primary) {

@@ -109,6 +109,10 @@
   let groups = $state<ItemGroup[]>([]);
 
   const warehousesEnabled = $derived(appSettings.warehousesEnabled);
+  const canManageWarehouses = $derived(
+    warehousesEnabled &&
+      (auth.can('stocks.view') || auth.can('stocks.import') || auth.can('stocks.edit'))
+  );
   const sortFields = $derived(
     warehousesEnabled
       ? [
@@ -1046,8 +1050,8 @@
             type="button"
             class="sort-button"
             class:active={groupFilterActive}
-            title="Группа"
-            aria-label="Группа"
+            title="Группы"
+            aria-label="Группы"
             onclick={openGroup}
           >
             <Icon name="group" size={16} />
@@ -1067,34 +1071,48 @@
 
         <span class="toolbar-divider" aria-hidden="true"></span>
 
-        {#if auth.can('settings.manage')}
-          <button
-            type="button"
-            class="sort-button"
-            title="Управление группами номенклатуры"
-            aria-label="Управление группами номенклатуры"
-            onclick={() => router.navigate('/stocks/groups')}
-          >
-            <Icon name="tags" size={16} />
-          </button>
-          <button
-            type="button"
-            class="sort-button"
-            title="Управление типами номенклатуры"
-            aria-label="Управление типами номенклатуры"
-            onclick={() => router.navigate('/stocks/types')}
-          >
-            <Icon name="types" size={16} />
-          </button>
-          {#if pricesEnabled}
+        {#if auth.can('settings.manage') || canManageWarehouses}
+          {#if auth.can('settings.manage')}
             <button
               type="button"
               class="sort-button"
-              title="Управление типами цен"
-              aria-label="Управление типами цен"
-              onclick={() => router.navigate('/stocks/price-types')}
+              title="Управление группами номенклатуры"
+              aria-label="Управление группами номенклатуры"
+              onclick={() => router.navigate('/stocks/groups')}
             >
-              <Icon name="price" size={16} />
+              <Icon name="tags" size={16} />
+            </button>
+            <button
+              type="button"
+              class="sort-button"
+              title="Управление типами номенклатуры"
+              aria-label="Управление типами номенклатуры"
+              onclick={() => router.navigate('/stocks/types')}
+            >
+              <Icon name="types" size={16} />
+            </button>
+            {#if pricesEnabled}
+              <button
+                type="button"
+                class="sort-button"
+                title="Управление типами цен"
+                aria-label="Управление типами цен"
+                onclick={() => router.navigate('/stocks/price-types')}
+              >
+                <Icon name="price" size={16} />
+              </button>
+            {/if}
+          {/if}
+
+          {#if canManageWarehouses}
+            <button
+              type="button"
+              class="sort-button"
+              title="Управление складами"
+              aria-label="Управление складами"
+              onclick={() => router.navigate('/stocks/warehouses')}
+            >
+              <Icon name="warehouse" size={16} />
             </button>
           {/if}
 

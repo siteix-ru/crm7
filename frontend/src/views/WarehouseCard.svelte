@@ -201,7 +201,7 @@
 
       if (isNew) {
         const created = await createWarehouse(payload);
-        router.navigate(`/warehouses/${created.warehouse.id}`);
+        router.navigate(`/stocks/warehouses/${created.warehouse.id}`);
         return;
       }
 
@@ -354,7 +354,7 @@
     <div class="head">
       <a
         class="back"
-        href={isNew ? '#/warehouses' : `#/warehouses/${id}`}
+        href={isNew ? '#/stocks/warehouses' : `#/stocks/warehouses/${id}`}
         title={isNew ? 'К списку складов' : 'К карточке склада'}
       >
         <Icon name="arrow-left" size={16} />

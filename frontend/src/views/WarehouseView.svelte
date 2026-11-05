@@ -82,9 +82,9 @@
       <button
         type="button"
         class="back"
-        title="Назад к складам"
-        aria-label="Назад к складам"
-        onclick={() => router.navigate('/warehouses')}
+        title="Назад к управлению складами"
+        aria-label="Назад к управлению складами"
+        onclick={() => router.navigate('/stocks/warehouses')}
       >
         <Icon name="arrow-left" size={16} />
       </button>
@@ -103,7 +103,7 @@
             class="page-icon-btn"
             title="Редактировать склад"
             aria-label="Редактировать склад"
-            onclick={() => router.navigate(`/warehouses/${id}/edit`)}
+            onclick={() => router.navigate(`/stocks/warehouses/${id}/edit`)}
           >
             <Icon name="edit" size={16} />
           </button>

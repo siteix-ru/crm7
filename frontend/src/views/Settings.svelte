@@ -100,12 +100,13 @@
   let scheduleExtra = $state('');
   let scheduleActive = $state(true);
 
-  type SettingsTab = 'general' | 'modules' | 'mail' | 'docs' | 'database';
+  type SettingsTab = 'general' | 'work' | 'modules' | 'mail' | 'docs' | 'database';
 
   type MailTab = 'smtp' | 'templates' | 'schedules' | 'queue';
 
   const settingsTabs: { code: SettingsTab; title: string; icon: string }[] = [
     { code: 'general', title: 'Общие', icon: 'settings' },
+    { code: 'work', title: 'Параметры работы', icon: 'sliders' },
     { code: 'modules', title: 'Модули', icon: 'types' },
     { code: 'mail', title: 'Почта', icon: 'mail' },
     { code: 'docs', title: 'Документы', icon: 'requests' },
@@ -132,7 +133,7 @@
 
   const visibleSettingsTabs = $derived(
     settingsTabs.filter((item) => {
-      if (item.code === 'modules' || item.code === 'database') {
+      if (item.code === 'work' || item.code === 'modules' || item.code === 'database') {
         return canManageTech;
       }
 
@@ -809,7 +810,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'general'}
+    {#if tab === 'work'}
       <div class="card">
         <h2>Параметры работы</h2>
 

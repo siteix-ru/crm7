@@ -265,6 +265,7 @@ export interface RequestAttachment {
   size: number;
   is_internal: boolean;
   comment: string;
+  can_delete: boolean;
   user: { id: number; name: string };
   created_at: string;
 }

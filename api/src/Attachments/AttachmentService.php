@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Attachments;
 
+use App\Core\Database;
 use App\Core\RateLimiter;
 use App\Http\HttpException;
+use Throwable;
 use App\Repositories\AttachmentRepository;
 use App\Repositories\RequestActivityRepository;
 use App\Repositories\RequestRepository;
@@ -70,10 +72,12 @@ final class AttachmentService
     {
         $request = $this->requireRequest($user, $capabilities, $requestId);
         $isStaff = (int) $user['LEVEL'] >= 10;
+        $userId = (int) $user['ID'];
+        $canManage = $this->requestService->canManageRequest($user, $capabilities, $request);
 
         return [
             'items' => array_map(
-                [$this, 'mapAttachment'],
+                fn (array $row): array => $this->mapAttachment($row, $userId, $canManage),
                 $this->attachments->listByRequest($requestId, $isStaff)
             ),
             'can_upload' => true,
@@ -134,32 +138,44 @@ final class AttachmentService
         $finfo = new \finfo(FILEINFO_MIME_TYPE);
         $mime = (string) ($finfo->file($stored['absolute']) ?: 'application/octet-stream');
 
-        $this->attachments->add(
-            $requestId,
-            (int) $user['ID'],
-            mb_substr($originalName, 0, 255),
-            $stored['relative'],
-            mb_substr($mime, 0, 100),
-            $size,
-            $isInternal,
-            $comment !== '' ? $comment : null
-        );
-
         $activityBody = mb_substr($originalName, 0, 200) . ' — ' . $this->formatSize($size);
 
         if ($comment !== '') {
             $activityBody .= "\n" . $comment;
         }
 
-        $this->activities->add(
-            $requestId,
-            (int) $user['ID'],
-            'file_attached',
-            'Прикреплён файл',
-            $activityBody,
-            null,
-            $isInternal
-        );
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+
+        try {
+            $attachmentId = $this->attachments->add(
+                $requestId,
+                (int) $user['ID'],
+                mb_substr($originalName, 0, 255),
+                $stored['relative'],
+                mb_substr($mime, 0, 100),
+                $size,
+                $isInternal,
+                $comment !== '' ? $comment : null
+            );
+
+            $this->activities->add(
+                $requestId,
+                (int) $user['ID'],
+                'file_attached',
+                'Загружен файл',
+                $activityBody,
+                null,
+                $isInternal,
+                $attachmentId
+            );
+
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            $pdo->rollBack();
+            Storage::delete($stored['relative']);
+            throw $exception;
+        }
 
         return $this->list($user, $capabilities, $requestId);
     }
@@ -202,18 +218,30 @@ final class AttachmentService
             throw new HttpException(403, 'forbidden', 'Удалить файл может автор или менеджер заявки');
         }
 
-        Storage::delete((string) $attachment['storage_path']);
-        $this->attachments->delete($attachmentId);
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
 
-        $this->activities->add(
-            (int) $attachment['request_id'],
-            (int) $user['ID'],
-            'file_removed',
-            'Удалён файл',
-            mb_substr((string) $attachment['file_name'], 0, 255),
-            null,
-            (bool) ($attachment['is_internal'] ?? false)
-        );
+        try {
+            $this->activities->clearAttachment($attachmentId);
+            $this->attachments->delete($attachmentId);
+
+            $this->activities->add(
+                (int) $attachment['request_id'],
+                (int) $user['ID'],
+                'file_removed',
+                'Удалён файл',
+                mb_substr((string) $attachment['file_name'], 0, 255),
+                null,
+                (bool) ($attachment['is_internal'] ?? false)
+            );
+
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            $pdo->rollBack();
+            throw $exception;
+        }
+
+        Storage::delete((string) $attachment['storage_path']);
 
         return ['deleted' => true];
     }
@@ -244,8 +272,10 @@ final class AttachmentService
         return $bytes . ' Б';
     }
 
-    private function mapAttachment(array $row): array
+    private function mapAttachment(array $row, int $userId, bool $canManage): array
     {
+        $authorId = (int) $row['user_id'];
+
         return [
             'id' => (int) $row['id'],
             'name' => (string) $row['file_name'],
@@ -253,8 +283,9 @@ final class AttachmentService
             'size' => (int) $row['size'],
             'is_internal' => (bool) ($row['is_internal'] ?? false),
             'comment' => (string) ($row['comment'] ?? ''),
+            'can_delete' => $authorId === $userId || $canManage,
             'user' => [
-                'id' => (int) $row['user_id'],
+                'id' => $authorId,
                 'name' => (string) $row['user_name'],
             ],
             'created_at' => (string) $row['created_at'],

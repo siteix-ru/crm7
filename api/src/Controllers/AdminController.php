@@ -35,8 +35,13 @@ final class AdminController extends ApiController
 
     public function saveSystemSettings(Request $request): Response
     {
-        $this->requireSettings($request);
+        [, $capabilities] = $this->context($request);
 
+        if (!in_array('settings.manage', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав');
+        }
+
+        $isTechAdmin = in_array('roles.manage', $capabilities, true);
         $reaction = max(1, min(168, (int) $request->input('sla_reaction_hours', 2)));
         $resolution = max(1, min(720, (int) $request->input('sla_resolution_hours', 24)));
         $spf = (bool) $request->input('spf_checklist', false);
@@ -60,6 +65,24 @@ final class AdminController extends ApiController
         $photoSizePreview = $this->photoSize($request->input('photo_size_preview', 160), 160);
         $photoSizeCard = max($this->photoSize($request->input('photo_size_card', 600), 600), $photoSizePreview);
         $photoSizeMax = max($this->photoSize($request->input('photo_size_max', 1600), 1600), $photoSizeCard);
+
+        if (!$isTechAdmin) {
+            $sizes = $this->settings->photoSizes();
+            $reaction = (int) ($this->settings->get('sla.reaction_hours') ?? 2);
+            $resolution = (int) ($this->settings->get('sla.resolution_hours') ?? 24);
+            $spf = $this->settings->get('mail.spf_checklist') === '1';
+            $sales = $this->settings->salesEnabled();
+            $emailExport = $this->settings->emailExportEnabled();
+            $stockReserve = $this->settings->stockReserveEnabled();
+            $stockAllowZero = $this->settings->allowZeroStock();
+            $pricesEnabled = $this->settings->pricesEnabled();
+            $groupsEnabled = $this->settings->groupsEnabled();
+            $photoRatio = $this->settings->photoRatio();
+            $photoFit = $this->settings->photoFit();
+            $photoSizePreview = $sizes['preview'];
+            $photoSizeCard = $sizes['card'];
+            $photoSizeMax = $sizes['max'];
+        }
 
         $this->settings->many([
             'sla.reaction_hours' => (string) $reaction,

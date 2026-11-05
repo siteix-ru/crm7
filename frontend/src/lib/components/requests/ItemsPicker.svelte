@@ -15,7 +15,7 @@
     open: boolean;
     items: CreateRequestItem[];
     onclose: () => void;
-    onchange?: (items: CreateRequestItem[]) => void;
+    onchange?: (items: CreateRequestItem[]) => Promise<boolean | void> | boolean | void;
     clientId?: number;
     priceTypeId?: number;
   }
@@ -41,6 +41,8 @@
   let error = $state('');
   let draft = $state<CreateRequestItem[]>([]);
   let initialized = $state(false);
+  let applying = $state(false);
+  let applyError = $state('');
 
   let loadSeq = 0;
   let loadedClientId = -1;
@@ -117,6 +119,7 @@
     searchInput = '';
     query = '';
     error = '';
+    applyError = '';
 
     if (warehouses.length === 0) {
       try {
@@ -319,9 +322,29 @@
     draft = [];
   }
 
-  function apply(): void {
-    onchange?.(draft.map((item) => ({ ...item })));
-    onclose();
+  async function apply(): Promise<void> {
+    if (applying) {
+      return;
+    }
+
+    applying = true;
+    applyError = '';
+
+    try {
+      const result = await onchange?.(draft.map((item) => ({ ...item })));
+
+      if (result === false) {
+        applyError = 'Не удалось сохранить состав. Проверьте остатки и попробуйте снова.';
+
+        return;
+      }
+
+      onclose();
+    } catch (cause) {
+      applyError = cause instanceof Error ? cause.message : 'Не удалось сохранить состав';
+    } finally {
+      applying = false;
+    }
   }
 </script>
 
@@ -512,6 +535,12 @@
       {/if}
     {/if}
 
+    {#if applyError}
+      <div class="picker-error" role="alert">
+        <span>{applyError}</span>
+      </div>
+    {/if}
+
     <div class="picker-footer">
       <span class="picker-footer-info">
         {#if limitReached}
@@ -522,12 +551,12 @@
       </span>
       <div class="picker-footer-actions">
         {#if draft.length > 0}
-          <Button variant="ghost" onclick={clearDraft}>Очистить</Button>
+          <Button variant="ghost" disabled={applying} onclick={clearDraft}>Очистить</Button>
         {/if}
-        <Button variant="ghost" onclick={onclose}>Отмена</Button>
-        <Button onclick={apply}>
+        <Button variant="ghost" disabled={applying} onclick={onclose}>Отмена</Button>
+        <Button loading={applying} disabled={applying} onclick={apply}>
           <Icon name="check" size={14} />
-          Готово{#if draft.length > 0} — {draft.length}{/if}
+          Готово{#if draft.length > 0} · {draft.length}{/if}
         </Button>
       </div>
     </div>
