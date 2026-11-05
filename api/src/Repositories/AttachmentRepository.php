@@ -14,15 +14,27 @@ final class AttachmentRepository
         string $fileName,
         string $storagePath,
         string $mime,
-        int $size
+        int $size,
+        bool $isInternal = false,
+        ?string $comment = null
     ): int {
         $pdo = Database::pdo();
 
         $stmt = $pdo->prepare(
-            'INSERT INTO request_attachments (request_id, user_id, file_name, storage_path, mime, size)
-             VALUES (?, ?, ?, ?, ?, ?)'
+            'INSERT INTO request_attachments
+                (request_id, user_id, file_name, storage_path, mime, size, is_internal, `comment`)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$requestId, $userId, $fileName, $storagePath, $mime, $size]);
+        $stmt->execute([
+            $requestId,
+            $userId,
+            $fileName,
+            $storagePath,
+            $mime,
+            $size,
+            $isInternal ? 1 : 0,
+            $comment !== '' ? $comment : null,
+        ]);
 
         return (int) $pdo->lastInsertId();
     }
@@ -35,17 +47,17 @@ final class AttachmentRepository
         return $stmt->fetch() ?: null;
     }
 
-    public function listByRequest(int $requestId): array
+    public function listByRequest(int $requestId, bool $includeInternal = true): array
     {
         $stmt = Database::pdo()->prepare(
-            'SELECT a.ID AS id, a.user_id, a.file_name, a.mime, a.size, a.created_at,
-                    u.FULL_NAME AS user_name
+            'SELECT a.ID AS id, a.user_id, a.file_name, a.mime, a.size, a.is_internal, a.`comment`,
+                    a.created_at, u.FULL_NAME AS user_name
              FROM request_attachments a
              INNER JOIN users u ON u.ID = a.user_id
-             WHERE a.request_id = ?
+             WHERE a.request_id = ? AND (a.is_internal = 0 OR ? = 1)
              ORDER BY a.created_at ASC, a.ID ASC'
         );
-        $stmt->execute([$requestId]);
+        $stmt->execute([$requestId, $includeInternal ? 1 : 0]);
 
         return $stmt->fetchAll() ?: [];
     }

@@ -83,6 +83,7 @@
     comments: CommentOutlined,
     copy: CopyOutlined,
     database: DatabaseOutlined,
+    download: DownloadOutlined,
     edit: EditOutlined,
     files: PaperClipOutlined,
     history: HistoryOutlined,

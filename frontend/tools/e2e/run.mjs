@@ -238,14 +238,121 @@ const scenarios = [
       await card.click();
 
       await expectVisible(page.getByRole('button', { name: /^Заявка/ }), 'нет вкладки «Заявка»');
-      await expectVisible(page.getByRole('button', { name: /^Комментарии/ }), 'нет вкладки «Комментарии»');
-      await expectVisible(page.getByRole('button', { name: /^История/ }), 'нет вкладки «История»');
+      await expectVisible(page.getByRole('button', { name: /^События/ }), 'нет вкладки «События»');
+      await expectVisible(page.locator('.main .items-card'), 'состав заявки не в основной колонке');
+      await expectVisible(
+        page.locator('.side .side-description-card'),
+        'описание не в правой колонке'
+      );
+      assert(
+        (await page.getByRole('heading', { name: 'Итого' }).count()) === 0,
+        'блок «Итого» не удалён'
+      );
+
+      await page.getByRole('button', { name: /^События/ }).click();
+      await expectVisible(
+        page.getByRole('heading', { name: 'События' }),
+        'нет вкладки «События»'
+      );
+
+      const subject = page.getByLabel('Тема');
+      await expectVisible(subject, 'нет поля темы');
+      const saveEvent = page.getByRole('button', { name: 'Сохранить' });
+      assert(await saveEvent.isDisabled(), 'кнопка «Сохранить» активна без темы');
+      await subject.fill('E2E событие');
+      assert(!(await saveEvent.isDisabled()), 'кнопка «Сохранить» не активировалась после темы');
+
+      const clientVisible = page.getByRole('checkbox', { name: 'Доступно клиенту' });
+      await expectVisible(clientVisible, 'нет чекбокса «Доступно клиенту»');
+      assert(!(await clientVisible.isChecked()), 'чекбокс «Доступно клиенту» включён по умолчанию');
+      await expectVisible(
+        page.getByRole('button', { name: 'Добавить комментарий' }),
+        'нет кнопки добавления комментария'
+      );
+      await expectVisible(
+        page.getByRole('button', { name: 'Добавить файл' }),
+        'нет кнопки добавления файла'
+      );
+      assert(
+        (await page.getByPlaceholder('Комментарий к событию (необязательно)').count()) === 0,
+        'поле комментария не скрыто по умолчанию'
+      );
+      assert(
+        (await page.getByText('Выбрать файл (до 10 МБ)').count()) === 0,
+        'поле файла не скрыто по умолчанию'
+      );
+
+      await page.getByRole('button', { name: 'Добавить комментарий' }).click();
+      await expectVisible(
+        page.getByPlaceholder('Комментарий к событию (необязательно)'),
+        'поле комментария не раскрылось'
+      );
+      await page.getByRole('button', { name: 'Добавить файл' }).click();
+      await expectVisible(page.getByText('Выбрать файл (до 10 МБ)'), 'поле файла не раскрылось');
+
+      const helperToggle = page.getByRole('button', { name: 'Подсказка по событиям' });
+      await expectVisible(helperToggle, 'нет иконки подсказки');
+      assert(
+        (await page.getByText('Как добавить событие').count()) === 0,
+        'текст подсказки виден без клика'
+      );
+      await helperToggle.click();
+      await expectVisible(page.getByText('Как добавить событие'), 'подсказка не раскрылась');
+      await helperToggle.click();
+
+      await page.locator('.events-head-actions .link-btn').click();
+      const historyDialog = page.getByRole('dialog');
+      await expectVisible(historyDialog, 'не открылась модалка истории');
+      await expectVisible(
+        historyDialog.getByRole('button', { name: /^События/ }),
+        'нет вкладки «События» в истории'
+      );
+      await historyDialog.getByRole('button', { name: 'Хронология' }).click();
+      await expectVisible(
+        historyDialog.getByRole('button', { name: 'Хронология' }),
+        'нет вкладки «Хронология» в истории'
+      );
+      await page.keyboard.press('Escape');
+
+      await page.getByRole('button', { name: /^Файлы/ }).click();
+      await expectVisible(
+        page.getByRole('heading', { name: 'Файлы заявки' }),
+        'нет вкладки «Файлы заявки»'
+      );
+      await expectVisible(
+        page.getByRole('heading', { name: 'Добавить файл' }),
+        'нет блока добавления файла'
+      );
+      assert(
+        (await page.getByRole('heading', { name: 'Параметры' }).count()) === 0,
+        'на вкладке файлов видны «Параметры»'
+      );
+      assert(
+        (await page.getByRole('heading', { name: 'Итого' }).count()) === 0,
+        'на вкладке файлов виден блок «Итого»'
+      );
+      await page.getByRole('button', { name: 'Добавить комментарий' }).click();
+      await expectVisible(
+        page.getByPlaceholder('Комментарий к файлу'),
+        'комментарий к файлу не раскрылся'
+      );
+
+      await page.locator('.hero-tab[aria-label="Чат по заявке"]').click();
+      await expectVisible(
+        page.getByRole('heading', { name: 'Чат по заявке' }),
+        'нет вкладки «Чат по заявке»'
+      );
+      assert(
+        (await page.getByRole('heading', { name: 'Параметры' }).count()) === 0,
+        'на вкладке чата видны «Параметры»'
+      );
+      assert(
+        (await page.getByRole('heading', { name: 'Итого' }).count()) === 0,
+        'на вкладке чата виден блок «Итого»'
+      );
 
       await page.getByRole('button', { name: /^Заявка/ }).click();
       await expectVisible(page.locator('.it-row:not(.it-head)').first(), 'в составе нет позиций');
-
-      await page.getByRole('button', { name: /^История/ }).click();
-      await expectVisible(page.getByText('Хронология'), 'нет раздела «Хронология» в истории');
     }
   },
   {

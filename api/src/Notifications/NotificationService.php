@@ -98,7 +98,8 @@ final class NotificationService
         string $type,
         string $title,
         ?string $body = null,
-        array $emailVars = []
+        array $emailVars = [],
+        bool $notifyClient = true
     ): void {
         $requestId = (int) ($request['ID'] ?? 0);
         $clientId = (int) ($request['client_id'] ?? 0);
@@ -106,7 +107,7 @@ final class NotificationService
             ? (int) $request['manager_id']
             : null;
 
-        if ($clientId > 0 && $clientId !== $actorId) {
+        if ($notifyClient && $clientId > 0 && $clientId !== $actorId) {
             $this->notify($clientId, $type, $title, $body, $requestId, $emailVars);
         }
 

@@ -263,6 +263,8 @@ export interface RequestAttachment {
   name: string;
   mime: string;
   size: number;
+  is_internal: boolean;
+  comment: string;
   user: { id: number; name: string };
   created_at: string;
 }
@@ -289,6 +291,9 @@ export interface RequestActivity {
   type: { code: string; title: string };
   user: { id: number; name: string; level: number; position: string };
   body: string;
+  is_internal: boolean;
+  manual: boolean;
+  attachment: { id: number; name: string; size: number; mime: string } | null;
   created_at: string;
 }
 

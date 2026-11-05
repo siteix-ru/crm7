@@ -1,10 +1,9 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { ApiError, downloadFromApi } from '../lib/api/client';
   import { listMessages, markThreadRead, sendMessage } from '../lib/api/chat';
   import {
     addActivity,
-    addComment,
     assignRequest,
     claimRequest,
     getRequest,
@@ -41,7 +40,7 @@
   import Modal from '../lib/components/ui/Modal.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { formatDateTime, formatPrice, formatSize, priorityLabel } from '../lib/format';
-  import { ITEMS_SORT_OPTIONS, sortItems, type ItemsSortKey } from '../lib/items-sort';
+  import { sortItems, type ItemsSortKey } from '../lib/items-sort';
 
   interface Props {
     id: number;
@@ -64,17 +63,63 @@
   const totalQuantityText = $derived(
     totalQuantity.toLocaleString('ru-RU', { maximumFractionDigits: 3 })
   );
+  const descriptionLong = $derived((detail?.request.body.length ?? 0) > 400);
 
   let targetStatus = $state('');
   let transitionComment = $state('');
-  let cancelReason = $state('');
   let cardTab = $state<CardTab>('request');
-  let historyTab = $state<'timeline' | 'assignments' | 'views'>('timeline');
-  let cancelOpen = $state(false);
+  let historyModalOpen = $state(false);
+  let historyModalTab = $state<'events' | 'timeline' | 'assignments' | 'views'>('events');
+  let helperOpen = $state(false);
   let statusOpen = $state(false);
   let transferOpen = $state(false);
-  let activityOpen = $state(false);
+  let shareWithClient = $state(false);
   let actionNotice = $state('');
+  let activityTypes = $state<ActivityType[]>([]);
+
+  type DiscussionItem = {
+    kind: 'comment' | 'activity';
+    id: number;
+    at: string;
+    user: { id: number; name: string };
+    title: string;
+    body: string;
+    clientVisible: boolean;
+    attachment: { id: number; name: string; size: number } | null;
+  };
+
+  const discussion = $derived.by((): DiscussionItem[] => {
+    if (!detail) return [];
+
+    const items: DiscussionItem[] = [
+      ...detail.comments.map((comment) => ({
+        kind: 'comment' as const,
+        id: comment.id,
+        at: comment.created_at,
+        user: comment.user,
+        title: 'Комментарий',
+        body: comment.body,
+        clientVisible: !comment.is_internal,
+        attachment: null
+      })),
+      ...detail.activities
+        .filter((activity) => activity.manual)
+        .map((activity) => ({
+          kind: 'activity' as const,
+          id: activity.id,
+          at: activity.created_at,
+          user: activity.user,
+          title: activity.type.title,
+          body: activity.body,
+          clientVisible: !activity.is_internal,
+          attachment: activity.attachment
+        }))
+    ];
+
+    return items.sort((a, b) => (a.at === b.at ? b.id - a.id : a.at < b.at ? 1 : -1));
+  });
+
+  const discussionCount = $derived(discussion.length);
   let chatUnread = $state(0);
 
   let priorityOpen = $state(false);
@@ -95,12 +140,15 @@
   let itemModalUnit = $state('');
   let itemModalQty = $state(1);
   let expandedItems = $state<Set<number>>(new Set());
+  let descriptionExpanded = $state(false);
 
   let deleteOpen = $state(false);
   let deleteItemId = $state(0);
   let deleteItemName = $state('');
   let deleteComment = $state('');
   let deleteFromQty = $state(false);
+  let fileDeleteOpen = $state(false);
+  let fileToDelete = $state<RequestAttachment | null>(null);
 
   function qtyText(item: RequestItemRow): string {
     const value = item.quantity.toLocaleString('ru-RU', { maximumFractionDigits: 3 });
@@ -278,14 +326,21 @@
     deleteOpen = false;
     deleteFromQty = false;
   }
-  let activityOccurredAt = $state(localNow());
-
   const priorityOptions: { value: number; label: string }[] = [
     { value: 1, label: 'Низкий' },
     { value: 2, label: 'Обычный' },
     { value: 3, label: 'Высокий' }
   ];
   let itemsSort = $state<ItemsSortKey>('natural');
+  let itemsSortOpen = $state(false);
+  let itemsSortDraft = $state<ItemsSortKey>('natural');
+  let copyOpen = $state(false);
+
+  const itemsSortFields: { label: string; asc: ItemsSortKey; desc: ItemsSortKey }[] = [
+    { label: 'Название', asc: 'name_asc', desc: 'name_desc' },
+    { label: 'Склад', asc: 'warehouse_asc', desc: 'warehouse_desc' },
+    { label: 'Количество', asc: 'qty_asc', desc: 'qty_desc' }
+  ];
 
   let itemRows = $state<CreateRequestItem[]>([]);
   let pickerOpen = $state(false);
@@ -295,20 +350,50 @@
   let transferTarget = $state(0);
   let transferComment = $state('');
 
-  let activityTypes = $state<ActivityType[]>([]);
-  let activityType = $state('');
-  let activityBody = $state('');
   let attachments = $state<RequestAttachment[]>([]);
   let uploading = $state(false);
+  let uploadFile = $state<File | null>(null);
+  let fileComment = $state('');
+  let fileCommentOpen = $state(false);
 
-  let commentBody = $state('');
+  let eventSubject = $state('');
+  let eventComment = $state('');
+  let commentOpen = $state(false);
+  let fileOpen = $state(false);
+  let selectedFile = $state<File | null>(null);
+  let uploadedAttachment = $state<RequestAttachment | null>(null);
+
+  const eventPresets = $derived(activityTypes.filter((type) => type.code !== 'custom'));
+
+  const eventTypeCode = $derived.by(() => {
+    const normalized = eventSubject.trim().toLowerCase();
+
+    if (normalized !== '') {
+      const preset = eventPresets.find(
+        (type) => type.title.trim().toLowerCase() === normalized
+      );
+
+      if (preset) {
+        return preset.code;
+      }
+    }
+
+    return 'custom';
+  });
+
+  const canSaveEvent = $derived.by(() => {
+    if (!detail || eventSubject.trim() === '') return false;
+
+    return !(eventTypeCode.startsWith('other') && eventComment.trim().length < 3);
+  });
 
   let chatLoading = $state(false);
   let chatBusy = $state(false);
   let chatBody = $state('');
   let chatMessages = $state<ChatMessage[]>([]);
+  let chatListEl = $state<HTMLDivElement | null>(null);
 
-  type CardTab = 'request' | 'comments' | 'chat' | 'files' | 'history';
+  type CardTab = 'request' | 'comments' | 'chat' | 'files';
 
   const AUTO_REFRESH_MS = 15000;
   let loadSeq = 0;
@@ -443,11 +528,12 @@
       || bodyOpen
       || priorityOpen
       || dueOpen
-      || cancelOpen
       || transferOpen
-      || activityOpen
       || itemModalOpen
       || deleteOpen
+      || fileDeleteOpen
+      || itemsSortOpen
+      || copyOpen
       || pickerOpen;
   }
 
@@ -497,11 +583,13 @@
     bodyOpen = false;
     priorityOpen = false;
     dueOpen = false;
-    cancelOpen = false;
     transferOpen = false;
-    activityOpen = false;
     itemModalOpen = false;
     deleteOpen = false;
+    fileDeleteOpen = false;
+    fileToDelete = null;
+    itemsSortOpen = false;
+    copyOpen = false;
     pickerOpen = false;
   }
 
@@ -530,37 +618,96 @@
     actionError = fallback;
   }
 
-  async function onFileSelected(event: Event): Promise<void> {
+  function onUploadFileSelected(event: Event): void {
     const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
+    uploadFile = input.files?.[0] ?? null;
+    input.value = '';
+  }
 
-    if (!file) return;
+  function fileExtension(name: string): string {
+    const parts = name.split('.');
+
+    if (parts.length < 2) {
+      return 'FILE';
+    }
+
+    const extension = (parts.pop() ?? '').toUpperCase();
+
+    return extension.length > 4 ? extension.slice(0, 4) : extension;
+  }
+
+  function onFileDrop(event: DragEvent): void {
+    event.preventDefault();
+    uploadFile = event.dataTransfer?.files?.[0] ?? null;
+  }
+
+  function openFileComment(): void {
+    fileCommentOpen = true;
+  }
+
+  function closeFileComment(): void {
+    fileCommentOpen = false;
+    fileComment = '';
+  }
+
+  async function submitFileUpload(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+
+    if (!detail || !uploadFile) return;
 
     uploading = true;
     actionError = '';
 
     try {
-      attachments = (await uploadAttachment(id, file)).items;
+      const list = await uploadAttachment(id, uploadFile, false, fileComment.trim());
+      attachments = list.items;
+      uploadFile = null;
+      fileComment = '';
+      fileCommentOpen = false;
+      actionNotice = 'Файл загружен';
     } catch (cause) {
       actionError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить файл';
     } finally {
       uploading = false;
-      input.value = '';
     }
   }
 
-  async function removeFile(attachment: RequestAttachment): Promise<void> {
+  function requestFileDelete(attachment: RequestAttachment): void {
+    fileToDelete = attachment;
+    fileDeleteOpen = true;
+  }
+
+  async function confirmFileDelete(): Promise<void> {
+    if (!fileToDelete) {
+      return;
+    }
+
+    const attachment = fileToDelete;
     busy = true;
     actionError = '';
 
     try {
       await deleteAttachment(attachment.id);
       attachments = attachments.filter((item) => item.id !== attachment.id);
+      fileDeleteOpen = false;
+      fileToDelete = null;
+      actionNotice = 'Файл удалён';
     } catch (cause) {
+      fileDeleteOpen = false;
+      fileToDelete = null;
       actionError = cause instanceof ApiError ? cause.message : 'Не удалось удалить файл';
     } finally {
       busy = false;
     }
+  }
+
+  function cancelFileDelete(): void {
+    if (busy) {
+      return;
+    }
+
+    fileDeleteOpen = false;
+    fileToDelete = null;
   }
 
   async function downloadFile(attachment: RequestAttachment): Promise<void> {
@@ -595,24 +742,6 @@
     transferTarget = 0;
     transferComment = '';
     transferOpen = true;
-  }
-
-  function openActivity(): void {
-    if (!detail?.can.activity) {
-      return;
-    }
-
-    activityType = '';
-    activityBody = '';
-    activityOccurredAt = localNow();
-    activityOpen = true;
-  }
-
-  function localNow(): string {
-    const date = new Date();
-    const pad = (part: number): string => String(part).padStart(2, '0');
-
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   }
 
   function toLocalInput(value: string | null): string {
@@ -779,25 +908,6 @@
     statusOpen = true;
   }
 
-  async function cancelRequest(): Promise<void> {
-    if (!detail || cancelReason.trim().length < 3) {
-      return;
-    }
-
-    busy = true;
-    actionError = '';
-
-    try {
-      detail = await transitionRequest(id, 'canceled', cancelReason.trim(), detail.request.version);
-      cancelReason = '';
-      cancelOpen = false;
-    } catch (cause) {
-      handleActionError(cause, 'Не удалось отменить заявку');
-    } finally {
-      busy = false;
-    }
-  }
-
   const selectableStatuses = $derived(
     statuses.filter((status) => (detail?.can.transition_to ?? []).includes(status.code))
   );
@@ -823,7 +933,6 @@
       transferComment = '';
       transferOpen = false;
       actionNotice = 'Заявка передана';
-      cardTab = 'history';
     } catch (cause) {
       handleActionError(cause, 'Не удалось передать заявку');
     } finally {
@@ -886,6 +995,33 @@
     return items.sort((a, b) => (a.at === b.at ? b.id - a.id : a.at < b.at ? 1 : -1));
   });
 
+  function openCopy(): void {
+    copyOpen = true;
+  }
+
+  function confirmCopy(): void {
+    copyOpen = false;
+    router.navigate(`/requests/new?copy=${id}`);
+  }
+
+  function openItemsSort(): void {
+    itemsSortDraft = itemsSort;
+    itemsSortOpen = true;
+  }
+
+  function toggleItemsSort(key: ItemsSortKey): void {
+    itemsSortDraft = itemsSortDraft === key ? 'natural' : key;
+  }
+
+  function resetItemsSort(): void {
+    itemsSortDraft = 'natural';
+  }
+
+  function applyItemsSort(): void {
+    itemsSort = itemsSortDraft;
+    itemsSortOpen = false;
+  }
+
   function openPicker(): void {
     if (!detail) {
       return;
@@ -909,10 +1045,27 @@
     pickerOpen = true;
   }
 
+  async function scrollChatToBottom(smooth = false): Promise<void> {
+    await tick();
+
+    if (!chatListEl) {
+      return;
+    }
+
+    chatListEl.scrollTo({
+      top: chatListEl.scrollHeight,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+  }
+
   async function loadChat(silent = false): Promise<void> {
     if (!detail || detail.chat.thread_id <= 0) {
       return;
     }
+
+    const followBottom =
+      !chatListEl ||
+      chatListEl.scrollHeight - chatListEl.clientHeight - chatListEl.scrollTop <= 24;
 
     if (!silent) {
       chatLoading = true;
@@ -921,6 +1074,10 @@
     try {
       const data = await listMessages(detail.chat.thread_id, 0, id);
       chatMessages = data.items;
+
+      if (silent && followBottom) {
+        void scrollChatToBottom();
+      }
     } catch (cause) {
       if (!silent) {
         actionError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить сообщения';
@@ -932,11 +1089,17 @@
     }
   }
 
+  function openEventsHistory(): void {
+    historyModalTab = 'events';
+    historyModalOpen = true;
+  }
+
   async function openCardTab(next: CardTab): Promise<void> {
     cardTab = next;
 
     if (next === 'chat') {
       await loadChat();
+      await scrollChatToBottom();
 
       if (detail && detail.chat.thread_id > 0 && chatUnread > 0) {
         chatUnread = 0;
@@ -965,6 +1128,7 @@
       await sendMessage(detail.chat.thread_id, chatBody.trim(), [], id);
       chatBody = '';
       await loadChat();
+      await scrollChatToBottom(true);
     } catch (cause) {
       handleActionError(cause, 'Не удалось отправить сообщение');
     } finally {
@@ -980,40 +1144,103 @@
     }
   }
 
-  async function submitActivity(): Promise<void> {
-    if (!detail) return;
-
-    busy = true;
-    actionError = '';
-
-    try {
-      detail = await addActivity(id, activityType, activityBody.trim(), activityOccurredAt);
-      activityType = '';
-      activityBody = '';
-      activityOccurredAt = localNow();
-      activityOpen = false;
-      actionNotice = 'Действие добавлено';
-      cardTab = 'history';
-    } catch (cause) {
-      handleActionError(cause, 'Не удалось добавить действие');
-    } finally {
-      busy = false;
-    }
+  function openComment(): void {
+    commentOpen = true;
   }
 
-  async function submitComment(event: SubmitEvent): Promise<void> {
+  function closeComment(): void {
+    commentOpen = false;
+    eventComment = '';
+  }
+
+  function openFile(): void {
+    fileOpen = true;
+  }
+
+  function onEventFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    selectedFile = input.files?.[0] ?? null;
+    input.value = '';
+  }
+
+  function clearSelectedEventFile(): void {
+    selectedFile = null;
+    fileOpen = false;
+  }
+
+  async function removeEventFile(): Promise<void> {
+    const current = uploadedAttachment;
+
+    if (current) {
+      busy = true;
+      actionError = '';
+
+      try {
+        await deleteAttachment(current.id);
+        attachments = attachments.filter((item) => item.id !== current.id);
+      } catch (cause) {
+        handleActionError(cause, 'Не удалось убрать файл');
+        return;
+      } finally {
+        busy = false;
+      }
+    }
+
+    selectedFile = null;
+    uploadedAttachment = null;
+    fileOpen = false;
+  }
+
+  function resetEventForm(): void {
+    eventSubject = '';
+    eventComment = '';
+    commentOpen = false;
+    fileOpen = false;
+    selectedFile = null;
+    uploadedAttachment = null;
+    shareWithClient = false;
+  }
+
+  async function saveEvent(event: SubmitEvent): Promise<void> {
     event.preventDefault();
 
-    if (!detail) return;
+    if (!detail || !canSaveEvent) return;
 
     busy = true;
     actionError = '';
 
+    const isInternal = detail.can.comment ? !shareWithClient : false;
+
     try {
-      detail = await addComment(id, commentBody);
-      commentBody = '';
+      let attachmentId = uploadedAttachment?.id ?? null;
+
+      if (!attachmentId && selectedFile) {
+        const before = new Set(attachments.map((item) => item.id));
+        const list = await uploadAttachment(id, selectedFile, isInternal);
+        attachments = list.items;
+        const uploaded = list.items.find((item) => !before.has(item.id));
+
+        if (!uploaded) {
+          throw new Error('Не удалось определить загруженный файл');
+        }
+
+        uploadedAttachment = uploaded;
+        selectedFile = null;
+        attachmentId = uploaded.id;
+      }
+
+      detail = await addActivity(id, {
+        type: eventTypeCode,
+        subject: eventSubject.trim(),
+        body: eventComment.trim(),
+        isInternal,
+        attachmentId: attachmentId ?? undefined
+      });
+
+      actionNotice = 'Событие добавлено';
+      resetEventForm();
     } catch (cause) {
-      handleActionError(cause, 'Не удалось добавить комментарий');
+      handleActionError(cause, 'Не удалось добавить событие');
     } finally {
       busy = false;
     }
@@ -1038,23 +1265,8 @@
         <div class="head-text">
           <div class="hero-badges">
             <span class="number">{detail.request.number}</span>
-            {#if detail.can.transition_to.length > 0}
-              <button
-                type="button"
-                class="status-button"
-                title="Изменить статус"
-                onclick={openStatus}
-              >
-                <StatusBadge title={detail.request.status.title} color={detail.request.status.color} />
-              </button>
-            {:else}
-              <StatusBadge title={detail.request.status.title} color={detail.request.status.color} />
-            {/if}
             {#if detail.request.is_overdue}
               <span class="overdue-badge">Просрочена</span>
-            {/if}
-            {#if !detail.request.manager}
-              <span class="search-badge">Поиск менеджера</span>
             {/if}
           </div>
 
@@ -1073,46 +1285,16 @@
             {/if}
           </h1>
 
-          <div class="sub hero-meta">
-            <span class="meta-chip">
-              <Icon name="user" size={14} />
-              {#if isStaff}
-                <a class="manager-link" href={`#/clients/${detail.request.client.id}`}>
-                  {detail.request.client.name}
-                </a>
-              {:else}
-                {detail.request.client.name}
-              {/if}
-            </span>
-
-            <span class="meta-chip" class:priority-high={detail.request.priority === 3}>
-              <Icon name="info" size={14} />
-              {priorityLabel(detail.request.priority)}
-            </span>
-
-            {#if detail.request.due_at}
-              <span class="meta-chip" class:overdue={detail.request.is_overdue}>
-                <Icon name="calendar" size={14} />
-                {formatDateTime(detail.request.due_at)}
-              </span>
-            {/if}
-
-            {#if detail.request.manager}
-              <span class="meta-chip">
-                <Icon name="staff" size={14} />
-                {#if isStaff}
-                  <a class="manager-link" href={`#/users/${detail.request.manager.id}`}>
-                    {detail.request.manager.name}
-                  </a>
-                {:else}
-                  {detail.request.manager.name}
-                {/if}
-              </span>
-            {/if}
-          </div>
         </div>
 
         <div class="head-actions">
+          <span
+            class="hero-status"
+            style:color={detail.request.status.color ?? '#6b7280'}
+          >
+            {detail.request.status.title}
+          </span>
+
           <div class="hero-tabs" aria-label="Разделы заявки">
             <button
               type="button"
@@ -1128,19 +1310,19 @@
               {/if}
             </button>
 
-            {#if detail.can.comment}
+            {#if detail.can.comment || detail.can.activity}
               <button
                 type="button"
                 class="hero-tab"
                 class:active={cardTab === 'comments'}
-                title={`Комментарии${detail.comments.length > 0 ? `: ${detail.comments.length}` : ''}`}
-                aria-label={`Комментарии${detail.comments.length > 0 ? `, ${detail.comments.length}` : ''}`}
+                title={`События${discussionCount > 0 ? `: ${discussionCount}` : ''}`}
+                aria-label={`События${discussionCount > 0 ? `, ${discussionCount}` : ''}`}
                 onclick={() => void openCardTab('comments')}
               >
                 <Icon name="comments" size={18} />
-                {#if detail.comments.length > 0}
+                {#if discussionCount > 0}
                   <span class="tab-count">
-                    {detail.comments.length > 99 ? '99+' : detail.comments.length}
+                    {discussionCount > 99 ? '99+' : discussionCount}
                   </span>
                 {/if}
               </button>
@@ -1176,18 +1358,11 @@
                 </span>
               {/if}
             </button>
-
-            <button
-              type="button"
-              class="hero-tab"
-              class:active={cardTab === 'history'}
-              title="История"
-              aria-label="История"
-              onclick={() => void openCardTab('history')}
-            >
-              <Icon name="history" size={18} />
-            </button>
           </div>
+
+          {#if (appSettings.salesEnabled && auth.can('requests.create')) || detail.can.claim}
+            <span class="hero-divider" aria-hidden="true"></span>
+          {/if}
 
           <div class="hero-actions">
             {#if appSettings.salesEnabled && auth.can('requests.create')}
@@ -1196,7 +1371,7 @@
                 class="page-icon-btn"
                 title="Копировать заявку"
                 aria-label="Копировать заявку"
-                onclick={() => router.navigate(`/requests/new?copy=${id}`)}
+                onclick={openCopy}
               >
                 <Icon name="copy" size={16} />
               </button>
@@ -1219,17 +1394,6 @@
               </button>
             {/if}
 
-            {#if detail.can.cancel}
-              <button
-                type="button"
-                class="page-icon-btn danger"
-                title="Отмена заявки"
-                aria-label="Отмена заявки"
-                onclick={() => (cancelOpen = true)}
-              >
-                <Icon name="close-circle" size={16} />
-              </button>
-            {/if}
           </div>
         </div>
       {:else}
@@ -1283,49 +1447,323 @@
       </Button>
     </div>
   {:else if detail}
-    <div class="layout">
-      <div class="main">
-    {#if cardTab === 'request'}
-      <div class="card">
-        <div class="card-head">
-          <h2>Описание</h2>
-          {#if detail.can.edit_text}
-            <button type="button" class="link-btn" onclick={openBody}>
-              {detail.request.body ? 'Изменить' : 'Добавить'}
+    {#snippet eventItem(item: DiscussionItem)}
+      <div class="discussion-item">
+        <span class="di-icon" class:activity={item.kind === 'activity'}>
+          <Icon name={item.kind === 'activity' ? 'check-circle' : 'comments'} size={14} />
+        </span>
+        <div class="di-main">
+          <div class="di-head">
+            <span class="di-kind" class:activity={item.kind === 'activity'}>{item.title}</span>
+            {#if isStaff && item.clientVisible}
+              <span class="di-shared" title="Доступно клиенту">Клиенту</span>
+            {/if}
+            <span class="di-author">{item.user.name}</span>
+            <span class="di-time">{formatDateTime(item.at)}</span>
+          </div>
+          {#if item.body}
+            <div class="di-body">{item.body}</div>
+          {/if}
+          {#if item.attachment}
+            {@const attachment = item.attachment}
+            <button
+              type="button"
+              class="file-link event-file-link"
+              onclick={() => void downloadAttachment(attachment.id, attachment.name)}
+            >
+              <Icon name="files" size={14} />
+              {attachment.name} ({formatSize(attachment.size)})
             </button>
           {/if}
         </div>
-        {#if detail.request.body}
-          <div class="overview-text">{detail.request.body}</div>
-        {:else}
-          <p class="muted">Описание не заполнено</p>
-        {/if}
       </div>
+    {/snippet}
 
-      <div class="card">
+    {#snippet historyTimeline()}
+      {#if timeline.length === 0}
+        <p class="muted">Событий пока нет</p>
+      {:else}
+        <ol class="timeline">
+          {#each timeline as event (`${event.kind}-${event.id}`)}
+            <li>
+              <div class="t-head">
+                <strong>{event.user.name}</strong>
+                {#if event.user.position}<span class="t-pos">{event.user.position}</span>{/if}
+                {#if event.kind === 'status'}
+                  <span class="t-activity">Статус изменён</span>
+                {:else}
+                  <span class="t-activity">{event.title}</span>
+                {/if}
+                <span class="t-date">{formatDateTime(event.at)}</span>
+              </div>
+              {#if event.kind === 'status'}
+                {#if event.comment}
+                  <div class="t-comment">{event.comment}</div>
+                {/if}
+              {:else if event.body}
+                <div class="t-comment">{event.body}</div>
+              {/if}
+            </li>
+          {/each}
+        </ol>
+      {/if}
+    {/snippet}
+
+    {#snippet historyAssignments(requestDetail: RequestDetail)}
+      {#if requestDetail.assignments.length === 0}
+        <p class="muted">Передач пока не было</p>
+      {:else}
+        <ul class="assignments">
+          {#each requestDetail.assignments as record (record.id)}
+            <li>
+              <div class="t-head">
+                <strong>{record.user.name}</strong>
+                <span class="a-route">
+                  {record.from?.name ?? 'нет'} → {record.to?.name ?? 'поиск менеджера'}
+                </span>
+                <span class="t-date">{formatDateTime(record.created_at)}</span>
+              </div>
+              {#if record.comment}
+                <div class="t-comment">{record.comment}</div>
+              {/if}
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {/snippet}
+
+    {#snippet historyViews(requestDetail: RequestDetail)}
+      {#if requestDetail.views.length === 0}
+        <p class="muted">Заявку ещё никто не открывал</p>
+      {:else}
+        <ul class="assignments">
+          {#each requestDetail.views as view (view.id)}
+            <li>
+              <div class="t-head">
+                <strong>{view.user.name}</strong>
+                <span class="t-date">{formatDateTime(view.created_at)}</span>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+    {/snippet}
+
+    {#snippet eventComposer()}
+      <div class="card event-composer-card">
+        <div class="card-head event-card-head">
+          <h2>События</h2>
+          <button
+            type="button"
+            class="helper-toggle"
+            title="Подсказка"
+            aria-label="Подсказка по событиям"
+            aria-expanded={helperOpen}
+            aria-controls="event-helper"
+            onclick={() => (helperOpen = !helperOpen)}
+          >
+            <Icon name="info" size={16} />
+          </button>
+
+          {#if helperOpen}
+            <div class="event-helper" id="event-helper">
+              <div class="event-helper-head">
+                <Icon name="info" size={15} />
+                <span>Как добавить событие</span>
+              </div>
+              <ul>
+                <li>Укажите тему — этого достаточно для сохранения.</li>
+                <li>Тему можно выбрать из подсказок или ввести свою.</li>
+                <li>Комментарий и файл добавляются при необходимости.</li>
+                <li>Для темы «Другое» нужен комментарий от 3 символов.</li>
+                {#if detail?.can.comment}
+                  <li>«Доступно клиенту» открывает событие и файл клиенту.</li>
+                {:else}
+                  <li>Ваши события и файлы видны сотрудникам.</li>
+                {/if}
+              </ul>
+            </div>
+          {/if}
+        </div>
+
+        <p class="muted event-composer-hint">
+          Тема обязательна, комментарий и файл — при необходимости.
+        </p>
+
+        <form class="form composer" onsubmit={saveEvent}>
+          <label class="field">
+            <span>Тема</span>
+            <input
+              type="text"
+              bind:value={eventSubject}
+              list="event-topics"
+              maxlength="255"
+              placeholder="Например: звонок клиенту"
+            />
+            <datalist id="event-topics">
+              {#each eventPresets as preset (preset.code)}
+                <option value={preset.title}></option>
+              {/each}
+            </datalist>
+          </label>
+
+          <div class="event-optional-links">
+            {#if !commentOpen}
+              <button type="button" class="link-btn" onclick={openComment}>
+                <Icon name="comments" size={14} />
+                Добавить комментарий
+              </button>
+            {/if}
+            {#if !fileOpen}
+              <button type="button" class="link-btn" onclick={openFile}>
+                <Icon name="file-plus" size={14} />
+                Добавить файл
+              </button>
+            {/if}
+          </div>
+
+          {#if commentOpen}
+            <div class="event-optional-field">
+              <label class="field">
+                <span>Комментарий</span>
+                <textarea
+                  bind:value={eventComment}
+                  rows="3"
+                  placeholder="Комментарий к событию (необязательно)"
+                ></textarea>
+              </label>
+              <button type="button" class="link-btn" onclick={closeComment}>
+                Убрать комментарий
+              </button>
+            </div>
+          {/if}
+
+          {#if fileOpen}
+            <div class="event-optional-field">
+              {#if uploadedAttachment}
+                <div class="event-file-row">
+                  <span class="file-link">
+                    {uploadedAttachment.name} ({formatSize(uploadedAttachment.size)})
+                  </span>
+                  <button
+                    type="button"
+                    class="link-btn"
+                    disabled={busy}
+                    onclick={() => void removeEventFile()}
+                  >
+                    Убрать файл
+                  </button>
+                </div>
+              {:else if selectedFile}
+                <div class="event-file-row">
+                  <span>{selectedFile.name} ({formatSize(selectedFile.size)})</span>
+                  <button
+                    type="button"
+                    class="link-btn"
+                    disabled={busy}
+                    onclick={clearSelectedEventFile}
+                  >
+                    Убрать файл
+                  </button>
+                </div>
+                <label class="upload">
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
+                    onchange={onEventFileSelected}
+                    disabled={busy}
+                  />
+                  <span>Заменить файл</span>
+                </label>
+              {:else}
+                <label class="upload">
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
+                    onchange={onEventFileSelected}
+                    disabled={busy}
+                  />
+                  <span>Выбрать файл (до 10 МБ)</span>
+                </label>
+                <button type="button" class="link-btn" onclick={() => (fileOpen = false)}>
+                  Скрыть
+                </button>
+              {/if}
+            </div>
+          {/if}
+
+          {#if detail?.can.comment}
+            <div class="visibility-row">
+              <label class="visibility-toggle">
+                <input type="checkbox" bind:checked={shareWithClient} />
+                <span>Доступно клиенту</span>
+              </label>
+            </div>
+          {/if}
+
+          <div class="row">
+            <Button type="submit" loading={busy} disabled={!canSaveEvent || busy}>
+              Сохранить
+            </Button>
+          </div>
+        </form>
+      </div>
+    {/snippet}
+
+    <div class="layout">
+      <div class="main">
+    {#if cardTab === 'request'}
+      <div class="card items-card">
         <div class="items-head">
-          <h2>Состав заявки</h2>
+          <div class="items-title">
+            <h2>Состав заявки</h2>
+            {#if detail.items.length > 0}
+              <span class="items-meta">
+                {detail.items.length} поз. · {totalQuantityText} ед.
+              </span>
+            {/if}
+          </div>
 
           <div class="items-head-right">
             {#if detail.items.length > 1}
-              <select class="items-sort" bind:value={itemsSort} aria-label="Сортировка номенклатуры">
-                {#each ITEMS_SORT_OPTIONS as option (option.value)}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
+              <button
+                type="button"
+                class="items-icon-btn"
+                class:active={itemsSort !== 'natural'}
+                title="Сортировка состава"
+                aria-label="Сортировка состава"
+                onclick={openItemsSort}
+              >
+                <Icon name="sort" size={16} />
+              </button>
             {/if}
 
-            {#if detail.can.edit_items}
-              <Button variant="ghost" onclick={openPicker}>
+            {#if detail.can.edit_items && detail.items.length > 0}
+              <button
+                type="button"
+                class="items-icon-btn"
+                title="Добавить номенклатуру"
+                aria-label="Добавить номенклатуру"
+                onclick={openPicker}
+              >
                 <Icon name="plus" size={16} />
-                Добавить
-              </Button>
+              </button>
             {/if}
           </div>
         </div>
 
         {#if detail.items.length === 0}
-          <p class="muted">Номенклатуры пока нет</p>
+          <div class="items-empty">
+            <span class="items-empty-icon"><Icon name="cart" size={20} /></span>
+            <strong>Состав пока пуст</strong>
+            <p class="muted">Добавьте номенклатуру из склада — цены и остатки подтянутся автоматически.</p>
+            {#if detail.can.edit_items}
+              <Button variant="ghost" onclick={openPicker}>
+                <Icon name="plus" size={16} />
+                Добавить из склада
+              </Button>
+            {/if}
+          </div>
         {:else}
           <div class="items-table">
             <div class="it-row it-head" class:prices={showPrices}>
@@ -1342,22 +1780,23 @@
             {#each sortItems(detail.items, itemsSort) as item (item.id)}
               <div class="it-row" class:prices={showPrices}>
                 <div class="it-name-col">
-                  <button
-                    type="button"
-                    class="item-name"
-                    class:has-desc={item.description !== ''}
-                    title={item.description !== ''
-                      ? expandedItems.has(item.id)
-                        ? 'Скрыть описание'
-                        : 'Показать описание'
-                      : ''}
-                    onclick={() => toggleItemDescription(item.id)}
-                  >
-                    {item.name}
-                  </button>
+                  {#if item.description !== ''}
+                    <button
+                      type="button"
+                      class="item-name has-desc"
+                      title={expandedItems.has(item.id) ? 'Скрыть описание' : 'Показать описание'}
+                      aria-expanded={expandedItems.has(item.id)}
+                      onclick={() => toggleItemDescription(item.id)}
+                    >
+                      <span>{item.name}</span>
+                      <Icon name={expandedItems.has(item.id) ? 'arrow-up' : 'arrow-down'} size={12} />
+                    </button>
 
-                  {#if expandedItems.has(item.id) && item.description !== ''}
-                    <div class="it-desc">{item.description}</div>
+                    {#if expandedItems.has(item.id)}
+                      <div class="it-desc">{item.description}</div>
+                    {/if}
+                  {:else}
+                    <span class="item-name-static">{item.name}</span>
                   {/if}
                 </div>
 
@@ -1402,56 +1841,69 @@
 
           {#if showPrices}
             <div class="items-total">
-              <span class="muted">
-                Итого{detail.prices.type ? ` · цены: ${detail.prices.type.title.toLowerCase()}` : ''}:
-              </span>
-              <strong>{formatPrice(detail.prices.total)}</strong>
+              <div class="items-total-meta">
+                <span>{detail.items.length} поз.</span>
+                <span>{totalQuantityText} ед.</span>
+                {#if detail.prices.type}
+                  <span>Цены: {detail.prices.type.title.toLowerCase()}</span>
+                {/if}
+              </div>
+              <div class="items-total-sum">
+                <span class="muted">Итого</span>
+                <strong>{formatPrice(detail.prices.total)}</strong>
+              </div>
             </div>
           {/if}
         {/if}
       </div>
     {/if}
 
-    {#if cardTab === 'comments' && detail.can.comment}
-      <div class="card">
+    {#snippet eventList()}
+      <div class="card event-list-card">
         <div class="card-head">
-          <h2>Комментарии</h2>
-          {#if detail.comments.length > 0}
-            <span class="muted">{detail.comments.length}</span>
-          {/if}
-        </div>
-        <p class="muted comment-hint">Служебные пометки для сотрудников</p>
-
-        {#if detail.comments.length === 0}
-          <p class="muted">Комментариев пока нет</p>
-        {/if}
-
-        <div class="comments">
-          {#each detail.comments as comment (comment.id)}
-            <div class="comment">
-              <div class="c-head">
-                <strong>{comment.user.name}</strong>
-                <span class="t-date">{formatDateTime(comment.created_at)}</span>
-              </div>
-              <div class="c-body">{comment.body}</div>
-            </div>
-          {/each}
-        </div>
-
-        <form class="form" onsubmit={submitComment}>
-          <textarea bind:value={commentBody} rows="3" placeholder="Написать комментарий"></textarea>
-
-          <div class="row">
-            <Button type="submit" loading={busy} disabled={!commentBody.trim()}>
-              Отправить
-            </Button>
+          <div class="events-title">
+            <h2>Список событий</h2>
+            {#if discussionCount > 0}
+              <span class="events-count" title={`Всего событий: ${discussionCount}`}>
+                {discussionCount}
+              </span>
+            {/if}
           </div>
-        </form>
+          <div class="events-head-actions">
+            <button type="button" class="link-btn events-history-link" onclick={openEventsHistory}>
+              <Icon name="history" size={14} />
+              История
+            </button>
+          </div>
+        </div>
+
+        {#if discussion.length === 0}
+          <div class="events-empty">
+            <span class="events-empty-icon"><Icon name="history" size={20} /></span>
+            <strong>Событий пока нет</strong>
+            <span class="muted">Добавьте событие — оно появится здесь.</span>
+          </div>
+        {:else}
+          <div class="discussion events-scroll">
+            {#each discussion.slice(0, 20) as item (`${item.kind}-${item.id}`)}
+              {@render eventItem(item)}
+            {/each}
+          </div>
+          {#if discussion.length > 20}
+            <p class="muted events-tail">
+              Показаны последние 20 из {discussionCount}
+            </p>
+          {/if}
+        {/if}
       </div>
+    {/snippet}
+
+    {#if cardTab === 'comments'}
+      {@render eventList()}
     {/if}
 
     {#if cardTab === 'chat'}
-      <div class="card">
+      <div class="card chat-card">
         <div class="card-head">
           <h2>Чат по заявке</h2>
           {#if detail.chat.thread_id > 0}
@@ -1464,38 +1916,40 @@
           Заявка {detail.request.number} · переписка с {isStaff ? 'клиентом' : 'менеджером'}
         </p>
 
-        {#if chatLoading}
-          <div class="center"><Spinner size={22} /></div>
-        {:else if chatMessages.length === 0}
-          <p class="muted">Сообщений по этой заявке пока нет</p>
-        {:else}
-          <div class="chat-list">
-            {#each chatMessages as message (message.id)}
-              <div class="chat-msg" class:mine={message.is_mine}>
-                <div class="cm-head">
-                  <strong>{message.user.name}</strong>
-                  <span class="t-date">{formatDateTime(message.created_at)}</span>
-                </div>
-                {#if message.body}
-                  <div class="cm-body">{message.body}</div>
-                {/if}
-                {#if message.attachments.length > 0}
-                  <div class="cm-files">
-                    {#each message.attachments as file (file.id)}
-                      <button
-                        type="button"
-                        class="file-link"
-                        onclick={() => void downloadChatFile(file.id, file.name)}
-                      >
-                        {file.name} ({formatSize(file.size)})
-                      </button>
-                    {/each}
+        <div class="chat-body">
+          {#if chatLoading}
+            <div class="center chat-center"><Spinner size={22} /></div>
+          {:else if chatMessages.length === 0}
+            <p class="muted chat-empty">Сообщений по этой заявке пока нет</p>
+          {:else}
+            <div class="chat-list" bind:this={chatListEl}>
+              {#each chatMessages as message (message.id)}
+                <div class="chat-msg" class:mine={message.is_mine}>
+                  <div class="cm-head">
+                    <strong>{message.user.name}</strong>
+                    <span class="t-date">{formatDateTime(message.created_at)}</span>
                   </div>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        {/if}
+                  {#if message.body}
+                    <div class="cm-body">{message.body}</div>
+                  {/if}
+                  {#if message.attachments.length > 0}
+                    <div class="cm-files">
+                      {#each message.attachments as file (file.id)}
+                        <button
+                          type="button"
+                          class="file-link"
+                          onclick={() => void downloadChatFile(file.id, file.name)}
+                        >
+                          {file.name} ({formatSize(file.size)})
+                        </button>
+                      {/each}
+                    </div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {/if}
+        </div>
 
         {#if detail.chat.can_post}
           <form class="chat-form" onsubmit={sendChat}>
@@ -1510,7 +1964,7 @@
             </div>
           </form>
         {:else}
-          <p class="muted">Отправка сообщений в этом диалоге недоступна</p>
+          <p class="muted chat-unavailable">Отправка сообщений в этом диалоге недоступна</p>
         {/if}
       </div>
     {/if}
@@ -1525,138 +1979,62 @@
         </div>
 
         {#if attachments.length === 0}
-          <p class="muted">Файлов пока нет</p>
+          <div class="files-empty">
+            <Icon name="files" size={22} />
+            <span class="files-empty-title">Файлов пока нет</span>
+            <span class="files-empty-hint">Добавьте файл в блоке «Добавить файл»</span>
+          </div>
         {/if}
 
         <ul class="files">
           {#each attachments as file (file.id)}
             <li>
+              <div class="file-type" aria-hidden="true">{fileExtension(file.name)}</div>
               <div class="file-info">
-                <button type="button" class="file-link" onclick={() => void downloadFile(file)}>
-                  {file.name}
-                </button>
+                <div class="file-name-row">
+                  <button
+                    type="button"
+                    class="file-link"
+                    title={file.name}
+                    onclick={() => void downloadFile(file)}
+                  >
+                    {file.name}
+                  </button>
+                  {#if isStaff && file.is_internal}
+                    <span class="file-internal">Внутренний</span>
+                  {/if}
+                </div>
                 <span class="file-meta">
                   {formatSize(file.size)} · {file.user.name} · {formatDateTime(file.created_at)}
                 </span>
+                {#if file.comment}
+                  <div class="file-comment">{file.comment}</div>
+                {/if}
               </div>
-              <button type="button" class="file-del" disabled={busy} onclick={() => void removeFile(file)}>
-                Удалить
-              </button>
+              <div class="file-actions">
+                <button
+                  type="button"
+                  class="file-action"
+                  title="Скачать файл"
+                  aria-label="Скачать файл"
+                  onclick={() => void downloadFile(file)}
+                >
+                  <Icon name="download" size={15} />
+                </button>
+                <button
+                  type="button"
+                  class="file-action danger"
+                  title="Удалить файл"
+                  aria-label="Удалить файл"
+                  disabled={busy}
+                  onclick={() => requestFileDelete(file)}
+                >
+                  <Icon name="trash" size={15} />
+                </button>
+              </div>
             </li>
           {/each}
         </ul>
-
-        <label class="upload">
-          <input
-            type="file"
-            accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
-            onchange={onFileSelected}
-            disabled={uploading}
-          />
-          <span>{uploading ? 'Загрузка…' : 'Прикрепить файл (до 10 МБ)'}</span>
-        </label>
-      </div>
-    {/if}
-
-    {#if cardTab === 'history'}
-      <div class="card">
-        <div class="card-head">
-          <h2>История</h2>
-        </div>
-        <div class="tabs tab-scroll">
-          <button
-            type="button"
-            class="tab"
-            class:active={historyTab === 'timeline'}
-            onclick={() => (historyTab = 'timeline')}
-          >
-            Хронология
-          </button>
-          {#if isStaff}
-            <button
-              type="button"
-              class="tab"
-              class:active={historyTab === 'assignments'}
-              onclick={() => (historyTab = 'assignments')}
-            >
-              Передачи ({detail.assignments.length})
-            </button>
-            <button
-              type="button"
-              class="tab"
-              class:active={historyTab === 'views'}
-              onclick={() => (historyTab = 'views')}
-            >
-              Просмотры ({detail.views.length})
-            </button>
-          {/if}
-        </div>
-
-        {#if historyTab === 'timeline'}
-          {#if timeline.length === 0}
-            <p class="muted">Событий пока нет</p>
-          {:else}
-            <ol class="timeline">
-              {#each timeline as event (`${event.kind}-${event.id}`)}
-                <li>
-                  <div class="t-head">
-                    <strong>{event.user.name}</strong>
-                    {#if event.user.position}<span class="t-pos">{event.user.position}</span>{/if}
-                    {#if event.kind === 'status'}
-                      <span class="t-activity">Статус изменён</span>
-                    {:else}
-                      <span class="t-activity">{event.title}</span>
-                    {/if}
-                    <span class="t-date">{formatDateTime(event.at)}</span>
-                  </div>
-                  {#if event.kind === 'status'}
-                    {#if event.comment}
-                      <div class="t-comment">{event.comment}</div>
-                    {/if}
-                  {:else if event.body}
-                    <div class="t-comment">{event.body}</div>
-                  {/if}
-                </li>
-              {/each}
-            </ol>
-          {/if}
-        {:else if historyTab === 'assignments'}
-          {#if detail.assignments.length === 0}
-            <p class="muted">Передач пока не было</p>
-          {:else}
-            <ul class="assignments">
-              {#each detail.assignments as record (record.id)}
-                <li>
-                  <div class="t-head">
-                    <strong>{record.user.name}</strong>
-                    <span class="a-route">
-                      {record.from?.name ?? 'нет'} → {record.to?.name ?? 'поиск менеджера'}
-                    </span>
-                    <span class="t-date">{formatDateTime(record.created_at)}</span>
-                  </div>
-                  {#if record.comment}
-                    <div class="t-comment">{record.comment}</div>
-                  {/if}
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        {:else}
-          {#if detail.views.length === 0}
-            <p class="muted">Заявку ещё никто не открывал</p>
-          {:else}
-            <ul class="assignments">
-              {#each detail.views as view (view.id)}
-                <li>
-                  <div class="t-head">
-                    <strong>{view.user.name}</strong>
-                    <span class="t-date">{formatDateTime(view.created_at)}</span>
-                  </div>
-                </li>
-              {/each}
-            </ul>
-          {/if}
-        {/if}
       </div>
     {/if}
 
@@ -1693,10 +2071,136 @@
           </div>
         </div>
 
-        <div class="card">
-          <div class="card-head">
-            <h2>Параметры</h2>
+        {#if cardTab === 'request'}
+          <div class="card side-description-card">
+            <div class="card-head">
+              <h2>Описание</h2>
+              {#if detail.can.edit_text}
+                <button
+                  type="button"
+                  class="param-edit"
+                  title={detail.request.body ? 'Изменить описание' : 'Добавить описание'}
+                  aria-label={detail.request.body ? 'Изменить описание' : 'Добавить описание'}
+                  onclick={openBody}
+                >
+                  <Icon name="edit" size={14} />
+                </button>
+              {/if}
+            </div>
+            {#if detail.request.body}
+              <div
+                class="overview-text side-description-text"
+                class:clamped={descriptionLong && !descriptionExpanded}
+              >
+                {detail.request.body}
+              </div>
+              {#if descriptionLong}
+                <button
+                  type="button"
+                  class="link-btn side-description-more"
+                  onclick={() => (descriptionExpanded = !descriptionExpanded)}
+                >
+                  {descriptionExpanded ? 'Свернуть' : 'Показать полностью'}
+                </button>
+              {/if}
+            {:else}
+              <p class="muted">Описание не заполнено</p>
+            {/if}
           </div>
+        {/if}
+
+        {#if cardTab === 'files'}
+          <div class="card files-upload-card">
+            <div class="card-head">
+              <h2>Добавить файл</h2>
+            </div>
+
+            <form class="form files-upload-form" onsubmit={submitFileUpload}>
+              {#if uploadFile}
+                <div class="files-selected">
+                  <Icon name="files" size={16} />
+                  <div class="files-selected-info">
+                    <span class="files-selected-name" title={uploadFile.name}>{uploadFile.name}</span>
+                    <span class="files-selected-size">{formatSize(uploadFile.size)}</span>
+                  </div>
+                  <button
+                    type="button"
+                    class="files-selected-remove"
+                    title="Убрать файл"
+                    aria-label="Убрать файл"
+                    disabled={uploading}
+                    onclick={() => (uploadFile = null)}
+                  >
+                    <Icon name="close" size={14} />
+                  </button>
+                </div>
+                <label class="files-replace">
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
+                    onchange={onUploadFileSelected}
+                    disabled={uploading}
+                  />
+                  <span>Заменить файл</span>
+                </label>
+              {:else}
+                <label
+                  class="files-dropzone"
+                  ondragover={(event) => event.preventDefault()}
+                  ondrop={onFileDrop}
+                >
+                  <input
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
+                    onchange={onUploadFileSelected}
+                    disabled={uploading}
+                  />
+                  <Icon name="file-plus" size={18} />
+                  <span class="files-dropzone-title">Выбрать файл</span>
+                  <span class="files-dropzone-hint">или перетащите сюда · до 10 МБ</span>
+                </label>
+              {/if}
+
+              {#if fileCommentOpen}
+                <label class="field files-comment-field">
+                  <textarea
+                    bind:value={fileComment}
+                    rows="2"
+                    maxlength="1000"
+                    placeholder="Комментарий к файлу"
+                  ></textarea>
+                </label>
+              {/if}
+
+              <div class="files-upload-actions">
+                <button
+                  type="button"
+                  class="link-btn files-comment-toggle"
+                  onclick={fileCommentOpen ? closeFileComment : openFileComment}
+                >
+                  <Icon name="comments" size={14} />
+                  {fileCommentOpen ? 'Убрать комментарий' : 'Добавить комментарий'}
+                </button>
+
+                {#if uploadFile}
+                  <Button type="submit" size="sm" loading={uploading} disabled={uploading}>
+                    Загрузить
+                  </Button>
+                {/if}
+              </div>
+            </form>
+          </div>
+        {/if}
+
+        {#if cardTab === 'comments'}
+          {@render eventComposer()}
+        {/if}
+
+        {#if cardTab !== 'comments' && cardTab !== 'files' && cardTab !== 'chat'}
+          <div class="card">
+            <div class="card-head">
+              <h2>Параметры</h2>
+            </div>
           <dl class="side-info">
             <div>
               <dt>Менеджер</dt>
@@ -1797,50 +2301,67 @@
             {/if}
           </dl>
         </div>
-
-        <div class="card">
-          <div class="card-head">
-            <h2>Итого</h2>
-          </div>
-          <dl class="side-info">
-            <div>
-              <dt>Позиций</dt>
-              <dd>{detail.items.length}</dd>
-            </div>
-            <div>
-              <dt>Единиц</dt>
-              <dd>{totalQuantityText}</dd>
-            </div>
-            {#if showPrices}
-              <div>
-                <dt>Сумма</dt>
-                <dd class="side-total">{formatPrice(detail.prices.total)}</dd>
-              </div>
-              {#if detail.prices.type}
-                <div>
-                  <dt>Тип цен</dt>
-                  <dd>{detail.prices.type.title}</dd>
-                </div>
-              {/if}
-            {/if}
-          </dl>
-        </div>
-
-        {#if detail.can.activity}
-          <div class="card">
-            <div class="card-head">
-              <h2>Действия</h2>
-            </div>
-            <div class="side-actions">
-              <Button variant="ghost" onclick={openActivity}>
-                <Icon name="plus" size={16} />
-                Добавить действие
-              </Button>
-            </div>
-          </div>
         {/if}
+
       </aside>
     </div>
+
+    <Modal open={historyModalOpen} title="История" onclose={() => (historyModalOpen = false)}>
+      <div class="tabs tab-scroll">
+        <button
+          type="button"
+          class="tab"
+          class:active={historyModalTab === 'events'}
+          onclick={() => (historyModalTab = 'events')}
+        >
+          События ({discussion.length})
+        </button>
+        <button
+          type="button"
+          class="tab"
+          class:active={historyModalTab === 'timeline'}
+          onclick={() => (historyModalTab = 'timeline')}
+        >
+          Хронология
+        </button>
+        {#if isStaff}
+          <button
+            type="button"
+            class="tab"
+            class:active={historyModalTab === 'assignments'}
+            onclick={() => (historyModalTab = 'assignments')}
+          >
+            Передачи ({detail.assignments.length})
+          </button>
+          <button
+            type="button"
+            class="tab"
+            class:active={historyModalTab === 'views'}
+            onclick={() => (historyModalTab = 'views')}
+          >
+            Просмотры ({detail.views.length})
+          </button>
+        {/if}
+      </div>
+
+      {#if historyModalTab === 'events'}
+        {#if discussion.length === 0}
+          <p class="muted">Событий пока нет</p>
+        {:else}
+          <div class="discussion events-modal-scroll">
+            {#each discussion as item (`${item.kind}-${item.id}`)}
+              {@render eventItem(item)}
+            {/each}
+          </div>
+        {/if}
+      {:else if historyModalTab === 'timeline'}
+        {@render historyTimeline()}
+      {:else if historyModalTab === 'assignments'}
+        {@render historyAssignments(detail)}
+      {:else}
+        {@render historyViews(detail)}
+      {/if}
+    </Modal>
 
     <Modal open={itemModalOpen} title="Количество" onclose={() => (itemModalOpen = false)}>
       <div class="form">
@@ -1884,6 +2405,79 @@
       </div>
     </Modal>
 
+    <Modal open={fileDeleteOpen} title="Удаление файла" onclose={() => void cancelFileDelete()}>
+      <div class="form">
+        <p class="muted">
+          Удалить файл <strong class="file-delete-name">{fileToDelete?.name}</strong>?
+          Это действие нельзя отменить.
+        </p>
+
+        <div class="row">
+          <Button variant="danger" loading={busy} onclick={() => void confirmFileDelete()}>
+            Удалить
+          </Button>
+          <Button variant="ghost" disabled={busy} onclick={() => void cancelFileDelete()}>
+            Отмена
+          </Button>
+        </div>
+      </div>
+    </Modal>
+
+    <Modal open={itemsSortOpen} title="Сортировка" onclose={() => (itemsSortOpen = false)}>
+      <p class="sort-hint">Выберите поле и направление сортировки состава заявки.</p>
+
+      <div class="sort-list" role="list">
+        {#each itemsSortFields as field (field.label)}
+          {@const active = itemsSortDraft === field.asc || itemsSortDraft === field.desc}
+          <div class="sort-row" class:active role="listitem">
+            <span class="sort-row-label">{field.label}</span>
+            <button
+              type="button"
+              class="dir-btn"
+              class:on={itemsSortDraft === field.asc}
+              title={`${field.label}: по возрастанию`}
+              aria-label={`${field.label}: по возрастанию`}
+              onclick={() => toggleItemsSort(field.asc)}
+            >
+              <Icon name="arrow-up" size={16} />
+            </button>
+            <button
+              type="button"
+              class="dir-btn"
+              class:on={itemsSortDraft === field.desc}
+              title={`${field.label}: по убыванию`}
+              aria-label={`${field.label}: по убыванию`}
+              onclick={() => toggleItemsSort(field.desc)}
+            >
+              <Icon name="arrow-down" size={16} />
+            </button>
+          </div>
+        {/each}
+      </div>
+
+      <div class="modal-actions">
+        <Button variant="ghost" onclick={resetItemsSort}>Сбросить</Button>
+        <div class="modal-buttons">
+          <Button variant="ghost" onclick={() => (itemsSortOpen = false)}>Отмена</Button>
+          <Button onclick={applyItemsSort}>Применить</Button>
+        </div>
+      </div>
+    </Modal>
+
+    <Modal open={copyOpen} title="Копировать заявку" onclose={() => (copyOpen = false)}>
+      <div class="form">
+        <p class="muted">
+          Создать новую заявку на основе «{detail.request.number}»? Текущая заявка останется без
+          изменений.
+        </p>
+
+        <div class="row">
+          <Button onclick={confirmCopy}>Создать копию</Button>
+          <Button variant="ghost" onclick={() => (copyOpen = false)}>Отмена</Button>
+        </div>
+      </div>
+    </Modal>
+
     <Modal open={statusOpen} title="Смена статуса" onclose={() => (statusOpen = false)}>
       <div class="form">
         <p class="muted">Текущий статус: {detail.request.status.title}</p>
@@ -1902,8 +2496,19 @@
             placeholder="Комментарий к смене статуса (не обязательно)"
           ></textarea>
 
+          {#if targetStatus === 'canceled'}
+            <p class="muted">Для отмены укажите причину — минимум 3 символа.</p>
+          {/if}
+
           <div class="row">
-            <Button type="submit" loading={busy} disabled={!targetStatus}>Сменить статус</Button>
+            <Button
+              type="submit"
+              loading={busy}
+              disabled={!targetStatus
+                || (targetStatus === 'canceled' && transitionComment.trim().length < 3)}
+            >
+              Сменить статус
+            </Button>
           </div>
         </form>
       </div>
@@ -1976,66 +2581,6 @@
           >
             Сохранить
           </Button>
-        </div>
-      </div>
-    </Modal>
-
-    <Modal open={cancelOpen} title="Отмена заявки" onclose={() => (cancelOpen = false)}>
-      <div class="form">
-        <p class="muted">Заявка будет отменена, причина сохранится в истории заявки.</p>
-        <textarea bind:value={cancelReason} rows="3" placeholder="Причина отмены (обязательно)"></textarea>
-
-        <div class="modal-actions">
-          <div class="modal-buttons">
-            <Button variant="ghost" disabled={busy} onclick={() => (cancelOpen = false)}>Не отменять</Button>
-            <Button
-              variant="danger"
-              loading={busy}
-              disabled={cancelReason.trim().length < 3}
-              onclick={cancelRequest}
-            >
-              Отменить заявку
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-
-    <Modal open={activityOpen} title="Добавить действие" onclose={() => (activityOpen = false)}>
-      <div class="form">
-        <div class="action-row">
-          <select bind:value={activityType}>
-            <option value="" disabled>Выберите действие</option>
-            {#each activityTypes as type}
-              <option value={type.code}>{type.title}</option>
-            {/each}
-          </select>
-
-          <label class="field action-date">
-            <span>Дата и время</span>
-            <input type="datetime-local" bind:value={activityOccurredAt} />
-          </label>
-        </div>
-
-        <textarea
-          bind:value={activityBody}
-          rows="2"
-          placeholder="Комментарий (для «Другое» обязателен)"
-        ></textarea>
-
-        <div class="modal-actions">
-          <div class="modal-buttons">
-            <Button variant="ghost" disabled={busy} onclick={() => (activityOpen = false)}>
-              Отмена
-            </Button>
-            <Button
-              loading={busy}
-              disabled={!activityType || (activityType.startsWith('other') && activityBody.trim().length < 3)}
-              onclick={submitActivity}
-            >
-              Добавить
-            </Button>
-          </div>
         </div>
       </div>
     </Modal>
@@ -2142,11 +2687,7 @@
   .hero-tabs {
     display: inline-flex;
     align-items: center;
-    gap: 2px;
-    padding: 2px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--bg);
+    gap: 6px;
   }
 
   .hero-tab {
@@ -2157,12 +2698,12 @@
     width: 30px;
     height: 30px;
     padding: 0;
-    border: 1px solid transparent;
-    border-radius: calc(var(--radius-sm) - 2px);
+    border: none;
+    border-radius: var(--radius-sm);
     background: none;
     color: var(--muted);
     cursor: pointer;
-    transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+    transition: color 0.12s ease;
   }
 
   .hero-tab:hover {
@@ -2171,10 +2712,7 @@
   }
 
   .hero-tab.active {
-    border-color: var(--border);
-    background: var(--surface);
     color: var(--primary);
-    box-shadow: var(--shadow-sm);
   }
 
   .hero-tab.unread {
@@ -2207,34 +2745,22 @@
     background: var(--primary);
   }
 
+  .hero-status {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .hero-divider {
+    width: 1px;
+    height: 20px;
+    background: var(--border);
+  }
+
   .hero-actions {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-  }
-
-  .hero-meta {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px var(--space-4);
-  }
-
-  .meta-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    color: var(--muted);
-    font-size: 13px;
-  }
-
-  .meta-chip.overdue {
-    color: var(--danger);
-  }
-
-  .meta-chip.priority-high {
-    color: var(--warning-text);
   }
 
   .notify-close {
@@ -2275,6 +2801,23 @@
     font-size: 14px;
     line-height: 1.55;
     white-space: pre-wrap;
+  }
+
+  .side-description-text {
+    overflow-wrap: anywhere;
+  }
+
+  .side-description-text.clamped {
+    display: -webkit-box;
+    -webkit-line-clamp: 8;
+    line-clamp: 8;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .side-description-more {
+    align-self: flex-start;
+    font-size: 12px;
   }
 
   .side-client-card {
@@ -2390,22 +2933,6 @@
     color: var(--primary);
   }
 
-  .side-total {
-    font-size: 16px;
-    font-weight: 600;
-  }
-
-  .side-actions {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .side-actions :global(button) {
-    justify-content: flex-start;
-    width: 100%;
-  }
-
   .manager-link {
     color: inherit;
     text-decoration: none;
@@ -2495,9 +3022,69 @@
     margin-left: auto;
   }
 
-  .comment-hint {
-    margin-top: -8px;
-    font-size: 12px;
+  .sort-hint {
+    margin: 0 0 var(--space-2);
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .sort-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .sort-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    padding: 6px 8px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+  }
+
+  .sort-row.active {
+    border-color: var(--primary-border);
+    background: var(--primary-bg);
+  }
+
+  .sort-row.active .sort-row-label {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .sort-row-label {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+  }
+
+  .dir-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+
+  .dir-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .dir-btn.on {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-bg);
   }
 
   .items-head {
@@ -2507,21 +3094,82 @@
     gap: var(--space-2);
   }
 
-  .items-sort {
-    max-width: 250px;
-    padding: 6px 10px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
+  .items-title {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 2px var(--space-2);
+    min-width: 0;
+  }
+
+  .items-meta {
     color: var(--muted);
-    font: inherit;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .items-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: var(--space-6) var(--space-4);
+    text-align: center;
+  }
+
+  .items-empty-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--muted);
+  }
+
+  .items-empty strong {
+    font-size: 14px;
+  }
+
+  .items-empty p {
+    max-width: 420px;
+    margin: 0;
     font-size: 13px;
+  }
+
+  .items-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+    transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  }
+
+  .items-icon-btn:hover {
+    border-color: var(--border);
+    background: var(--surface);
+    color: var(--primary);
+  }
+
+  .items-icon-btn.active {
+    border-color: var(--border);
+    background: var(--primary-bg);
+    color: var(--primary);
   }
 
   .items-table {
     display: flex;
     flex-direction: column;
-    overflow-x: auto;
+    overflow: visible;
   }
 
   .items-head-right {
@@ -2532,8 +3180,9 @@
 
   .it-row {
     display: grid;
-    grid-template-columns: minmax(180px, 2fr) 150px minmax(120px, 1fr) 36px;
-    min-width: 640px;
+    grid-template-columns:
+      minmax(0, 2fr) minmax(72px, 0.8fr) minmax(72px, 1fr) 32px;
+    min-width: 0;
     align-items: center;
     gap: var(--space-3);
     padding: 8px 12px;
@@ -2543,7 +3192,9 @@
   }
 
   .it-row.prices {
-    grid-template-columns: minmax(160px, 2fr) 140px minmax(100px, 1fr) 104px 104px 36px;
+    grid-template-columns:
+      minmax(0, 2fr) minmax(64px, 0.7fr) minmax(64px, 0.9fr)
+      minmax(72px, 0.8fr) minmax(76px, 0.9fr) 32px;
   }
 
   .it-row:not(.it-head):hover {
@@ -2568,6 +3219,10 @@
   }
 
   .item-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
     padding: 0;
     border: none;
     background: none;
@@ -2578,12 +3233,20 @@
     overflow-wrap: anywhere;
   }
 
+  .item-name span {
+    overflow-wrap: anywhere;
+  }
+
   .item-name.has-desc {
     border-bottom: 1px dashed var(--border);
   }
 
   .item-name:hover {
     color: var(--primary);
+  }
+
+  .item-name-static {
+    overflow-wrap: anywhere;
   }
 
   .it-desc {
@@ -2623,6 +3286,7 @@
   }
 
   .it-wh {
+    min-width: 0;
     color: var(--muted);
     font-size: 12px;
     white-space: nowrap;
@@ -2635,6 +3299,7 @@
     text-align: right;
     white-space: nowrap;
     font-size: 13px;
+    font-variant-numeric: tabular-nums;
   }
 
   .it-sum {
@@ -2648,26 +3313,133 @@
   .items-total {
     display: flex;
     flex-wrap: wrap;
-    align-items: baseline;
+    align-items: flex-end;
     justify-content: space-between;
-    gap: var(--space-2);
+    gap: var(--space-3);
     margin-top: var(--space-3);
-    padding-top: var(--space-2);
-    border-top: 1px dashed var(--border);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
   }
 
-  .items-total strong {
-    font-size: 16px;
+  .items-total-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px var(--space-3);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .items-total-sum {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+
+  .items-total-sum strong {
+    font-size: 18px;
+    font-variant-numeric: tabular-nums;
   }
 
   @media (max-width: 860px) {
     .it-row.prices {
-      grid-template-columns: minmax(120px, 2fr) 110px 80px 80px 36px;
+      grid-template-columns:
+        minmax(0, 2fr) minmax(64px, 0.8fr)
+        minmax(72px, 0.9fr) minmax(76px, 0.9fr) 32px;
       gap: var(--space-2);
     }
 
     .it-row.prices .it-wh {
       display: none;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .items-table {
+      overflow-x: visible;
+    }
+
+    .it-head {
+      display: none;
+    }
+
+    .it-row {
+      grid-template-columns: minmax(0, 1fr) 36px;
+      grid-template-areas:
+        'name del'
+        'qty qty'
+        'wh wh';
+      gap: 6px var(--space-2);
+      min-width: 0;
+      padding: var(--space-3) 0;
+    }
+
+    .it-row.prices {
+      grid-template-areas:
+        'name del'
+        'qty qty'
+        'wh wh'
+        'price sum';
+    }
+
+    .it-name-col {
+      grid-area: name;
+    }
+
+    .item-qty,
+    .item-qty-static {
+      grid-area: qty;
+      justify-self: start;
+    }
+
+    .item-qty::before,
+    .item-qty-static::before {
+      content: 'Кол-во: ';
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .it-wh {
+      grid-area: wh;
+      display: block;
+      overflow: visible;
+      white-space: normal;
+      text-overflow: clip;
+    }
+
+    .it-row.prices .it-wh {
+      display: block;
+    }
+
+    .it-wh::before {
+      content: 'Склад: ';
+      color: var(--muted);
+    }
+
+    .it-price {
+      grid-area: price;
+      text-align: left;
+    }
+
+    .it-price::before {
+      content: 'Цена: ';
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .it-sum {
+      grid-area: sum;
+      text-align: right;
+    }
+
+    .it-sum::before {
+      content: 'Сумма: ';
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .it-del {
+      grid-area: del;
+      align-self: start;
     }
   }
 
@@ -2743,27 +3515,6 @@
     gap: var(--space-3);
   }
 
-  .status-button {
-    padding: 0;
-    border: none;
-    background: none;
-    cursor: pointer;
-    transition: opacity 0.12s ease;
-  }
-
-  .status-button:hover {
-    opacity: 0.75;
-  }
-
-  .search-badge {
-    font-size: 12px;
-    color: var(--warning-text);
-    background: var(--warning-bg);
-    border: 1px solid var(--warning);
-    border-radius: 999px;
-    padding: 2px 10px;
-  }
-
   .tabs {
     display: flex;
     gap: var(--space-2);
@@ -2793,14 +3544,52 @@
     font-weight: 600;
   }
 
+  .chat-card {
+    display: flex;
+    flex-direction: column;
+    height: clamp(360px, calc(100vh - 230px), 760px);
+    height: clamp(360px, calc(100dvh - 230px), 760px);
+    overflow: hidden;
+  }
+
   .chat-hint {
+    flex: 0 0 auto;
     margin-top: -4px;
+  }
+
+  .chat-body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .chat-card .card-head {
+    flex: 0 0 auto;
+  }
+
+  .chat-center,
+  .chat-empty {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+  }
+
+  .chat-empty {
+    text-align: center;
   }
 
   .chat-list {
     display: flex;
+    flex: 1 1 auto;
     flex-direction: column;
     gap: var(--space-3);
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: 6px;
+    scrollbar-width: thin;
   }
 
   .chat-msg {
@@ -2837,9 +3626,17 @@
 
   .chat-form {
     display: flex;
+    flex: 0 0 auto;
     flex-direction: column;
     gap: var(--space-2);
-    margin-top: var(--space-3);
+    margin-top: 0;
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+  }
+
+  .chat-unavailable {
+    flex: 0 0 auto;
+    margin: 0;
   }
 
   .row {
@@ -2869,27 +3666,58 @@
   .files li {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    padding: var(--space-2) var(--space-3);
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .files li:hover {
+    border-color: var(--border-secondary);
+    background: var(--bg);
+  }
+
+  .file-type {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 38px;
+    height: 38px;
+    border-radius: var(--radius-sm);
+    background: var(--primary-bg);
+    color: var(--primary);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
 
   .file-info {
     display: flex;
+    flex: 1;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
   }
 
+  .file-name-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+  }
+
   .file-link {
+    max-width: 100%;
     padding: 0;
     border: none;
     background: none;
     color: var(--primary);
     cursor: pointer;
     font-size: 14px;
+    font-weight: 500;
     text-align: left;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -2901,17 +3729,67 @@
     color: var(--muted);
   }
 
-  .file-del {
-    border: none;
-    background: none;
-    color: var(--danger);
-    cursor: pointer;
+  .file-comment {
+    margin-top: 4px;
+    color: var(--text);
     font-size: 13px;
-    white-space: nowrap;
+    line-height: 1.45;
+    white-space: pre-wrap;
   }
 
-  .file-del:disabled {
+  .file-actions {
+    display: flex;
+    align-items: center;
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+
+  .file-action {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .file-action:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--primary);
+  }
+
+  .file-action.danger:hover:not(:disabled) {
+    color: var(--danger);
+  }
+
+  .file-action:disabled {
     opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .files-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: var(--space-4) var(--space-2);
+    color: var(--muted);
+    text-align: center;
+  }
+
+  .files-empty-title {
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .files-empty-hint {
+    font-size: 12px;
   }
 
   .upload {
@@ -3032,29 +3910,457 @@
     white-space: pre-wrap;
   }
 
-  .comments {
+  .event-card-head {
+    position: relative;
+    align-items: center;
+  }
+
+  .event-composer-hint {
+    margin-top: -4px;
+    font-size: 12px;
+  }
+
+  .event-composer-card .composer > .row :global(button.primary) {
+    width: 100%;
+  }
+
+  .helper-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    margin-left: auto;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .helper-toggle:hover,
+  .helper-toggle[aria-expanded='true'] {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .event-helper {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    z-index: 20;
     display: flex;
     flex-direction: column;
+    gap: 6px;
+    width: min(360px, calc(100vw - 48px));
+    padding: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .event-helper-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .event-helper ul {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding-left: 18px;
+  }
+
+  .visibility-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px var(--space-3);
+  }
+
+  .visibility-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .visibility-toggle input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+  }
+
+  .composer {
+    margin-top: var(--space-2);
+  }
+
+  .event-optional-links {
+    display: flex;
+    flex-wrap: wrap;
     gap: var(--space-3);
   }
 
-  .comment {
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: var(--space-3);
+  .event-optional-links .link-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
   }
 
-  .c-head {
+  .event-optional-field {
     display: flex;
-    align-items: baseline;
+    flex-direction: column;
     gap: var(--space-2);
-    margin-bottom: 4px;
+    padding: var(--space-3);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+  }
+
+  .event-optional-field > .link-btn {
+    align-self: flex-start;
+  }
+
+  .event-file-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    font-size: 13px;
+  }
+
+  .file-internal {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .file-delete-name {
+    color: var(--text);
+    overflow-wrap: anywhere;
+  }
+
+  .files-upload-card {
+    padding: var(--space-3);
+    gap: var(--space-2);
+  }
+
+  .files-upload-form {
+    gap: var(--space-2);
+  }
+
+  .files-dropzone {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    padding: 12px 10px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--muted);
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .files-dropzone:hover {
+    border-color: var(--primary);
+    background: var(--bg);
+  }
+
+  .files-dropzone input,
+  .files-replace input {
+    display: none;
+  }
+
+  .files-dropzone-title {
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .files-dropzone:hover .files-dropzone-title {
+    color: var(--primary);
+  }
+
+  .files-dropzone-hint {
+    font-size: 11px;
+  }
+
+  .files-selected {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+    color: var(--muted);
+  }
+
+  .files-selected-info {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+
+  .files-selected-name {
+    overflow: hidden;
+    color: var(--text);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .files-selected-size {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .files-selected-remove {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .files-selected-remove:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.06);
+    color: var(--text);
+  }
+
+  .files-replace {
+    display: inline-flex;
+    align-self: flex-start;
+    color: var(--primary);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .files-upload-form .field {
+    font-size: 12px;
+  }
+
+  .files-upload-form .field textarea {
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+
+  .files-upload-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .files-comment-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+  }
+
+  .event-file-link {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: 6px;
+    margin-top: var(--space-2);
+    font-size: 13px;
+  }
+
+  .discussion {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .events-title {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .events-count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 22px;
+    height: 20px;
+    padding: 0 6px;
+    border: 1px solid var(--border-secondary);
+    border-radius: 999px;
+    background: var(--bg);
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .events-head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
+
+  .events-history-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+
+  .events-scroll {
+    max-height: min(62vh, 680px);
+    max-height: min(62dvh, 680px);
+    overflow-y: auto;
+    padding-right: 4px;
+    scrollbar-width: thin;
+  }
+
+  .events-modal-scroll {
+    max-height: 60vh;
+    overflow-y: auto;
+    padding-right: 4px;
+  }
+
+  .events-tail {
+    margin-top: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-secondary);
+    font-size: 12px;
+  }
+
+  .events-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: var(--space-6) var(--space-4);
+    text-align: center;
+  }
+
+  .events-empty-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    margin-bottom: 2px;
+    border-radius: 50%;
+    background: var(--bg);
+    color: var(--muted);
+  }
+
+  .events-empty strong {
     font-size: 14px;
   }
 
-  .c-body {
+  .events-empty .muted {
+    font-size: 13px;
+  }
+
+  .discussion-item {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--border-secondary);
+  }
+
+  .discussion-item:last-child {
+    border-bottom: none;
+  }
+
+  .di-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin-top: 1px;
+    border-radius: 50%;
+    background: var(--primary-bg);
+    color: var(--primary);
+  }
+
+  .di-icon.activity {
+    background: var(--success-bg);
+    color: var(--success-text);
+  }
+
+  .di-main {
+    min-width: 0;
+  }
+
+  .di-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px var(--space-2);
+    font-size: 13px;
+  }
+
+  .di-kind {
+    color: var(--primary);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .di-kind.activity {
+    color: var(--success);
+  }
+
+  .di-shared {
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--success-bg);
+    color: var(--success-text);
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .di-author {
+    font-weight: 500;
+  }
+
+  .di-time {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .di-body {
+    margin-top: 4px;
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.45;
     white-space: pre-wrap;
-    margin-top: var(--space-3);
   }
 
   .radio-list {
@@ -3071,31 +4377,6 @@
     color: var(--muted);
   }
 
-  .action-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-end;
-    gap: var(--space-3);
-  }
-
-  .action-row select {
-    flex: 1 1 240px;
-    min-width: 0;
-  }
-
-  .action-date {
-    margin-left: auto;
-  }
-
-  .action-date input {
-    padding: 9px 12px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    color: var(--text);
-  }
-
   .field input[type='text'] {
     padding: 9px 12px;
     border: 1px solid var(--border);
@@ -3103,6 +4384,21 @@
     background: var(--surface);
     font: inherit;
     color: var(--text);
+  }
+
+  .field textarea {
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    font: inherit;
+    color: var(--text);
+    resize: vertical;
+  }
+
+  .field textarea:focus {
+    border-color: var(--primary);
+    outline: none;
   }
 
   .field input[type='text']:focus {

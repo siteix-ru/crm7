@@ -13,6 +13,7 @@ use App\Core\RateLimiter;
 use App\Export\TableExport;
 use App\Http\HttpException;
 use App\Repositories\ActivityTypeRepository;
+use App\Repositories\AttachmentRepository;
 use App\Repositories\RequestActivityRepository;
 use App\Repositories\RequestAssignmentRepository;
 use App\Repositories\RequestCommentRepository;
@@ -37,6 +38,7 @@ final class RequestService
 
     public function __construct(
         private readonly RequestRepository $requests = new RequestRepository(),
+        private readonly AttachmentRepository $attachments = new AttachmentRepository(),
         private readonly RequestStatusRepository $statuses = new RequestStatusRepository(),
         private readonly RequestHistoryRepository $history = new RequestHistoryRepository(),
         private readonly RequestCommentRepository $comments = new RequestCommentRepository(),
@@ -450,13 +452,17 @@ final class RequestService
             'items' => $decoratedItems['items'],
             'prices' => $decoratedItems['prices'],
             'history' => array_map([$this, 'mapHistory'], $this->history->listByRequest($id)),
-            'comments' => $isStaff
-                ? array_map([$this, 'mapComment'], $this->comments->listByRequest($id, true))
-                : [],
+            'comments' => array_map(
+                [$this, 'mapComment'],
+                $this->comments->listByRequest($id, $isStaff)
+            ),
             'assignments' => array_map([$this, 'mapAssignment'], $this->assignments->listByRequest($id)),
             'activities' => array_map([$this, 'mapActivity'], array_values(array_filter(
                 $this->activities->listByRequest($id),
-                static fn (array $row): bool => $isStaff || (string) ($row['audience'] ?? 'all') !== 'manager'
+                static fn (array $row): bool => $isStaff
+                    || ($row['is_internal'] !== null
+                        ? (int) $row['is_internal'] === 0
+                        : (string) ($row['audience'] ?? 'all') !== 'manager')
             ))),
             'views' => $isStaff
                 ? array_map(static fn (array $row): array => [
@@ -1540,6 +1546,7 @@ final class RequestService
     public function addActivity(array $user, array $capabilities, int $id, array $input): array
     {
         $typeCode = trim((string) ($input['type'] ?? ''));
+        $subject = trim((string) ($input['subject'] ?? ''));
         $body = trim((string) ($input['body'] ?? ''));
 
         $request = $this->requests->detail($id);
@@ -1566,12 +1573,45 @@ final class RequestService
             throw new HttpException(403, 'forbidden', 'Эта активность недоступна для вашей роли');
         }
 
+        if ($typeCode === 'custom' && $subject === '') {
+            throw new HttpException(422, 'validation_error', 'Укажите тему события');
+        }
+
+        if ($subject === '') {
+            $subject = (string) $type['title'];
+        }
+
+        if (mb_strlen($subject) > 255) {
+            $subject = mb_substr($subject, 0, 255);
+        }
+
         if (str_starts_with($typeCode, 'other') && mb_strlen($body) < 3) {
             throw new HttpException(422, 'validation_error', 'Для «Другое» опишите активность');
         }
 
         if (mb_strlen($body) > 2000) {
             $body = mb_substr($body, 0, 2000);
+        }
+
+        $isInternal = $isManagerRole ? (bool) ($input['is_internal'] ?? true) : false;
+        $attachmentId = (int) ($input['attachment_id'] ?? 0);
+
+        if ($attachmentId > 0) {
+            $attachment = $this->attachments->findById($attachmentId);
+
+            if ($attachment === null || (int) $attachment['request_id'] !== $id) {
+                throw new HttpException(422, 'validation_error', 'Файл не найден у заявки');
+            }
+
+            $fileInternal = (int) ($attachment['is_internal'] ?? 0) === 1;
+
+            if ($fileInternal !== $isInternal) {
+                throw new HttpException(
+                    422,
+                    'validation_error',
+                    'Видимость файла и события должна совпадать'
+                );
+            }
         }
 
         $occurredAt = null;
@@ -1591,17 +1631,21 @@ final class RequestService
             $id,
             (int) $user['ID'],
             $typeCode,
-            (string) $type['title'],
+            $subject,
             $body !== '' ? $body : null,
-            $occurredAt
+            $occurredAt,
+            $isInternal,
+            $attachmentId > 0 ? $attachmentId : null
         );
 
         $this->notifications->notifyParticipants(
             $request,
             (int) $user['ID'],
             'request.activity',
-            'Активность по заявке ' . (string) $request['number'] . ': ' . (string) $type['title'],
-            $body !== '' ? $body : null
+            'Событие по заявке ' . (string) $request['number'] . ': ' . $subject,
+            $body !== '' ? $body : null,
+            [],
+            !$isInternal
         );
 
         return $this->detail($user, $capabilities, $id);
@@ -1633,7 +1677,8 @@ final class RequestService
 
         $this->assertCanView($user, $capabilities, $request);
 
-        $this->comments->add($id, (int) $user['ID'], $body, true);
+        $isInternal = (bool) ($input['is_internal'] ?? true);
+        $this->comments->add($id, (int) $user['ID'], $body, $isInternal);
 
         return $this->detail($user, $capabilities, $id);
     }
@@ -1867,6 +1912,18 @@ final class RequestService
                 'position' => (string) ($row['user_position'] ?? ''),
             ],
             'body' => (string) ($row['body'] ?? ''),
+            'is_internal' => $row['is_internal'] !== null
+                ? (bool) $row['is_internal']
+                : ((string) ($row['audience'] ?? 'all') === 'manager'),
+            'manual' => $row['audience'] !== null,
+            'attachment' => $row['attachment_id'] !== null
+                ? [
+                    'id' => (int) $row['attachment_id'],
+                    'name' => (string) ($row['attachment_name'] ?? ''),
+                    'size' => (int) ($row['attachment_size'] ?? 0),
+                    'mime' => (string) ($row['attachment_mime'] ?? ''),
+                ]
+                : null,
             'created_at' => (string) $row['created_at'],
         ];
     }

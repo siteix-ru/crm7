@@ -28,7 +28,14 @@ final class AttachmentController extends ApiController
         [$user, $capabilities] = $this->context($request);
 
         return Response::ok(
-            $this->service->upload($user, $capabilities, (int) ($params['id'] ?? 0), $_FILES['file'] ?? []),
+            $this->service->upload(
+                $user,
+                $capabilities,
+                (int) ($params['id'] ?? 0),
+                $_FILES['file'] ?? [],
+                (string) ($_POST['is_internal'] ?? '') === '1',
+                (string) ($_POST['comment'] ?? '')
+            ),
             201
         );
     }

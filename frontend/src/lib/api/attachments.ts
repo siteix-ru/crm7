@@ -12,9 +12,16 @@ export function listAttachments(requestId: number): Promise<AttachmentList> {
   return apiRequest<AttachmentList>(`/requests/${requestId}/attachments`, { auth: true });
 }
 
-export function uploadAttachment(requestId: number, file: File): Promise<AttachmentList> {
+export function uploadAttachment(
+  requestId: number,
+  file: File,
+  isInternal = false,
+  comment = ''
+): Promise<AttachmentList> {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('is_internal', isInternal ? '1' : '0');
+  formData.append('comment', comment);
 
   return apiUpload<AttachmentList>(`/requests/${requestId}/attachments`, formData);
 }

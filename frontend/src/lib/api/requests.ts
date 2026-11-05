@@ -18,16 +18,27 @@ export function listActivityTypes(): Promise<ActivityType[]> {
   return apiRequest<ActivityType[]>('/activity-types', { auth: true });
 }
 
-export function addActivity(
-  id: number,
-  type: string,
-  body: string,
-  occurredAt?: string
-): Promise<RequestDetail> {
+export interface AddActivityInput {
+  type: string;
+  subject: string;
+  body?: string;
+  occurredAt?: string;
+  isInternal?: boolean;
+  attachmentId?: number;
+}
+
+export function addActivity(id: number, input: AddActivityInput): Promise<RequestDetail> {
   return apiRequest<RequestDetail>(`/requests/${id}/activities`, {
     method: 'POST',
     auth: true,
-    body: { type, body, occurred_at: occurredAt ?? '' }
+    body: {
+      type: input.type,
+      subject: input.subject,
+      body: input.body ?? '',
+      occurred_at: input.occurredAt ?? '',
+      is_internal: input.isInternal ?? true,
+      attachment_id: input.attachmentId ?? 0
+    }
   });
 }
 

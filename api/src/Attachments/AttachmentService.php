@@ -69,18 +69,34 @@ final class AttachmentService
     public function list(array $user, array $capabilities, int $requestId): array
     {
         $request = $this->requireRequest($user, $capabilities, $requestId);
+        $isStaff = (int) $user['LEVEL'] >= 10;
 
         return [
-            'items' => array_map([$this, 'mapAttachment'], $this->attachments->listByRequest($requestId)),
+            'items' => array_map(
+                [$this, 'mapAttachment'],
+                $this->attachments->listByRequest($requestId, $isStaff)
+            ),
             'can_upload' => true,
             'max_size' => self::MAX_SIZE,
             'request_id' => (int) $request['ID'],
         ];
     }
 
-    public function upload(array $user, array $capabilities, int $requestId, array $file): array
-    {
+    public function upload(
+        array $user,
+        array $capabilities,
+        int $requestId,
+        array $file,
+        bool $isInternal = false,
+        ?string $comment = null
+    ): array {
         $this->requireRequest($user, $capabilities, $requestId);
+        $isInternal = (int) $user['LEVEL'] >= 10 && $isInternal;
+        $comment = trim((string) $comment);
+
+        if (mb_strlen($comment) > 1000) {
+            $comment = mb_substr($comment, 0, 1000);
+        }
 
         RateLimiter::hit('request.upload', 'user:' . (int) $user['ID'], 60, 3600);
 
@@ -124,15 +140,25 @@ final class AttachmentService
             mb_substr($originalName, 0, 255),
             $stored['relative'],
             mb_substr($mime, 0, 100),
-            $size
+            $size,
+            $isInternal,
+            $comment !== '' ? $comment : null
         );
+
+        $activityBody = mb_substr($originalName, 0, 200) . ' — ' . $this->formatSize($size);
+
+        if ($comment !== '') {
+            $activityBody .= "\n" . $comment;
+        }
 
         $this->activities->add(
             $requestId,
             (int) $user['ID'],
             'file_attached',
             'Прикреплён файл',
-            mb_substr($originalName, 0, 200) . ' — ' . $this->formatSize($size)
+            $activityBody,
+            null,
+            $isInternal
         );
 
         return $this->list($user, $capabilities, $requestId);
@@ -147,6 +173,10 @@ final class AttachmentService
         }
 
         $this->requireRequest($user, $capabilities, (int) $attachment['request_id']);
+
+        if ((int) $user['LEVEL'] < 10 && (int) ($attachment['is_internal'] ?? 0) === 1) {
+            throw new HttpException(404, 'not_found', 'Файл не найден');
+        }
 
         return [
             'absolute' => Storage::absolute((string) $attachment['storage_path']),
@@ -180,7 +210,9 @@ final class AttachmentService
             (int) $user['ID'],
             'file_removed',
             'Удалён файл',
-            mb_substr((string) $attachment['file_name'], 0, 255)
+            mb_substr((string) $attachment['file_name'], 0, 255),
+            null,
+            (bool) ($attachment['is_internal'] ?? false)
         );
 
         return ['deleted' => true];
@@ -219,6 +251,8 @@ final class AttachmentService
             'name' => (string) $row['file_name'],
             'mime' => (string) ($row['mime'] ?? ''),
             'size' => (int) $row['size'],
+            'is_internal' => (bool) ($row['is_internal'] ?? false),
+            'comment' => (string) ($row['comment'] ?? ''),
             'user' => [
                 'id' => (int) $row['user_id'],
                 'name' => (string) $row['user_name'],
