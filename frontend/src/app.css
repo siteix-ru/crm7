@@ -92,6 +92,34 @@ main:has(.page-wide) {
   max-width: none;
 }
 
+/* Страницы занимают оставшуюся высоту, чтобы пагинация прижималась к низу. */
+main {
+  display: flex;
+  flex-direction: column;
+}
+
+main > .page {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+main > .page > .levels-wrap {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+/* В модалках пагинация должна быть у нижней границы тела. */
+.dialog-body:has(.modal-pager) {
+  display: flex;
+  flex-direction: column;
+}
+
+.dialog-body:has(.modal-pager) .modal-pager {
+  margin-top: auto;
+  padding-top: var(--space-3);
+}
+
 /* Поля внутри модалки фильтров */
 .filter-field {
   display: flex;

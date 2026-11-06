@@ -638,7 +638,8 @@
   }
 
   .modal-pager {
-    margin-top: var(--space-3);
+    margin-top: auto;
+    padding-top: var(--space-3);
   }
 
   .table-wrap {

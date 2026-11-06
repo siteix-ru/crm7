@@ -78,11 +78,11 @@
   </button>
 {/snippet}
 
-<div class="pager">
+<div class="pager" role="navigation" aria-label="Постраничная навигация">
   {#if showSelector}
     <label class="per-page">
       <span>Показывать</span>
-      <select value={perPage} disabled={loading} onchange={changePerPage}>
+      <select value={perPage} disabled={loading} onchange={changePerPage} aria-label="Элементов на странице">
         {#each perPageOptions as option (option)}
           <option value={option}>{option}</option>
         {/each}
@@ -93,10 +93,10 @@
     <span></span>
   {/if}
 
-  {#if pages > 1}
-    <div class="pager-main">
-      <span class="pager-total">{rangeFrom}–{rangeTo} из {total}</span>
+  <div class="pager-main">
+    <span class="pager-total" aria-live="polite">{rangeFrom}–{rangeTo} из {total}</span>
 
+    {#if pages > 1}
       <div class="pager-pages" aria-label="Постраничная навигация">
         {@render pagerPrev()}
 
@@ -138,8 +138,8 @@
           disabled={loading}
         />
       </form>
-    </div>
-  {/if}
+    {/if}
+  </div>
 </div>
 
 <style>
@@ -149,6 +149,8 @@
     justify-content: space-between;
     flex-wrap: wrap;
     gap: var(--space-3);
+    margin-top: auto;
+    padding-top: var(--space-3);
     font-size: 14px;
     color: var(--text);
   }

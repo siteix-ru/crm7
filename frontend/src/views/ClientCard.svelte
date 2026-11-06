@@ -2805,7 +2805,8 @@
   }
 
   .pager-wrap {
-    margin-top: var(--space-3);
+    margin-top: auto;
+    padding-top: var(--space-3);
   }
 
   .form {
@@ -2930,6 +2931,11 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-sm);
+  }
+
+  .card:has(.pager-wrap) {
+    display: flex;
+    flex-direction: column;
   }
 
   .state {
