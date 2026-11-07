@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Обновления CRM7 — инструкции и бесплатная база знаний</title>
+    <meta
+      name="description"
+      content="Как обновлять CRM7 из админки или через консоль: пошаговые инструкции, скриншоты, проверка версии, откат и помощь при ошибках."
+    />
+    <meta name="theme-color" content="#07111f" />
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/" aria-label="CRM7 Updates — на главную">
+          <span class="brand-mark">C7</span>
+          <span>CRM7 Updates<small>база знаний</small></span>
+        </a>
+        <nav class="main-nav" aria-label="Основная навигация">
+          <a href="/" aria-current="page">База знаний</a>
+          <a href="/admin/">Из админки</a>
+          <a href="/manual/">Через консоль</a>
+          <a href="/troubleshooting/">Если что-то не так</a>
+        </nav>
+        <div class="header-actions">
+          <a class="btn btn-ghost" href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+          <a class="btn btn-primary" href="https://crm7.ru/#contact">Нужна помощь</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="container hero-grid">
+          <div>
+            <span class="eyebrow"><span class="dot"></span> Бесплатная поддержка</span>
+            <h1>Обновляйте CRM7 <br /><span style="color: var(--blue-soft)">спокойно</span></h1>
+            <p class="lead">
+              Две понятные инструкции: автоматически из админки и вручную через консоль.
+              Со скриншотами, проверками и действиями, если что-то пошло не так.
+            </p>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="/admin/">Обновить из админки</a>
+              <a class="btn btn-ghost" href="/manual/">Обновить через консоль</a>
+            </div>
+            <ul class="hero-points">
+              <li>Без лицензионных ключей</li>
+              <li>Проверка версии и health</li>
+              <li>Понятно без опыта администрирования</li>
+            </ul>
+          </div>
+
+          <aside class="hero-panel" aria-label="Состояние обновлений">
+            <h2>Официальный фид</h2>
+            <div class="version-row">
+              <span>Последняя версия</span>
+              <strong id="latest-version">—</strong>
+            </div>
+            <div class="version-row">
+              <span>Канал</span>
+              <strong id="feed-channel">stable</strong>
+            </div>
+            <div class="version-row">
+              <span>Обновлён</span>
+              <span id="feed-updated">загружается…</span>
+            </div>
+            <div class="notice" style="margin-bottom: 0">
+              <p>
+                <strong>Этот сайт — бесплатная база знаний.</strong>
+                Если нужна помощь с вашим сервером, напишите нам — подскажем, что делать.
+              </p>
+            </div>
+            <a class="btn btn-ghost" style="margin-top: 14px; width: 100%" href="/v1/releases.json">
+              Открыть releases.json
+            </a>
+          </aside>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div class="section-head">
+            <span class="pill">Два способа</span>
+            <h2 style="margin-top: 12px">Выберите, как вам удобнее</h2>
+            <p>Оба способа ставят официальные образы CRM7 и проверяют health. Разница — в уровне контроля и доступе к серверу.</p>
+          </div>
+          <div class="grid-2">
+            <article class="card">
+              <span class="card-icon">01</span>
+              <h3>Автоматически из админки</h3>
+              <p>
+                Нажмите «Проверить обновления» и «Обновить» в настройках CRM7.
+                Подходит для установок, где автоматическое обновление уже настроено.
+              </p>
+              <div class="card-meta">
+                <span class="tag">без консоли</span>
+                <span class="tag">maintenance</span>
+                <span class="tag">статус</span>
+              </div>
+              <a class="btn btn-primary" href="/admin/">Инструкция из админки →</a>
+            </article>
+            <article class="card">
+              <span class="card-icon">02</span>
+              <h3>Вручную через консоль</h3>
+              <p>
+                Подключитесь по SSH, проверьте обновление и запустите его командой.
+                Подходит для self-hosted и случаев, когда админка недоступна.
+              </p>
+              <div class="card-meta">
+                <span class="tag">SSH</span>
+                <span class="tag">dry-run</span>
+                <span class="tag">backup</span>
+              </div>
+              <a class="btn btn-primary" href="/manual/">Инструкция для консоли →</a>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div class="section-head">
+            <span class="pill">Что происходит</span>
+            <h2 style="margin-top: 12px">Одна кнопка или одна команда — но пять проверок</h2>
+            <p>Внутри обновление не просто «меняет файлы». Оно сохраняет базу, проверяет здоровье и умеет откатываться.</p>
+          </div>
+          <div class="grid-3">
+            <article class="card">
+              <span class="card-icon">1</span>
+              <h3>Резервная копия</h3>
+              <p>Перед изменениями создаётся дамп базы. Он остаётся на сервере, даже если обновление не удалось.</p>
+            </article>
+            <article class="card">
+              <span class="card-icon">2</span>
+              <h3>Новые образы</h3>
+              <p>Скачиваются официальные образы приложения и веб-интерфейса. Без лицензионных токенов.</p>
+            </article>
+            <article class="card">
+              <span class="card-icon">3</span>
+              <h3>Миграции</h3>
+              <p>База приводится к новой схеме. Применённые миграции автоматически не откатываются.</p>
+            </article>
+            <article class="card">
+              <span class="card-icon">4</span>
+              <h3>Health-check</h3>
+              <p>Проверяется API и база. Если что-то не так — версия в конфигурации возвращается назад.</p>
+            </article>
+            <article class="card">
+              <span class="card-icon">5</span>
+              <h3>Режим обслуживания</h3>
+              <p>На время обновления обычные пользователи видят понятный экран, а тех-админ может наблюдать за статусом.</p>
+            </article>
+            <article class="card">
+              <span class="card-icon">6</span>
+              <h3>Логи и статус</h3>
+              <p>Результат сохраняется в статусе и логе. По ним видно, на каком шаге остановилось обновление.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div class="grid-2">
+            <div class="card" style="background: linear-gradient(135deg, rgb(30 64 175 / 24%), rgb(13 27 48 / 84%))">
+              <span class="pill">Бесплатно</span>
+              <h2 style="margin: 12px 0 6px; font-size: 1.5rem">База знаний вместо платной поддержки</h2>
+              <p>
+                Инструкции, скриншоты и разбор ошибок доступны всем. Если нужен человек —
+                поможем с обновлением, восстановлением или нестандартной установкой.
+              </p>
+              <a class="btn btn-primary" href="https://crm7.ru/#contact">Написать нам</a>
+            </div>
+            <div class="card">
+              <span class="pill">Не уверены?</span>
+              <h2 style="margin: 12px 0 6px; font-size: 1.5rem">Начните с проверки</h2>
+              <p>
+                Откройте раздел «Если что-то не так»: там симптомы, куда смотреть и что
+                делать до обращения в поддержку. Ничего не нужно удалять или перезапускать вслепую.
+              </p>
+              <a class="btn btn-ghost" href="/troubleshooting/">Разобрать проблему →</a>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="container">
+          <div class="section-head">
+            <span class="pill">FAQ</span>
+            <h2 style="margin-top: 12px">Коротко о главном</h2>
+          </div>
+          <div class="faq">
+            <details>
+              <summary>Нужно ли платить за обновления?</summary>
+              <p>Нет. Обновления и инструкции бесплатны. Платные услуги — это помощь с внедрением, нестандартными доработками и сопровождением по SLA.</p>
+            </details>
+            <details>
+              <summary>Что будет, если обновление сломается?</summary>
+              <p>Updater вернёт версию в конфигурации и перезапустит контейнеры. База и дамп останутся на месте. Применённые миграции автоматически не откатываются — поэтому перед обновлением важен backup.</p>
+            </details>
+            <details>
+              <summary>Можно ли обновляться без интернета?</summary>
+              <p>Образы нужно скачать заранее. Публичный фид и образы находятся в интернете; для закрытого контура используйте зеркала или обратитесь за помощью.</p>
+            </details>
+            <details>
+              <summary>Почему в админке нет вкладки «Обновления»?</summary>
+              <p>Автоматическое обновление настраивается на сервере отдельно. Если вкладки нет — используйте инструкцию для консоли или напишите нам.</p>
+            </details>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>CRM7 Updates · бесплатная база знаний. Код — MIT, данные — у вас.</span>
+        <span class="footer-links">
+          <a href="/admin/">Из админки</a>
+          <a href="/manual/">Через консоль</a>
+          <a href="/troubleshooting/">Ошибки</a>
+          <a href="https://crm7.ru/">crm7.ru</a>
+          <a href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+        </span>
+      </div>
+    </footer>
+
+    <script>
+      const versionNode = document.getElementById("latest-version");
+      const channelNode = document.getElementById("feed-channel");
+      const updatedNode = document.getElementById("feed-updated");
+
+      fetch("/v1/releases.json", { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error("feed unavailable");
+          return response.json();
+        })
+        .then((feed) => {
+          const releases = Array.isArray(feed.releases) ? feed.releases : [];
+          const latest = releases[releases.length - 1];
+          if (latest) versionNode.textContent = latest.version;
+          if (feed.channel) channelNode.textContent = feed.channel;
+          if (feed.generated_at) {
+            updatedNode.textContent = new Date(feed.generated_at).toLocaleString("ru-RU", {
+              day: "2-digit",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit"
+            });
+          }
+        })
+        .catch(() => {
+          versionNode.textContent = "смотрите фид";
+          updatedNode.textContent = "не удалось загрузить";
+        });
+    </script>
+  </body>
+</html>

@@ -8,6 +8,7 @@
   import CookieNotice from './lib/components/CookieNotice.svelte';
   import AppShell from './lib/components/layout/AppShell.svelte';
   import PageBadge from './lib/components/dev/PageBadge.svelte';
+  import MaintenanceOverlay from './lib/components/MaintenanceOverlay.svelte';
   import { badgeForRoute } from './lib/dev/page-badges';
   import Login from './views/Login.svelte';
   import Register from './views/Register.svelte';
@@ -254,6 +255,8 @@
 {/if}
 
 <CookieNotice />
+
+<MaintenanceOverlay />
 
 {#if devBadge}
   <PageBadge id={devBadge.id} task={devBadge.task} />

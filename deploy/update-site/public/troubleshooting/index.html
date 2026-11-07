@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ошибки при обновлении CRM7 — что проверить</title>
+    <meta
+      name="description"
+      content="Что делать, если обновление CRM7 не начинается, идёт долго, завершилось ошибкой или сайт показывает режим обслуживания."
+    />
+    <meta name="theme-color" content="#07111f" />
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/" aria-label="CRM7 Updates — на главную">
+          <span class="brand-mark">C7</span>
+          <span>CRM7 Updates<small>база знаний</small></span>
+        </a>
+        <nav class="main-nav" aria-label="Основная навигация">
+          <a href="/">База знаний</a>
+          <a href="/admin/">Из админки</a>
+          <a href="/manual/">Через консоль</a>
+          <a href="/troubleshooting/" aria-current="page">Если что-то не так</a>
+        </nav>
+        <div class="header-actions">
+          <a class="btn btn-ghost" href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+          <a class="btn btn-primary" href="https://crm7.ru/#contact">Нужна помощь</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="container docs-layout">
+      <aside class="sidebar">
+        <p class="sidebar-title">Быстрый переход</p>
+        <nav aria-label="Содержание страницы">
+          <a href="#first">Сначала проверьте</a>
+          <a href="#not-starting">Не начинается</a>
+          <a href="#long">Идёт долго</a>
+          <a href="#failed">Завершилось ошибкой</a>
+          <a href="#maintenance">Режим обслуживания</a>
+          <a href="#diagnostics">Что прислать</a>
+        </nav>
+        <p class="side-note">
+          Не удаляйте базу, дампы и контейнеры «на всякий случай». Это усложняет
+          восстановление.
+        </p>
+      </aside>
+
+      <article class="content">
+        <div class="breadcrumbs"><a href="/">База знаний</a> / Если что-то не так</div>
+        <span class="pill">Диагностика</span>
+        <h1 style="margin-top: 14px">Если что-то пошло не так</h1>
+        <p class="lead">
+          Сначала определите, на каком этапе остановилось обновление. В большинстве
+          случаев достаточно подождать, проверить статус и прочитать последние строки
+          лога — без перезапусков и удаления данных.
+        </p>
+
+        <div class="notice notice-danger">
+          <p>
+            <strong>Не делайте этого:</strong> не удаляйте базу, тома, дампы и
+            <code>pending.json</code>; не запускайте обновление повторно, пока идёт
+            текущее; не перезагружайте сервер в середине миграции.
+          </p>
+        </div>
+
+        <h2 id="first">Сначала проверьте три вещи</h2>
+        <div class="grid-3">
+          <article class="card">
+            <span class="card-icon">1</span>
+            <h3>Проверка здоровья</h3>
+            <p>Открывается ли <code>/api/v2/health</code> и что в ответе: <code>ok</code> или ошибка.</p>
+          </article>
+          <article class="card">
+            <span class="card-icon">2</span>
+            <h3>Версия</h3>
+            <p>Какая версия в настройках и в <code>.env</code> — совпадают ли они.</p>
+          </article>
+          <article class="card">
+            <span class="card-icon">3</span>
+            <h3>Статус</h3>
+            <p>Что показывает страница обновлений или <code>status.json</code>: очередь, выполняется, ошибка.</p>
+          </article>
+        </div>
+
+        <h2 id="not-starting">Обновление не начинается</h2>
+        <div class="faq">
+          <details>
+            <summary>В настройках нет вкладки «Обновления»</summary>
+            <p>Автоматическое обновление не настроено на этом сервере. Это не ошибка CRM7. Используйте <a href="/manual/">инструкцию для консоли</a> или напишите нам.</p>
+          </details>
+          <details>
+            <summary>Кнопка «Обновить» не появляется</summary>
+            <p>Проверьте, что нажали «Проверить обновления» и что в фиде есть версия новее текущей. Если версия уже последняя — обновляться некуда.</p>
+          </details>
+          <details>
+            <summary>Кнопка неактивна или статус «выполняется»</summary>
+            <p>Скорее всего, уже идёт другое обновление. Дождитесь завершения. Второй запуск может быть заблокирован защитой от параллельных обновлений.</p>
+          </details>
+          <details>
+            <summary>После нажатия ничего не происходит</summary>
+            <p>Обновление может стоять в очереди несколько секунд. Обновите страницу статуса. Если через 5 минут статус всё ещё «в очереди» — напишите нам.</p>
+          </details>
+        </div>
+
+        <h2 id="long">Идёт долго</h2>
+        <p>
+          Обновление может занимать от нескольких минут до получаса: влияют размер базы,
+          скорость скачивания образов и диск. Это не всегда ошибка.
+        </p>
+        <ul class="checklist">
+          <li>Не запускайте второе обновление.</li>
+          <li>Проверьте, что на диске есть место.</li>
+          <li>Посмотрите последние строки лога — на каком шаге процесс.</li>
+          <li>Если статус не меняется больше часа, напишите нам.</li>
+        </ul>
+
+        <h2 id="failed">Завершилось ошибкой</h2>
+        <p>
+          Updater старается вернуть предыдущую версию в конфигурации и перезапустить
+          контейнеры. База и дамп остаются. Применённые миграции автоматически не
+          откатываются.
+        </p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Что видно</th><th>Вероятная причина</th><th>Что делать</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>«Нет места»</td><td>Закончился диск</td><td>Освободить место, не удаляя базу и последние backup, затем повторить.</td></tr>
+              <tr><td>Ошибка скачивания образа</td><td>Нет доступа к registry или сети</td><td>Проверить сеть и повторить позже; для закрытого контура — зеркало.</td></tr>
+              <tr><td>Ошибка миграции</td><td>Несовместимая схема или нехватка прав</td><td>Не восстанавливать базу вслепую; прислать лог и версию.</td></tr>
+              <tr><td>Health не прошёл</td><td>Приложение не поднялось</td><td>Проверить лог; updater должен вернуть версию. Если нет — написать нам.</td></tr>
+              <tr><td>«Уже выполняется»</td><td>Параллельный запуск</td><td>Дождаться завершения текущего обновления.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="notice notice-warn">
+          <p>
+            <strong>Не удаляйте <code>pending.json</code> вручную.</strong> Это маркер
+            прерванного обновления. Он помогает следующему запуску понять, что делать.
+          </p>
+        </div>
+
+        <h2 id="maintenance">Режим обслуживания</h2>
+        <figure class="figure">
+          <img src="/assets/admin-maintenance.png" alt="Экран обслуживания CRM7 во время обновления" />
+          <figcaption>Обычные пользователи видят этот экран, пока идёт обновление.</figcaption>
+        </figure>
+        <ul class="checklist">
+          <li>Подождите несколько минут и обновите страницу.</li>
+          <li>Проверьте health и статус обновления.</li>
+          <li>Не удаляйте файл <code>maintenance</code> вручную, если не понимаете последствий.</li>
+          <li>Если экран не исчезает больше часа — напишите нам.</li>
+        </ul>
+
+        <h2 id="diagnostics">Что прислать, если нужна помощь</h2>
+        <p>Достаточно нескольких безопасных фактов — без паролей и содержимого базы:</p>
+        <ul class="checklist">
+          <li>версию CRM7 и версию, до которой обновлялись;</li>
+          <li>статус обновления (очередь / выполняется / ошибка);</li>
+          <li>последние 20–30 строк лога;</li>
+          <li>текст ошибки из интерфейса или консоли;</li>
+          <li>что уже пробовали и в какое время.</li>
+        </ul>
+        <div class="notice">
+          <p>
+            <strong>Бесплатная база знаний.</strong> Если нужна помощь с вашим сервером,
+            напишите нам: <a href="https://crm7.ru/#contact">crm7.ru/#contact</a>.
+          </p>
+        </div>
+        <p>
+          <a class="btn btn-ghost" href="/admin/">Вернуться к инструкции из админки</a>
+          <a class="btn btn-ghost" href="/manual/">Инструкция для консоли</a>
+        </p>
+      </article>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>CRM7 Updates · бесплатная база знаний. Код — MIT, данные — у вас.</span>
+        <span class="footer-links">
+          <a href="/admin/">Из админки</a>
+          <a href="/manual/">Через консоль</a>
+          <a href="/troubleshooting/">Ошибки</a>
+          <a href="https://crm7.ru/">crm7.ru</a>
+          <a href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+        </span>
+      </div>
+    </footer>
+  </body>
+</html>

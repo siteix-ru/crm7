@@ -1,0 +1,10 @@
+[Unit]
+Description=CRM7 update request watcher (%i)
+Documentation=https://github.com/siteix-ru/crm7
+
+[Path]
+PathExists=/var/lib/crm7-updater/%i/request.json
+Unit=crm7-update-request@%i.service
+
+[Install]
+WantedBy=paths.target

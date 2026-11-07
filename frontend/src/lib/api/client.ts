@@ -45,6 +45,22 @@ export interface CallOptions {
   signal?: AbortSignal;
 }
 
+function notifyMaintenance(payload: unknown, status: number): void {
+  if (status !== 503 || typeof window === 'undefined') {
+    return;
+  }
+
+  const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;
+
+  if (error?.code === 'maintenance') {
+    window.dispatchEvent(
+      new CustomEvent('crm:maintenance', {
+        detail: error.message ?? 'Идут технические работы. Попробуйте через несколько минут.'
+      })
+    );
+  }
+}
+
 export async function callModule<T>(
   module: string,
   payload: Record<string, string | Blob> = {},
@@ -144,6 +160,8 @@ export async function apiUpload<T>(path: string, formData: FormData): Promise<T>
     unauthorizedHandler?.();
   }
 
+  notifyMaintenance(payload, response.status);
+
   if (!response.ok) {
     const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;
     throw new ApiError(
@@ -193,7 +211,8 @@ export async function apiDownload(path: string): Promise<{ blob: Blob; fileName:
     let message = `HTTP ${response.status}`;
 
     try {
-      const payload = (await response.json()) as { error?: { message?: string } } | null;
+      const payload = (await response.json()) as { error?: { code?: string; message?: string } } | null;
+      notifyMaintenance(payload, response.status);
       message = payload?.error?.message ?? message;
     } catch {
       // ответ не JSON — оставляем статус
@@ -251,6 +270,8 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
   if (response.status === 401) {
     unauthorizedHandler?.();
   }
+
+  notifyMaintenance(payload, response.status);
 
   if (!response.ok) {
     const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;

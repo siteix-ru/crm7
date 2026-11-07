@@ -23,6 +23,8 @@
     sendScheduleNow
   } from '../lib/api/schedules';
   import { listManagers } from '../lib/api/requests';
+  import { applyUpdate, checkUpdates, getUpdateStatus } from '../lib/api/updates';
+  import type { UpdateCheck, UpdateState, UpdateStatus } from '../lib/api/updates';
   import type {
     DatabaseSettings,
     EmailQueueItem,
@@ -39,6 +41,7 @@
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { auth } from '../lib/stores/auth.svelte';
+  import { APP_VERSION } from '../lib/about';
   import { emailTypeLabel, queueStatusLabel } from '../lib/labels';
   import { formatDateTime } from '../lib/format';
 
@@ -87,6 +90,15 @@
   let dbPort = $state('3306');
   let dbPassword = $state('');
 
+  let updateCheck = $state<UpdateCheck | null>(null);
+  let updateStatus = $state<UpdateStatus | null>(null);
+  let updateBusy = $state(false);
+  let updateStarting = $state(false);
+  let updateError = $state('');
+  let updateNotice = $state('');
+  let updateChecked = $state(false);
+  let updatePoll: ReturnType<typeof setInterval> | null = null;
+
   let schedules = $state<ReportSchedule[]>([]);
   let managers = $state<ManagerItem[]>([]);
   let editingId = $state<number | null>(null);
@@ -100,7 +112,7 @@
   let scheduleExtra = $state('');
   let scheduleActive = $state(true);
 
-  type SettingsTab = 'general' | 'work' | 'modules' | 'mail' | 'docs' | 'database';
+  type SettingsTab = 'general' | 'work' | 'modules' | 'mail' | 'docs' | 'database' | 'updates';
 
   type MailTab = 'smtp' | 'templates' | 'schedules' | 'queue';
 
@@ -110,7 +122,8 @@
     { code: 'modules', title: 'Модули', icon: 'types' },
     { code: 'mail', title: 'Почта', icon: 'mail' },
     { code: 'docs', title: 'Документы', icon: 'requests' },
-    { code: 'database', title: 'База данных', icon: 'database' }
+    { code: 'database', title: 'База данных', icon: 'database' },
+    { code: 'updates', title: 'Обновления', icon: 'refresh' }
   ];
 
   const mailTabs: { code: MailTab; title: string; icon: string }[] = [
@@ -133,7 +146,7 @@
 
   const visibleSettingsTabs = $derived(
     settingsTabs.filter((item) => {
-      if (item.code === 'work' || item.code === 'modules' || item.code === 'database') {
+      if (item.code === 'work' || item.code === 'modules' || item.code === 'database' || item.code === 'updates') {
         return canManageTech;
       }
 
@@ -157,8 +170,107 @@
     }
   });
 
+  $effect(() => {
+    if (tab === 'updates' && canManageTech && !updateChecked && !updateBusy) {
+      void checkForUpdates();
+    }
+  });
+
+  const updateStateLabels: Record<UpdateState, string> = {
+    idle: 'Проверка не запускалась',
+    queued: 'Запрос отправлен',
+    running: 'Обновление выполняется',
+    success: 'Обновление завершено',
+    failed: 'Ошибка обновления',
+    busy: 'Обновление уже выполняется',
+    stalled: 'Служба обновления не отвечает',
+    not_configured: 'Автообновление не настроено'
+  };
+
+  function updateStateLabel(state: UpdateState): string {
+    return updateStateLabels[state] ?? state;
+  }
+
+  async function checkForUpdates(): Promise<void> {
+    updateBusy = true;
+    updateError = '';
+    updateNotice = '';
+
+    try {
+      updateCheck = await checkUpdates(APP_VERSION);
+      const result = await getUpdateStatus(APP_VERSION);
+      updateStatus = result.status;
+
+      if (result.status.state === 'queued' || result.status.state === 'running') {
+        startUpdatePolling();
+      }
+    } catch (cause) {
+      updateError = cause instanceof ApiError ? cause.message : 'Не удалось проверить обновления';
+    } finally {
+      updateChecked = true;
+      updateBusy = false;
+    }
+  }
+
+  async function startUpdate(): Promise<void> {
+    if (!updateCheck?.release) {
+      return;
+    }
+
+    if (!confirm(`Обновить CRM7 до ${updateCheck.latest_version ?? updateCheck.release.version}? Сайт кратко перезапустится.`)) {
+      return;
+    }
+
+    updateStarting = true;
+    updateError = '';
+    updateNotice = '';
+
+    try {
+      const result = await applyUpdate(APP_VERSION);
+      updateStatus = result.status;
+      updateNotice = `Обновление до ${result.target_version} запущено.`;
+      startUpdatePolling();
+    } catch (cause) {
+      updateError = cause instanceof ApiError ? cause.message : 'Не удалось запустить обновление';
+    } finally {
+      updateStarting = false;
+    }
+  }
+
+  function startUpdatePolling(): void {
+    stopUpdatePolling();
+    updatePoll = setInterval(() => void pollUpdateStatus(), 3000);
+    void pollUpdateStatus();
+  }
+
+  function stopUpdatePolling(): void {
+    if (updatePoll !== null) {
+      clearInterval(updatePoll);
+      updatePoll = null;
+    }
+  }
+
+  async function pollUpdateStatus(): Promise<void> {
+    try {
+      const result = await getUpdateStatus(APP_VERSION);
+      updateStatus = result.status;
+
+      if (result.status.state === 'success') {
+        stopUpdatePolling();
+        updateNotice = `CRM7 обновлён до ${result.status.target_version ?? 'новой версии'}. Перезагрузка страницы…`;
+        setTimeout(() => window.location.reload(), 3000);
+      } else if (['failed', 'busy', 'stalled', 'not_configured'].includes(result.status.state)) {
+        stopUpdatePolling();
+        updateError = result.status.message ?? updateStateLabel(result.status.state);
+      }
+    } catch {
+      // keep polling while the site restarts
+    }
+  }
+
   onMount(() => {
     void load();
+    return () => stopUpdatePolling();
   });
 
   async function load(): Promise<void> {
@@ -702,6 +814,88 @@ async function saveSettings(): Promise<void> {
           database.json.bak). После смены базы данных войдите заново: сессии хранятся в базе.
         </p>
       {/if}
+      </div>
+    {/if}
+
+    {#if tab === 'updates'}
+      <div class="card">
+        <h2>Обновления</h2>
+
+        <p class="hint">
+          Проверка публичного фида <span class="mono">update.crm7.ru</span>. Текущая версия:
+          <strong>{updateCheck?.current_version ?? APP_VERSION}</strong>.
+        </p>
+
+        {#if updateError}
+          <div class="alert">{updateError}</div>
+        {/if}
+        {#if updateNotice}
+          <div class="notice">{updateNotice}</div>
+        {/if}
+
+        <div class="actions">
+          <Button loading={updateBusy} onclick={() => void checkForUpdates()}>
+            <Icon name="refresh" size={16} />
+            Проверить обновления
+          </Button>
+          {#if updateCheck?.update_available && updateCheck.release && updateCheck.configured}
+            <Button
+              variant="success"
+              loading={updateStarting}
+              disabled={updateStatus?.state === 'queued' || updateStatus?.state === 'running'}
+              onclick={() => void startUpdate()}
+            >
+              <Icon name="download" size={16} />
+              Обновить до {updateCheck.latest_version ?? updateCheck.release.version}
+            </Button>
+          {/if}
+        </div>
+
+        {#if updateCheck}
+          <div class="grid">
+            <div>
+              <div class="label">Текущая версия</div>
+              <div>{updateCheck.current_version ?? 'не определена'}</div>
+            </div>
+            <div>
+              <div class="label">Доступная версия</div>
+              <div>{updateCheck.latest_version ?? '—'}</div>
+            </div>
+          </div>
+
+          {#if updateCheck.release}
+            <p class="hint">{updateCheck.release.released_at} · {updateCheck.release.notes}</p>
+          {:else}
+            <p class="hint">Обновлений нет.</p>
+          {/if}
+
+          {#if updateCheck.chain.length > 1}
+            <p class="hint">
+              Будет применено обновлений: {updateCheck.chain.length} —
+              {updateCheck.chain.map((item) => item.version).join(' → ')}
+            </p>
+          {/if}
+
+          {#if !updateCheck.configured}
+            <p class="hint">
+              Автообновление не настроено: каталог <span class="mono">CRM7_UPDATE_DIR</span> недоступен.
+              Используйте CLI <span class="mono">python deploy/crm7_updater.py --apply</span>.
+            </p>
+          {/if}
+        {/if}
+
+        {#if updateStatus && updateStatus.state !== 'idle'}
+          <h3>Статус: {updateStateLabel(updateStatus.state)}</h3>
+          {#if updateStatus.target_version}
+            <p class="hint">Версия: {updateStatus.target_version}</p>
+          {/if}
+          {#if updateStatus.message}
+            <p class="hint">{updateStatus.message}</p>
+          {/if}
+          {#if updateStatus.log_tail}
+            <pre class="log">{updateStatus.log_tail}</pre>
+          {/if}
+        {/if}
       </div>
     {/if}
 
@@ -1515,6 +1709,20 @@ async function saveSettings(): Promise<void> {
     background: #ecfdf5;
     color: #047857;
     font-size: 13px;
+  }
+
+  .log {
+    margin: 0;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    max-height: 260px;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
   }
 
   .center {

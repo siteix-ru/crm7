@@ -20,7 +20,9 @@ CRM для заявок клиентов: склад с ценами и корз
 - `frontend/src/views/` — страницы; `frontend/src/lib/api/` — клиент API; `frontend/src/lib/stores/` — сторы;
   `frontend/src/lib/components/` — компоненты; `frontend/src/App.svelte` + `lib/router.svelte.ts` — роутинг.
 - `deploy/` — `Dockerfile.app`, `Dockerfile.web`, `nginx.conf`, `build_images.py`, `release_crm7.py`,
-  `crm7_updater.py`, `publish_update_feed.py`, `update-feed.json`, `stand-updater/` (systemd-таймеры demo/k).
+  `crm7_updater.py`, `publish_update_feed.py`, `publish_update_site.py`, `publish_setup_site.py`,
+  `update-feed.json`, `update-site/` (база знаний update.crm7.ru), `setup-site/`
+  (инструкция по установке setup.crm7.ru), `stand-updater/` (systemd-таймеры demo/k).
 - `docs/` — architecture, testing, ui, deploy, images, migrations, data-import, e2e, design-review, plan (исторический).
 
 ## Локальный стенд
@@ -53,7 +55,7 @@ php api/bin/seed-demo.php --force              # демо-данные (толь
 ```bash
 cd frontend && npm run check && npm test && npm run build
 php -l api/src/.../File.php     # по изменённым PHP-файлам
-python -m py_compile deploy/crm7_updater.py deploy/publish_update_feed.py
+python -m py_compile deploy/crm7_updater.py deploy/publish_update_feed.py deploy/publish_update_site.py deploy/publish_setup_site.py
 ```
 
 CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build`; e2e — вручную.
@@ -75,8 +77,17 @@ CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build
   `python deploy/release_crm7.py --env <env|all> --tag <ver>`.
 - Образы GHCR публичные. Фид `update.crm7.ru` публикуется из `deploy/update-feed.json`
   через `python deploy/publish_update_feed.py`; файлы на сервере вручную не править.
+- База знаний `update.crm7.ru` лежит в `deploy/update-site/public`; публикация —
+  `python deploy/publish_update_site.py` (не трогает `v1/`).
+- Инструкция по установке `setup.crm7.ru` лежит в `deploy/setup-site/public`;
+  публикация — `python deploy/publish_setup_site.py`. Caddy проксирует домен на
+  контейнер `crm7-setup-web`.
 - На demo/k работают systemd-таймеры `crm7-update-*.timer`; пауза —
   `/etc/crm7-updater/<env>.disabled`, логи — `/var/log/crm7-updater/`.
+- Обновления из админки (`Настройки → Обновления`, тех-админ) идут цепочкой
+  (`--all`) через `/var/lib/crm7-updater/<env>` и systemd path unit; на время
+  обновления поднимается `maintenance` (503 обычным пользователям), php-сервису
+  нужны `CRM7_ENV`, `CRM7_VERSION`, `CRM7_UPDATE_DIR` и этот том.
 
 ## Документация
 

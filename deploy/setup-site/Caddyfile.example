@@ -1,0 +1,9 @@
+setup.crm7.ru {
+	tls {
+		issuer acme {
+			dir https://acme-v02.api.letsencrypt.org/directory
+		}
+	}
+	encode gzip
+	reverse_proxy crm7-setup-web:80
+}

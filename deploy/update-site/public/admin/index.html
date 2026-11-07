@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Обновление CRM7 из админки — пошаговая инструкция</title>
+    <meta
+      name="description"
+      content="Как обновить CRM7 из админки: проверка версии, запуск обновления, экран обслуживания, проверка результата и действия при ошибке."
+    />
+    <meta name="theme-color" content="#07111f" />
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/" aria-label="CRM7 Updates — на главную">
+          <span class="brand-mark">C7</span>
+          <span>CRM7 Updates<small>база знаний</small></span>
+        </a>
+        <nav class="main-nav" aria-label="Основная навигация">
+          <a href="/">База знаний</a>
+          <a href="/admin/" aria-current="page">Из админки</a>
+          <a href="/manual/">Через консоль</a>
+          <a href="/troubleshooting/">Если что-то не так</a>
+        </nav>
+        <div class="header-actions">
+          <a class="btn btn-ghost" href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+          <a class="btn btn-primary" href="https://crm7.ru/#contact">Нужна помощь</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="container docs-layout">
+      <aside class="sidebar">
+        <p class="sidebar-title">На этой странице</p>
+        <nav aria-label="Содержание инструкции">
+          <a href="#before">Перед началом</a>
+          <a href="#steps">Пошагово</a>
+          <a href="#inside">Что внутри</a>
+          <a href="#errors">Если что-то не так</a>
+          <a href="#console">Когда нужна консоль</a>
+        </nav>
+        <p class="side-note">
+          Нет вкладки «Обновления»? Значит, автоматическое обновление не настроено.
+          Перейдите в <a href="/manual/">инструкцию для консоли</a>.
+        </p>
+      </aside>
+
+      <article class="content">
+        <div class="breadcrumbs"><a href="/">База знаний</a> / Из админки</div>
+        <span class="pill">Способ 1 · без консоли</span>
+        <h1 style="margin-top: 14px">Обновление из админки</h1>
+        <p class="lead">
+          Подходит, если у вас есть доступ технического администратора и в настройках
+          видна вкладка «Обновления». Это самый простой путь: CRM7 сама скачает образы,
+          сделает backup, применит миграции и проверит здоровье.
+        </p>
+
+        <div class="notice">
+          <p>
+            <strong>Кому подходит:</strong> установки, где автоматическое обновление
+            уже настроено. Если вкладки «Обновления» нет — используйте
+            <a href="/manual/">инструкцию для консоли</a>.
+          </p>
+        </div>
+
+        <h2 id="before">Перед началом</h2>
+        <ul class="checklist">
+          <li>Вы вошли как <strong>технический администратор</strong>.</li>
+          <li>Вы знаете, какая версия сейчас работает: она видна на странице обновлений.</li>
+          <li>На сервере достаточно места для образов и дампа базы.</li>
+          <li>Вы можете подождать 5–15 минут и не выключать сервер во время обновления.</li>
+        </ul>
+        <div class="notice notice-warn">
+          <p>
+            <strong>Не запускайте обновление в час пик.</strong> На время работ обычные
+            пользователи увидят экран «Идут технические работы». Технический администратор
+            и проверка <code>/health</code> останутся доступны.
+          </p>
+        </div>
+
+        <h2 id="steps">Пошагово</h2>
+        <ol class="steps">
+          <li>
+            <h3>Откройте настройки</h3>
+            <p>
+              Войдите в CRM7 и откройте <strong>Настройки → Обновления</strong>.
+              Вкладка доступна только техническому администратору.
+            </p>
+          </li>
+          <li>
+            <h3>Нажмите «Проверить обновления»</h3>
+            <p>
+              CRM7 прочитает публичный фид <code>update.crm7.ru</code> и покажет текущую
+              версию, доступную версию и цепочку обновлений. Если обновлений нет, кнопка
+              «Обновить» не появится — это нормально.
+            </p>
+            <figure class="figure figure-small">
+              <img src="/assets/admin-updates.png" alt="Панель «Обновления» в настройках CRM7 с доступной цепочкой версий" />
+              <figcaption>Пример: доступна цепочка обновлений. У вас будут ваши версии и даты.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <h3>Нажмите «Обновить до …»</h3>
+            <p>
+              Кнопка запускает обновление до последней версии цепочки. Если вы пропустили
+              несколько релизов, CRM7 применит их последовательно, с отдельным backup на
+              каждом шаге.
+            </p>
+            <p>
+              Подтвердите действие. После этого страница будет показывать статус:
+              «в очереди», «выполняется», затем «успешно» или «ошибка».
+            </p>
+          </li>
+          <li>
+            <h3>Дождитесь экрана обслуживания</h3>
+            <p>
+              Пока идёт обновление, обычные пользователи видят экран «Идут технические
+              работы». Не запускайте обновление повторно и не перезагружайте сервер.
+            </p>
+            <figure class="figure">
+              <img src="/assets/admin-maintenance.png" alt="Экран обслуживания CRM7 во время обновления" />
+              <figcaption>Так выглядит режим обслуживания для обычного пользователя.</figcaption>
+            </figure>
+          </li>
+          <li>
+            <h3>Проверьте результат</h3>
+            <p>
+              После успеха страница предложит перезагрузиться. Проверьте:
+            </p>
+            <ul class="checklist">
+              <li>в настройках отображается новая версия;</li>
+              <li>открывается список заявок и склад;</li>
+              <li>в логе нет ошибок, а статус — «успешно»;</li>
+              <li>обычные пользователи снова видят рабочий интерфейс.</li>
+            </ul>
+            <div class="code-block">
+              <pre><code>curl -fsS https://ваш-домен/api/v2/health</code></pre>
+              <button class="copy" type="button">Копировать</button>
+            </div>
+            <p>Ожидаемый ответ: <code>{"ok":true,...}</code> или <code>{"status":"ok"}</code>.</p>
+          </li>
+        </ol>
+
+        <h2 id="inside">Что происходит внутри</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Шаг</th><th>Что делает CRM7</th><th>Что это значит для вас</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>1</td><td>Создаёт дамп базы</td><td>Данные можно восстановить, даже если обновление не удалось.</td></tr>
+              <tr><td>2</td><td>Скачивает официальные образы</td><td>Версия приложения и веб-интерфейса обновляются вместе.</td></tr>
+              <tr><td>3</td><td>Применяет миграции</td><td>Схема базы становится совместимой с новой версией.</td></tr>
+              <tr><td>4</td><td>Перезапускает контейнеры</td><td>Сайт может быть недоступен несколько минут.</td></tr>
+              <tr><td>5</td><td>Проверяет health</td><td>Если проверка не прошла, версия в конфигурации откатывается.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="notice notice-warn">
+          <p>
+            <strong>Миграции не откатываются автоматически.</strong> Поэтому backup —
+            обязательная часть обновления. Не удаляйте дампы из
+            <code>update-crm-7/</code> сразу после обновления.
+          </p>
+        </div>
+
+        <h2 id="errors">Если что-то не так</h2>
+        <div class="faq">
+          <details>
+            <summary>Кнопки «Обновить» нет</summary>
+            <p>Скорее всего, обновлений нет или автоматическое обновление не настроено. Проверьте доступную версию и вкладку «Обновления». Если вкладки нет — используйте консоль.</p>
+          </details>
+          <details>
+            <summary>Статус «выполняется» слишком долго</summary>
+            <p>Обновление может занимать до 30 минут: всё зависит от размера базы и скорости скачивания образов. Не запускайте второе обновление. Если статус не меняется больше часа — напишите нам.</p>
+          </details>
+          <details>
+            <summary>Статус «ошибка»</summary>
+            <p>Не повторяйте обновление сразу. Откройте <a href="/troubleshooting/">разбор ошибок</a>, проверьте статус и лог. Если не понятно — пришлите нам версию, статус и последние строки лога.</p>
+          </details>
+          <details>
+            <summary>Экран обслуживания не исчезает</summary>
+            <p>Подождите несколько минут и обновите страницу. Если прошло больше часа, не удаляйте файлы вручную — напишите нам, мы поможем проверить процесс и снять флаг безопасно.</p>
+          </details>
+          <details>
+            <summary>Сайт открывается, но версия старая</summary>
+            <p>Возможно, обновление не дошло до перезапуска или вы смотрите кэш. Проверьте версию в настройках и health. Если версия не меняется — нужен лог.</p>
+          </details>
+        </div>
+
+        <h2 id="console">Когда лучше через консоль</h2>
+        <ul class="checklist">
+          <li>в админке нет вкладки «Обновления»;</li>
+          <li>нужно обновиться на версию, которой нет в публичном фиде;</li>
+          <li>нужно сначала посмотреть dry-run и цепочку;</li>
+          <li>сервер не отвечает или админка недоступна.</li>
+        </ul>
+        <p><a class="btn btn-ghost" href="/manual/">Перейти к инструкции для консоли →</a></p>
+
+        <div class="notice">
+          <p>
+            <strong>Это бесплатная база знаний.</strong> Если нужна помощь с конкретным
+            сервером, напишите нам: <a href="https://crm7.ru/#contact">crm7.ru/#contact</a>.
+            Мы подскажем, что проверить, и поможем с обновлением.
+          </p>
+        </div>
+      </article>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>CRM7 Updates · бесплатная база знаний. Код — MIT, данные — у вас.</span>
+        <span class="footer-links">
+          <a href="/admin/">Из админки</a>
+          <a href="/manual/">Через консоль</a>
+          <a href="/troubleshooting/">Ошибки</a>
+          <a href="https://crm7.ru/">crm7.ru</a>
+          <a href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+        </span>
+      </div>
+    </footer>
+
+    <script>
+      document.querySelectorAll(".copy").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const code = button.parentElement.querySelector("code");
+          if (!code) return;
+          try {
+            await navigator.clipboard.writeText(code.textContent);
+            button.textContent = "Скопировано";
+            setTimeout(() => (button.textContent = "Копировать"), 1500);
+          } catch {
+            button.textContent = "Выделите вручную";
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

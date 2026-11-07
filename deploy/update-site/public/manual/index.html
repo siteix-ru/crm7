@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Ручное обновление CRM7 через консоль — инструкция</title>
+    <meta
+      name="description"
+      content="Как обновить CRM7 через консоль: SSH, проверка версии, dry-run, backup, обновление цепочкой, health-check и откат."
+    />
+    <meta name="theme-color" content="#07111f" />
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/" aria-label="CRM7 Updates — на главную">
+          <span class="brand-mark">C7</span>
+          <span>CRM7 Updates<small>база знаний</small></span>
+        </a>
+        <nav class="main-nav" aria-label="Основная навигация">
+          <a href="/">База знаний</a>
+          <a href="/admin/">Из админки</a>
+          <a href="/manual/" aria-current="page">Через консоль</a>
+          <a href="/troubleshooting/">Если что-то не так</a>
+        </nav>
+        <div class="header-actions">
+          <a class="btn btn-ghost" href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+          <a class="btn btn-primary" href="https://crm7.ru/#contact">Нужна помощь</a>
+        </div>
+      </div>
+    </header>
+
+    <main class="container docs-layout">
+      <aside class="sidebar">
+        <p class="sidebar-title">На этой странице</p>
+        <nav aria-label="Содержание инструкции">
+          <a href="#before">Что понадобится</a>
+          <a href="#steps">Пошагово</a>
+          <a href="#inside">Что внутри</a>
+          <a href="#logs">Логи и backup</a>
+          <a href="#rollback">Если что-то не так</a>
+        </nav>
+        <p class="side-note">
+          Команды выполняются на сервере, где работает CRM7. Замените
+          <code>/path/to/crm7</code> на свой каталог.
+        </p>
+      </aside>
+
+      <article class="content">
+        <div class="breadcrumbs"><a href="/">База знаний</a> / Через консоль</div>
+        <span class="pill">Способ 2 · SSH</span>
+        <h1 style="margin-top: 14px">Ручное обновление через консоль</h1>
+        <p class="lead">
+          Подходит для self-hosted установок и случаев, когда админка недоступна.
+          Команды можно копировать целиком; главное — заменить адрес сервера и каталог
+          проекта на свои.
+        </p>
+
+        <div class="notice notice-warn">
+          <p>
+            <strong>Не работали с SSH и консолью?</strong> Не начинайте в одиночку.
+            Попросите администратора сервера или напишите нам — подскажем безопасный
+            порядок действий.
+          </p>
+        </div>
+
+        <figure class="figure">
+          <img src="/assets/manual-terminal.png" alt="Пример консольных команд проверки и запуска обновления CRM7" />
+          <figcaption>Пример: проверка, dry-run и запуск обновления. Версии и пути будут вашими.</figcaption>
+        </figure>
+
+        <h2 id="before">Что понадобится</h2>
+        <ul class="checklist">
+          <li>Доступ к серверу по SSH (логин и пароль или ключ).</li>
+          <li>Docker и Docker Compose на сервере.</li>
+          <li>Каталог проекта CRM7 — например, <code>/path/to/crm7</code>.</li>
+          <li>Свободное место для образов и дампа базы.</li>
+          <li>5–30 минут, когда можно показать пользователям экран обслуживания.</li>
+        </ul>
+
+        <h2 id="steps">Пошагово</h2>
+        <ol class="steps">
+          <li>
+            <h3>Подключитесь к серверу</h3>
+            <p>Откройте терминал и подключитесь по SSH. Замените пользователя и адрес на свои.</p>
+            <div class="code-block">
+              <pre><code>ssh root@your-server.example</code></pre>
+              <button class="copy" type="button">Копировать</button>
+            </div>
+          </li>
+          <li>
+            <h3>Перейдите в каталог проекта</h3>
+            <p>Это папка, где лежит <code>docker-compose.yml</code> и каталог <code>deploy</code>.</p>
+            <div class="code-block">
+              <pre><code>cd /path/to/crm7</code></pre>
+              <button class="copy" type="button">Копировать</button>
+            </div>
+          </li>
+          <li>
+            <h3>Проверьте текущую и доступную версию</h3>
+            <p>Команда ничего не меняет. Она читает публичный фид и показывает, есть ли обновление.</p>
+            <div class="code-block">
+              <pre><code>python3 deploy/crm7_updater.py --check</code></pre>
+              <button class="copy" type="button">Копировать</button>
+            </div>
+            <p>Если обновлений нет, вы увидите сообщение «Обновлений нет». Это нормально.</p>
+          </li>
+          <li>
+            <h3>Сделайте пробный запуск</h3>
+            <p>
+              <code>--dry-run</code> показывает цепочку версий и команды, но ничего не
+              меняет. Особенно полезно, если вы пропустили несколько релизов.
+            </p>
+            <div class="code-block">
+              <pre><code>python3 deploy/crm7_updater.py --apply --all --dry-run</code></pre>
+              <button class="copy" type="button">Копировать</button>
+            </div>
+          </li>
+          <li>
+            <h3>Запустите обновление</h3>
+            <p>
+              <code>--all</code> применяет всю цепочку до последней версии. Для каждого
+              шага создаётся отдельный backup. Не запускайте команду дважды.
+            </p>
+            <div class="code-block">
+              <pre><code>python3 deploy/crm7_updater.py --apply --all --yes</code></pre>
+              <button class="copy" type="button">Копировать</button>
+            </div>
+
+          </li>
+          <li>
+            <h3>Проверьте результат</h3>
+            <p>После завершения проверьте health и откройте интерфейс CRM7.</p>
+            <div class="code-block">
+              <pre><code>curl -fsS https://your-domain.example/api/v2/health</code></pre>
+              <button class="copy" type="button">Копировать</button>
+            </div>
+            <p>Ожидаемый ответ содержит <code>"status":"ok"</code> и <code>"database":"ok"</code>.</p>
+          </li>
+        </ol>
+
+        <h2 id="inside">Что внутри</h2>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Шаг</th><th>Что происходит</th><th>Можно ли откатить</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Backup</td><td>Дамп базы в <code>update-crm-7/</code></td><td>Да, дамп остаётся</td></tr>
+              <tr><td>Образы</td><td>Скачиваются официальные app и web</td><td>Да, версия в <code>.env</code></td></tr>
+              <tr><td>Миграции</td><td>Схема базы обновляется</td><td>Нет, автоматически не откатываются</td></tr>
+              <tr><td>Перезапуск</td><td>Контейнеры поднимаются на новой версии</td><td>Да, версия в <code>.env</code></td></tr>
+              <tr><td>Health</td><td>Проверка API и базы</td><td>Да, при ошибке версия возвращается</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="logs">Логи и backup</h2>
+        <p>Если на сервере настроен автоматический updater, лог обычно лежит здесь:</p>
+        <div class="code-block">
+          <pre><code>tail -n 50 /var/log/crm7-updater/stand.log</code></pre>
+          <button class="copy" type="button">Копировать</button>
+        </div>
+        <p>Замените <code>stand</code> на имя вашего стенда. При ручном запуске смотрите вывод команды.</p>
+        <p>Дампы базы хранятся в каталоге проекта:</p>
+        <div class="code-block">
+          <pre><code>ls -lh update-crm-7/</code></pre>
+          <button class="copy" type="button">Копировать</button>
+        </div>
+        <div class="notice notice-warn">
+          <p>
+            <strong>Не удаляйте backup сразу после обновления.</strong> Он нужен, если
+            выяснится проблема с данными или миграцией. Храните хотя бы несколько
+            последних дампов.
+          </p>
+        </div>
+
+        <h2 id="rollback">Если что-то не так</h2>
+        <ul class="checklist">
+          <li>Не запускайте обновление повторно, пока не прочитали ошибку.</li>
+          <li>Проверьте health и последние строки лога.</li>
+          <li>Если updater вернул версию — сайт должен открыться на старой версии.</li>
+          <li>Не восстанавливайте базу из дампа без понимания последствий: миграции могли уже примениться.</li>
+          <li>Если не уверены — напишите нам, приложите версию, статус и хвост лога.</li>
+        </ul>
+        <p><a class="btn btn-ghost" href="/troubleshooting/">Разобрать ошибку по шагам →</a></p>
+
+        <div class="notice">
+          <p>
+            <strong>Бесплатная база знаний.</strong> Если нужна помощь с вашим сервером,
+            напишите нам: <a href="https://crm7.ru/#contact">crm7.ru/#contact</a>.
+          </p>
+        </div>
+      </article>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>CRM7 Updates · бесплатная база знаний. Код — MIT, данные — у вас.</span>
+        <span class="footer-links">
+          <a href="/admin/">Из админки</a>
+          <a href="/manual/">Через консоль</a>
+          <a href="/troubleshooting/">Ошибки</a>
+          <a href="https://crm7.ru/">crm7.ru</a>
+          <a href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+        </span>
+      </div>
+    </footer>
+
+    <script>
+      document.querySelectorAll(".copy").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const code = button.parentElement.querySelector("code");
+          if (!code) return;
+          try {
+            await navigator.clipboard.writeText(code.textContent);
+            button.textContent = "Скопировано";
+            setTimeout(() => (button.textContent = "Копировать"), 1500);
+          } catch {
+            button.textContent = "Выделите вручную";
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

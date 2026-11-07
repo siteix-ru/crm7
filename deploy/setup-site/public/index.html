@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Установка CRM7 на Linux — пошаговая инструкция</title>
+    <meta
+      name="description"
+      content="Установка CRM7 на Linux: Docker, домен, HTTPS, база, миграции, первый вход и проверка. Пошаговая инструкция для технических специалистов."
+    />
+    <meta name="theme-color" content="#07111f" />
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <a class="brand" href="/" aria-label="CRM7 Setup — на главную">
+          <span class="brand-mark">C7</span>
+          <span>CRM7 Setup<small>установка на Linux</small></span>
+        </a>
+        <nav class="main-nav" aria-label="Основная навигация">
+          <a href="#requirements">Требования</a>
+          <a href="#project">Установка</a>
+          <a href="#env">Конфигурация</a>
+          <a href="#first-login">Первый вход</a>
+          <a href="https://update.crm7.ru/">Обновления</a>
+        </nav>
+        <div class="header-actions">
+          <a class="btn btn-ghost" href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+          <a class="btn btn-primary" href="https://crm7.ru/#contact">Нужна помощь</a>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="container hero-grid">
+          <div>
+            <span class="eyebrow"><span class="dot"></span> Linux · Docker · HTTPS</span>
+            <h1>Установка CRM7 <br /><span style="color: var(--blue-soft)">на ваш сервер</span></h1>
+            <p class="lead">
+              Пошаговая инструкция для технических специалистов: от чистого Ubuntu/Debian
+              до рабочего входа в CRM7 по HTTPS. Без лицензионных ключей и скрытых шагов.
+            </p>
+            <div class="hero-actions">
+              <a class="btn btn-primary" href="#project">Начать установку</a>
+              <a class="btn btn-ghost" href="#env">Сразу к конфигурации</a>
+            </div>
+            <ul class="hero-points">
+              <li>Docker Compose</li>
+              <li>MariaDB</li>
+              <li>Caddy и Let's Encrypt</li>
+            </ul>
+          </div>
+
+          <aside class="hero-panel" aria-label="Кратко о стеке">
+            <h2>Что получится</h2>
+            <div class="version-row">
+              <span>Приложение</span>
+              <strong>CRM7</strong>
+            </div>
+            <div class="version-row">
+              <span>База</span>
+              <strong>MariaDB 11</strong>
+            </div>
+            <div class="version-row">
+              <span>Вход</span>
+              <strong>HTTPS</strong>
+            </div>
+            <div class="notice" style="margin-bottom: 0">
+              <p>
+                <strong>Нужен сервер с root/sudo и домен.</strong>
+                В примерах используется <code>crm.example.com</code> — замените его на свой.
+              </p>
+            </div>
+            <a class="btn btn-ghost" style="margin-top: 14px; width: 100%" href="https://update.crm7.ru/">
+              Инструкции по обновлению
+            </a>
+          </aside>
+        </div>
+      </section>
+
+      <div class="container docs-layout">
+        <aside class="sidebar">
+          <p class="sidebar-title">Содержание</p>
+          <nav aria-label="Содержание инструкции">
+            <a href="#requirements">Требования</a>
+            <a href="#dns">1. Домен и сервер</a>
+            <a href="#docker">2. Docker</a>
+            <a href="#project">3. Проект</a>
+            <a href="#compose">4. compose.yaml</a>
+            <a href="#env">5. Переменные</a>
+            <a href="#start">6. Запуск и миграции</a>
+            <a href="#tls">7. HTTPS</a>
+            <a href="#check">8. Проверка</a>
+            <a href="#first-login">9. Первый вход</a>
+            <a href="#updates">10. Обновления</a>
+          </nav>
+          <p class="side-note">
+            Команды выполняются на сервере. Если не работали с Docker — сначала
+            прочитайте раздел «Требования».
+          </p>
+        </aside>
+
+        <article class="content">
+          <div class="breadcrumbs"><a href="/">Setup</a> / Установка на Linux</div>
+          <span class="pill">Production · self-hosted</span>
+          <p class="lead" style="margin-top: 18px">
+            Инструкция рассчитана на Ubuntu 22.04/24.04 или Debian 12+. Нужны
+            <code>root</code> или пользователь с <code>sudo</code>, домен и открытые
+            порты <code>80</code>/<code>443</code>. CRM7 будет работать в Docker;
+            данные и конфигурация останутся на вашем сервере.
+          </p>
+
+          <div class="notice notice-warn">
+            <p>
+              <strong>Перед началом сделайте снимок сервера.</strong> Дальше мы
+              устанавливаем Docker, создаём базу и меняем конфигурацию. На чистом
+              сервере это безопасно; на рабочем — сначала проверьте, что порты
+              80/443 свободны.
+            </p>
+          </div>
+
+          <h2 id="requirements">Требования</h2>
+          <div class="grid-3">
+            <article class="card">
+              <span class="card-icon">01</span>
+              <h3>Сервер</h3>
+              <p>2 vCPU, 4 ГБ RAM, 20 ГБ диска. Для базы и вложений лучше 40 ГБ.</p>
+            </article>
+            <article class="card">
+              <span class="card-icon">02</span>
+              <h3>Домен</h3>
+              <p>A-запись на IP сервера. Например, <code>crm.example.com</code>.</p>
+            </article>
+            <article class="card">
+              <span class="card-icon">03</span>
+              <h3>Доступ</h3>
+              <p>SSH, <code>sudo</code>, свободные порты <code>80</code> и <code>443</code>.</p>
+            </article>
+          </div>
+          <p>
+            Если сервер за NAT или балансировщиком — пробросьте 80/443 на него.
+            Внутренний порт CRM7 (<code>8080</code>) наружу не публикуем.
+          </p>
+
+          <h2 id="dns">1. Домен и сервер</h2>
+          <ol class="steps">
+            <li>
+              <h3>Проверьте DNS</h3>
+              <p>Домен должен указывать на публичный IP сервера. Проверьте с локальной машины:</p>
+              <div class="code-block">
+                <pre><code>getent hosts crm.example.com</code></pre>
+                <button class="copy" type="button">Копировать</button>
+              </div>
+              <p>В ответе должен быть IP вашего сервера. Если пусто — подождите обновления DNS.</p>
+            </li>
+            <li>
+              <h3>Подключитесь по SSH</h3>
+              <p>Все дальнейшие команды выполняются на сервере.</p>
+              <div class="code-block">
+                <pre><code>ssh root@crm.example.com</code></pre>
+                <button class="copy" type="button">Копировать</button>
+              </div>
+            </li>
+            <li>
+              <h3>Обновите систему</h3>
+              <div class="code-block">
+                <pre><code>apt update
+apt upgrade -y</code></pre>
+                <button class="copy" type="button">Копировать</button>
+              </div>
+            </li>
+          </ol>
+
+          <h2 id="docker">2. Docker и Compose</h2>
+          <p>
+            Установите Docker Engine и плагин Compose из официального репозитория.
+            Команды ниже — для Ubuntu/Debian с <code>apt</code>.
+          </p>
+          <div class="code-block">
+            <pre><code>apt install -y ca-certificates curl gnupg git
+install -m 0755 -d /etc/apt/keyrings
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+  | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+chmod a+r /etc/apt/keyrings/docker.gpg
+
+. /etc/os-release
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${VERSION_CODENAME} stable" \
+  > /etc/apt/sources.list.d/docker.list
+
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+systemctl enable --now docker
+docker --version
+docker compose version</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <div class="notice">
+            <p>
+              <strong>Debian:</strong> замените <code>ubuntu</code> на <code>debian</code>
+              в URL репозитория Docker. Для других дистрибутивов используйте официальную
+              инструкцию Docker.
+            </p>
+          </div>
+
+          <h2 id="project">3. Каталог проекта</h2>
+          <p>
+            Клонируйте публичный репозиторий. В нём есть пример конфигурации,
+            миграции и скрипт установки начальных пользователей.
+          </p>
+          <div class="code-block">
+            <pre><code>mkdir -p /opt/crm7
+git clone https://github.com/siteix-ru/crm7.git /opt/crm7
+cd /opt/crm7</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <p>Создайте каталоги для конфигурации, файлов и базы:</p>
+          <div class="code-block">
+            <pre><code>mkdir -p config storage var data/db
+cp api/config/.env.example config/.env
+chmod 600 config/.env</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+
+          <h2 id="compose">4. compose.yaml</h2>
+          <p>
+            Создайте файл <code>compose.yaml</code> в корне проекта. Это описание
+            четырёх контейнеров: веб-интерфейс, PHP API, cron и MariaDB.
+          </p>
+          <div class="code-block">
+            <pre><code>name: crm7
+
+services:
+  web:
+    image: ghcr.io/siteix-ru/crm7-web:${CRM7_VERSION}
+    restart: unless-stopped
+    depends_on: [php]
+    ports:
+      - "127.0.0.1:8080:80"
+    networks: [internal]
+
+  php:
+    image: ghcr.io/siteix-ru/crm7-app:${CRM7_VERSION}
+    restart: unless-stopped
+    environment:
+      CRM7_ENV: production
+      CRM7_VERSION: ${CRM7_VERSION}
+    volumes:
+      - ./config:/var/www/html/api/config
+      - ./storage:/var/www/html/api/storage
+      - ./var:/var/www/html/api/var
+    networks:
+      internal:
+        aliases:
+          - crm7-php
+    depends_on: [db]
+
+  cron:
+    image: ghcr.io/siteix-ru/crm7-app:${CRM7_VERSION}
+    restart: unless-stopped
+    command: sh -c 'while true; do php /var/www/html/api/bin/cron.php; sleep 60; done'
+    volumes:
+      - ./config:/var/www/html/api/config
+      - ./storage:/var/www/html/api/storage
+      - ./var:/var/www/html/api/var
+    networks: [internal]
+    depends_on: [db]
+
+  db:
+    image: mariadb:11
+    restart: unless-stopped
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASS}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASS}
+    volumes:
+      - ./data/db:/var/lib/mysql
+    networks: [internal]
+
+networks:
+  internal:</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+
+          <div class="code-block">
+            <pre><code>docker compose config -q</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <p>Команда не запускает контейнеры — только проверяет синтаксис compose-файла.</p>
+
+          <h2 id="env">5. Переменные окружения</h2>
+          <p>
+            Сначала создайте <code>.env</code> для Docker Compose. Пароли сгенерируйте
+            командами <code>openssl rand -hex 24</code>; не используйте примеры из
+            документации.
+          </p>
+          <div class="code-block">
+            <pre><code>CRM7_VERSION=1.4.2
+DB_NAME=crm7
+DB_USER=crm_app
+DB_PASS=ЗАМЕНИТЕ_НА_СЛУЧАЙНЫЙ_ПАРОЛЬ
+DB_ROOT_PASS=ЗАМЕНИТЕ_НА_ДРУГОЙ_СЛУЧАЙНЫЙ_ПАРОЛЬ</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <div class="code-block">
+            <pre><code>chmod 600 .env</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <p>
+            Затем откройте <code>config/.env</code> и заполните параметры приложения.
+            <code>DB_PASS</code> должен совпадать с <code>.env</code> выше.
+          </p>
+          <div class="code-block">
+            <pre><code>APP_ENV=production
+APP_URL=https://crm.example.com
+API_BASE_PATH=/api/v2
+CORS_ORIGIN=https://crm.example.com
+
+DB_HOST=db
+DB_PORT=3306
+DB_NAME=crm7
+DB_USER=crm_app
+DB_PASS=ЗАМЕНИТЕ_НА_ТОТ_ЖЕ_ПАРОЛЬ
+
+TOKEN_TTL_DAYS=30
+LOG_DIR=
+APP_TIMEZONE=Europe/Moscow
+APP_KEY=ЗАМЕНИТЕ_НА_64_СИМВОЛА_ИЗ_OPENSSL
+LEGACY_VENDOR=</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <div class="code-block">
+            <pre><code>openssl rand -hex 32   # APP_KEY
+openssl rand -hex 24   # DB_PASS
+openssl rand -hex 24   # DB_ROOT_PASS</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <div class="notice notice-warn">
+            <p>
+              <strong>APP_KEY и пароли — секреты.</strong> Не коммитьте их в Git,
+              не отправляйте в чат и не храните в репозитории. <code>config/.env</code>
+              должен быть доступен только владельцу.
+            </p>
+          </div>
+          <p>
+            <code>APP_URL</code> и <code>CORS_ORIGIN</code> должны совпадать с адресом,
+            по которому открывается CRM7. Если домен другой — замените оба значения и
+            перезапустите <code>php</code>.
+          </p>
+
+          <figure class="figure">
+            <img src="/assets/setup-terminal.png" alt="Пример консольных команд установки CRM7" />
+            <figcaption>Пример команд. Версия, домен и пути будут вашими.</figcaption>
+          </figure>
+
+          <h2 id="start">6. Запуск и миграции</h2>
+          <ol class="steps">
+            <li>
+              <h3>Запустите базу</h3>
+              <div class="code-block">
+                <pre><code>docker compose up -d db
+docker compose exec -T db sh -c \
+  'until mariadb-admin ping -uroot -p"$MARIADB_ROOT_PASSWORD" --silent; do sleep 1; done'
+docker compose ps</code></pre>
+                <button class="copy" type="button">Копировать</button>
+              </div>
+            </li>
+            <li>
+              <h3>Примените миграции</h3>
+              <div class="code-block">
+                <pre><code>docker compose run --rm php php bin/migrate.php</code></pre>
+                <button class="copy" type="button">Копировать</button>
+              </div>
+            </li>
+            <li>
+              <h3>Создайте первого пользователя</h3>
+              <p>
+                Скрипт создаст администратора и несколько служебных учётных записей.
+                Задайте сильный пароль; после первого входа смените его и отключите
+                лишние аккаунты.
+              </p>
+              <div class="code-block">
+                <pre><code>docker compose run --rm php \
+  php bin/seed-dev.php --password='СИЛЬНЫЙ_ПАРОЛЬ'</code></pre>
+                <button class="copy" type="button">Копировать</button>
+              </div>
+            </li>
+            <li>
+              <h3>Поднимите приложение</h3>
+              <div class="code-block">
+                <pre><code>docker compose up -d
+docker compose ps</code></pre>
+                <button class="copy" type="button">Копировать</button>
+              </div>
+              <p>Проверьте локальный health:</p>
+              <div class="code-block">
+                <pre><code>curl -fsS http://127.0.0.1:8080/api/v2/health</code></pre>
+                <button class="copy" type="button">Копировать</button>
+              </div>
+              <p>Ожидаемый ответ: <code>{"ok":true,...}</code>.</p>
+            </li>
+          </ol>
+
+          <h2 id="tls">7. HTTPS и домен</h2>
+          <p>
+            Наружу публикуем только reverse proxy на 80/443. Сам CRM7 слушает
+            <code>127.0.0.1:8080</code>. Ниже — пример для Caddy на хосте.
+          </p>
+          <div class="code-block">
+            <pre><code>crm.example.com {
+    encode gzip
+    reverse_proxy 127.0.0.1:8080
+}</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <p>
+            Добавьте блок в <code>/etc/caddy/Caddyfile</code>, проверьте конфигурацию и
+            перезагрузите Caddy:
+          </p>
+          <div class="code-block">
+            <pre><code>caddy validate --config /etc/caddy/Caddyfile
+systemctl reload caddy</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+          <p>
+            Caddy автоматически выпустит сертификат Let's Encrypt, если DNS уже указывает
+            на сервер и порты 80/443 открыты. Если используете nginx — проксируйте
+            <code>https://crm.example.com</code> на <code>http://127.0.0.1:8080</code>
+            и настройте сертификат через certbot.
+          </p>
+          <div class="notice">
+            <p>
+              <strong>Проверьте firewall.</strong> Откройте 80/443 и не открывайте 8080
+              наружу:
+              <code>ufw allow 80/tcp &amp;&amp; ufw allow 443/tcp</code>.
+            </p>
+          </div>
+
+          <h2 id="check">8. Проверка после установки</h2>
+          <ul class="checklist">
+            <li><code>https://crm.example.com</code> открывает экран входа;</li>
+            <li><code>https://crm.example.com/api/v2/health</code> возвращает <code>ok</code>;</li>
+            <li>вход под администратором работает;</li>
+            <li>создаётся тестовая заявка и клиент;</li>
+            <li><code>docker compose ps</code> — все четыре контейнера <code>Up</code>;</li>
+            <li>в логах нет повторяющихся ошибок.</li>
+          </ul>
+          <div class="code-block">
+            <pre><code>docker compose ps
+docker compose logs --tail=50 web php cron db</code></pre>
+            <button class="copy" type="button">Копировать</button>
+          </div>
+
+          <h2 id="first-login">9. Первый вход и безопасность</h2>
+          <figure class="figure figure-small">
+            <img src="/assets/setup-login.png" alt="Экран входа CRM7 после установки" />
+            <figcaption>Экран входа. Логин администратора создаётся на шаге 6.</figcaption>
+          </figure>
+          <ul class="checklist">
+            <li>войдите как <code>admin</code> с паролем из шага 6;</li>
+            <li>сразу смените пароль администратора;</li>
+            <li>отключите или удалите служебные учётные записи, созданные <code>seed-dev</code>;</li>
+            <li>создайте реальных пользователей и роли;</li>
+            <li>настройте резервное копирование базы и каталога <code>storage/</code>;</li>
+            <li>не храните <code>config/.env</code> в Git.</li>
+          </ul>
+          <div class="notice notice-warn">
+            <p>
+              <strong>seed-dev — временный шаг.</strong> Он создаёт
+              <code>admin</code>, <code>administrator</code>, <code>manager</code>,
+              <code>manager2</code> и <code>client</code>. Для production оставьте
+              только нужные учётные записи и смените пароли.
+            </p>
+          </div>
+
+          <h2 id="updates">10. Обновления и обслуживание</h2>
+          <p>
+            Обновления и резервное копирование вынесены в отдельную бесплатную базу
+            знаний. Там есть инструкции для админки и консоли, скриншоты и разбор ошибок.
+          </p>
+          <p>
+            <a class="btn btn-primary" href="https://update.crm7.ru/">Открыть инструкции по обновлению →</a>
+          </p>
+          <ul class="checklist">
+            <li>перед обновлением делайте дамп базы;</li>
+            <li>не запускайте два обновления одновременно;</li>
+            <li>после обновления проверяйте <code>/api/v2/health</code>;</li>
+            <li>храните <code>config/.env</code> и backup отдельно от сервера.</li>
+          </ul>
+
+          <h2 id="troubleshooting">Если что-то не так</h2>
+          <div class="faq">
+            <details>
+              <summary>Порт 80/443 занят</summary>
+              <p>Остановите другой веб-сервер или освободите порт. Проверьте: <code>ss -ltnp | grep -E ':80|:443'</code>.</p>
+            </details>
+            <details>
+              <summary>Не проходит health</summary>
+              <p>Проверьте <code>docker compose ps</code>, логи <code>php</code> и <code>db</code>, а также <code>config/.env</code>: хост базы должен быть <code>db</code>, а пароль — совпадать с compose.</p>
+            </details>
+            <details>
+              <summary>Не выпускается сертификат</summary>
+              <p>Проверьте A-запись, доступность портов 80/443 и логи Caddy. Домен должен открываться снаружи до запуска Caddy.</p>
+            </details>
+            <details>
+              <summary>Ошибка миграции</summary>
+              <p>Не удаляйте базу. Проверьте, что контейнер <code>db</code> здоров, а <code>config/.env</code> указывает на правильную базу. Пришлите лог миграции.</p>
+            </details>
+          </div>
+
+          <div class="notice">
+            <p>
+              <strong>Нужна помощь с установкой?</strong> Это техническая инструкция,
+              но если что-то не сходится — напишите нам:
+              <a href="https://crm7.ru/#contact">crm7.ru/#contact</a>.
+            </p>
+          </div>
+        </article>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <span>CRM7 Setup · установка на Linux. Код — MIT, данные — у вас.</span>
+        <span class="footer-links">
+          <a href="https://crm7.ru/">crm7.ru</a>
+          <a href="https://update.crm7.ru/">Обновления</a>
+          <a href="https://github.com/siteix-ru/crm7" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://crm7.ru/#contact">Помощь</a>
+        </span>
+      </div>
+    </footer>
+
+    <script>
+      document.querySelectorAll(".copy").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const code = button.parentElement.querySelector("code");
+          if (!code) return;
+          try {
+            await navigator.clipboard.writeText(code.textContent);
+            button.textContent = "Скопировано";
+            setTimeout(() => (button.textContent = "Копировать"), 1500);
+          } catch {
+            button.textContent = "Выделите вручную";
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

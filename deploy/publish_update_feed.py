@@ -119,12 +119,15 @@ def validate(source: dict) -> list[dict]:
             raise SystemExit(f"release {version}: notes are required")
 
         min_from = str(release.get("min_from", "")).strip()
-        if min_from:
-            minimum = version_tuple(min_from)
-            if minimum is None or minimum >= current:
-                raise SystemExit(f"release {version}: invalid min_from {min_from!r}")
-            if min_from not in seen:
-                raise SystemExit(f"release {version}: min_from must be an earlier release")
+        previous_version = result[-1]["version"] if result else None
+
+        if previous_version is None:
+            if min_from != "":
+                raise SystemExit(f"release {version}: first release must have empty min_from")
+        elif min_from != previous_version:
+            raise SystemExit(
+                f"release {version}: min_from must be the previous release ({previous_version})"
+            )
 
         seen.add(version)
         result.append(

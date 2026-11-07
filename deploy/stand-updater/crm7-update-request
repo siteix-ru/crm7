@@ -1,0 +1,93 @@
+#!/bin/sh
+set -eu
+
+env_name="${1:-}"
+case "$env_name" in
+    demo|k) ;;
+    *)
+        echo "usage: crm7-update-request demo|k" >&2
+        exit 2
+        ;;
+esac
+
+dir="/var/lib/crm7-updater/$env_name"
+request="$dir/request.json"
+processing="$dir/request.processing"
+status="$dir/status.json"
+log="/var/log/crm7-updater/$env_name.log"
+lock="/run/crm7-update-request-$env_name.lock"
+
+mkdir -p "$dir" /var/log/crm7-updater
+exec 9>"$lock"
+if ! flock -n 9; then
+    echo "crm7-update-request: $env_name is already running"
+    exit 0
+fi
+
+if [ ! -f "$request" ]; then
+    exit 0
+fi
+
+mv "$request" "$processing"
+
+write_status() {
+    state=$1
+    code=$2
+    message=$3
+    python3 - "$state" "$code" "$message" "$processing" "$status" "$log" <<'PY'
+import json
+import os
+import sys
+from datetime import datetime
+
+state, code, message, request_path, status_path, log_path = sys.argv[1:7]
+
+request = {}
+try:
+    with open(request_path, encoding="utf-8") as handle:
+        request = json.load(handle)
+except Exception:
+    pass
+
+log_tail = ""
+try:
+    with open(log_path, encoding="utf-8", errors="replace") as handle:
+        log_tail = "".join(handle.readlines()[-30:])
+except Exception:
+    pass
+
+payload = {
+    "state": state,
+    "exit_code": int(code),
+    "updated_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+    "message": message,
+    "request_id": request.get("request_id"),
+    "current_version": request.get("current_version"),
+    "target_version": request.get("target_version"),
+    "requested_by": request.get("requested_by"),
+    "log_tail": log_tail,
+}
+
+temporary = status_path + ".tmp"
+with open(temporary, "w", encoding="utf-8") as handle:
+    json.dump(payload, handle, ensure_ascii=False)
+os.replace(temporary, status_path)
+PY
+}
+
+write_status running 0 "Обновление выполняется"
+
+code=0
+/usr/local/bin/crm7-update "$env_name" || code=$?
+
+if [ "$code" -eq 0 ]; then
+    write_status success 0 "Обновление завершено"
+elif [ "$code" -eq 75 ]; then
+    write_status busy 75 "Обновление уже выполняется"
+else
+    write_status failed "$code" "Обновление завершилось с ошибкой"
+fi
+
+mv -f "$processing" "$dir/last-request.json" 2>/dev/null || rm -f "$processing"
+
+exit "$code"

@@ -22,8 +22,10 @@ use App\Controllers\RequestController;
 use App\Controllers\RequestDraftController;
 use App\Controllers\StocksController;
 use App\Controllers\SubstitutionController;
+use App\Controllers\UpdateController;
 use App\Controllers\UserController;
 use App\Controllers\UserFiltersController;
+use App\Auth\AuthService;
 use App\Core\Config;
 use App\Core\Logger;
 use App\Http\HttpException;
@@ -65,6 +67,40 @@ if ($basePath !== '' && str_starts_with($request->path, $basePath)) {
     $request = $request->withPath(substr($request->path, strlen($basePath)) ?: '/');
 }
 
+$updateDir = rtrim((string) Config::get('CRM7_UPDATE_DIR', ''), '/');
+$maintenanceFile = $updateDir !== '' ? $updateDir . '/maintenance' : '';
+$maintenance = $maintenanceFile !== ''
+    && is_file($maintenanceFile)
+    && time() - (int) filemtime($maintenanceFile) < 3600;
+
+if ($maintenance) {
+    $path = $request->path;
+    $allowed = in_array($path, ['/health', '/auth/login', '/auth/logout', '/auth/me', '/settings/app', '/settings/public'], true)
+        || str_starts_with($path, '/admin/update/');
+
+    if (!$allowed) {
+        $authorized = false;
+
+        try {
+            $maintenanceAuth = new AuthService();
+            [$maintenanceUser] = $maintenanceAuth->authenticate($request->bearerToken());
+            $maintenanceCapabilities = $maintenanceAuth->capabilitiesFor($maintenanceUser);
+            $authorized = in_array('roles.manage', $maintenanceCapabilities, true);
+        } catch (Throwable) {
+            $authorized = false;
+        }
+
+        if (!$authorized) {
+            Response::error(
+                'maintenance',
+                'Идут технические работы. Попробуйте через несколько минут.',
+                503
+            )->send();
+            exit;
+        }
+    }
+}
+
 // Отключённые модули: пути блокируются по реестру модулей (App\Support\Modules).
 $moduleSettings = new SettingsRepository();
 $moduleGuards = Modules::guards(
@@ -96,6 +132,7 @@ $reports = new ReportController();
 $myReports = new MyReportController();
 $reportSchedules = new ReportScheduleController();
 $substitutions = new SubstitutionController();
+$update = new UpdateController();
 $chat = new ChatController();
 $stocks = new StocksController();
 $audit = new AuditController();
@@ -172,6 +209,9 @@ $router->get('/admin/queue', [$admin, 'queue']);
 $router->delete('/admin/queue', [$admin, 'clearQueue']);
 $router->get('/admin/settings/system', [$admin, 'systemSettings']);
 $router->post('/admin/settings/system', [$admin, 'saveSystemSettings']);
+$router->get('/admin/update/check', [$update, 'check']);
+$router->post('/admin/update/apply', [$update, 'apply']);
+$router->get('/admin/update/status', [$update, 'status']);
 $router->get('/admin/modules', [$modules, 'index']);
 $router->post('/admin/modules', [$modules, 'save']);
 $router->get('/admin/item-types', [$itemTypes, 'index']);

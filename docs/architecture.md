@@ -85,11 +85,20 @@
   тома `config/`, `storage/`, `var/`, `data/db/`.
 - Сборка: `python deploy/build_images.py [--push]` — frontend build → SFTP контекста → `docker build` на сервере.
 - Релиз: `python deploy/release_crm7.py --env <env|all> --tag <ver>` — версия в `.env` → pull → `migrate.php` → `up -d` → health.
-- Обновление клиента: `python deploy/crm7_updater.py --check|--apply` по публичному фиду
-  `https://update.crm7.ru/v1/releases.json`; источник фида — `deploy/update-feed.json`,
-  публикация — `python deploy/publish_update_feed.py`.
+- Обновление клиента: `python deploy/crm7_updater.py --check|--apply [--all]` по публичному фиду
+  `https://update.crm7.ru/v1/releases.json`; `--all` проходит цепочку до последней версии,
+  `pending.json` восстанавливает прерванный шаг; источник фида — `deploy/update-feed.json`,
+  публикация — `python deploy/publish_update_feed.py` (проверяет непрерывность `min_from`).
+- База знаний `update.crm7.ru` — статические страницы в `deploy/update-site/public`;
+  публикация — `python deploy/publish_update_site.py` (не трогает `v1/`).
+- Инструкция по установке `setup.crm7.ru` — `deploy/setup-site/public`; публикация —
+  `python deploy/publish_setup_site.py`; Caddy проксирует домен на `crm7-setup-web`.
 - Автообновление стендов: systemd-таймеры `crm7-update-demo.timer` (каждые 30 минут) и
   `crm7-update-k.timer` (ежедневно в 03:30); юниты и установщик — `deploy/stand-updater/`.
+  На время обновления — `maintenance`-флаг, остановка `cron` и `503` обычным пользователям.
+- Ручная проверка/запуск из админки: `GET/POST /admin/update/*` (тех-админ) →
+  `/var/lib/crm7-updater/<env>/request.json` → systemd path unit; в ответе `chain` и
+  `latest_version`, применяется последняя версия цепочки.
 
 Подробности: [`images.md`](images.md), [`deploy.md`](deploy.md), [`data-import.md`](data-import.md).
 

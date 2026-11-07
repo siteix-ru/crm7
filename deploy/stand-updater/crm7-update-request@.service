@@ -1,0 +1,14 @@
+[Unit]
+Description=CRM7 update request (%i)
+Documentation=https://github.com/siteix-ru/crm7
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/crm7-update-request %i
+Environment=HOME=/root
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+TimeoutStartSec=1800
+Nice=10
+IOSchedulingClass=best-effort

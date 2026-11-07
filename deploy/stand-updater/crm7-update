@@ -12,6 +12,8 @@ esac
 
 project="/srv/projects/crm7-$env_name"
 updater="/opt/crm7-updater/crm7_updater.py"
+update_dir="/var/lib/crm7-updater/$env_name"
+maintenance="$update_dir/maintenance"
 log_dir="/var/log/crm7-updater"
 log_file="$log_dir/$env_name.log"
 disabled="/etc/crm7-updater/$env_name.disabled"
@@ -29,15 +31,33 @@ fi
 
 mkdir -p "$log_dir"
 exec 9>"$lock_file"
-if ! flock -n 9; then
+if ! flock -w 600 9; then
     echo "crm7-update: $env_name is already running"
-    exit 0
+    exit 75
+fi
+
+cleanup() {
+    rm -f "$maintenance"
+    (cd "$project" && docker compose start cron >/dev/null 2>&1) || true
+}
+trap cleanup EXIT INT TERM
+
+mkdir -p "$update_dir"
+if [ -f "$maintenance" ] && [ "$(( $(date +%s) - $(stat -c %Y "$maintenance") ))" -gt 3600 ]; then
+    rm -f "$maintenance"
+fi
+touch "$maintenance"
+(cd "$project" && docker compose stop cron >/dev/null 2>&1) || true
+
+feed="https://update.crm7.ru/v1/releases.json"
+if [ -f "/etc/crm7-updater/$env_name.feed" ]; then
+    feed=$(tr -d '\r\n' < "/etc/crm7-updater/$env_name.feed")
 fi
 
 status=0
 {
-    echo "=== $(date -Is) $env_name ==="
-    python3 "$updater" --apply --yes --project-dir "$project" || status=$?
+    echo "=== $(date -Is) $env_name (maintenance) ==="
+    python3 "$updater" --apply --all --yes --url "$feed" --project-dir "$project" || status=$?
     echo "=== done: $status ==="
 } >>"$log_file" 2>&1
 

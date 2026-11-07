@@ -72,27 +72,35 @@ python deploy/release_crm7.py --env k --tag sha-<old-sha>
   storage/                → /var/www/html/api/storage  (том)
   var/                    → /var/www/html/api/var      (том)
   data/db/                → /var/lib/mysql             (том)
+  /var/lib/crm7-updater/<env> → /var/lib/crm7-updater  (том, UI-обновления)
 ```
 PHP-сервис публикует сетевой алиас `crm7-php`, поэтому один и тот же
-`nginx.conf` в образе работает во всех окружениях.
+`nginx.conf` в образе работает во всех окружениях. Для кнопки обновления в
+админке php-сервису нужны `CRM7_ENV`, `CRM7_VERSION`, `CRM7_UPDATE_DIR`.
 
 ## Обновление клиента
-`deploy/crm7_updater.py` — проверка и применение одного релиза по публичному
-фиду `https://update.crm7.ru/v1/releases.json`. Токены не нужны, образы
-публичные.
+`deploy/crm7_updater.py` — проверка и применение релиза (или цепочки) по
+публичному фиду `https://update.crm7.ru/v1/releases.json`. Токены не нужны,
+образы публичные.
 
 ```bash
 python deploy/crm7_updater.py --check
 python deploy/crm7_updater.py --apply --project-dir /srv/projects/crm7-demo --yes
-python deploy/crm7_updater.py --apply --project-dir /srv/projects/crm7-demo --dry-run
+python deploy/crm7_updater.py --apply --all --project-dir /srv/projects/crm7-demo --yes
+python deploy/crm7_updater.py --apply --all --project-dir /srv/projects/crm7-demo --dry-run
 ```
 
 Перед обновлением скрипт делает дамп БД (`update-crm-7/`, режим 0600), меняет
 `CRM7_VERSION`, ждёт готовности `db`, применяет миграции, перезапускает
 контейнеры и проверяет `/api/v2/health`. При ошибке версия в `.env`
 откатывается, дамп сохраняется; применённые миграции не откатываются.
+`--all` проходит всю цепочку до последней версии с отдельным бэкапом на
+каждый шаг; `pending.json` помогает восстановиться после прерывания.
 На demo/k это запускают systemd-таймеры (`deploy/stand-updater/`, см.
-`docs/manual-update.md`).
+`docs/manual-update.md`). Обёртка на время обновления поднимает
+`maintenance`-флаг, останавливает `cron` и возвращает `503 maintenance`
+обычным пользователям; технический администратор и `/health` доступны,
+фронтенд показывает экран обслуживания.
 
 ## Фид обновлений
 Источник — `deploy/update-feed.json` (правится в git, проходит ревью).
@@ -103,8 +111,9 @@ python deploy/publish_update_feed.py --dry-run
 python deploy/publish_update_feed.py --verify-images
 ```
 
-Скрипт проверяет версии, коммиты и `min_from`, при `--verify-images` — теги в
-GHCR, затем атомарно пишет `v1/releases.json` и `v1/health.json` на сервер.
+Скрипт проверяет версии, коммиты и `min_from` (должен совпадать с предыдущей
+версией — цепочка без разрывов), при `--verify-images` — теги в GHCR, затем
+атомарно пишет `v1/releases.json` и `v1/health.json` на сервер.
 
 ## Данные при обновлении
 - БД, вложения, конфиг — в томах, обновление образа их не затрагивает.
