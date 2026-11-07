@@ -19,7 +19,8 @@ CRM для заявок клиентов: склад с ценами и корз
 - `api/bin/` — `migrate.php`, `seed-dev.php`, `seed-demo.php`, `cron.php`.
 - `frontend/src/views/` — страницы; `frontend/src/lib/api/` — клиент API; `frontend/src/lib/stores/` — сторы;
   `frontend/src/lib/components/` — компоненты; `frontend/src/App.svelte` + `lib/router.svelte.ts` — роутинг.
-- `deploy/` — `Dockerfile.app`, `Dockerfile.web`, `nginx.conf`, `build_images.py`, `release_crm7.py`.
+- `deploy/` — `Dockerfile.app`, `Dockerfile.web`, `nginx.conf`, `build_images.py`, `release_crm7.py`,
+  `crm7_updater.py`, `publish_update_feed.py`, `update-feed.json`.
 - `docs/` — architecture, testing, ui, deploy, images, migrations, data-import, e2e, design-review, plan (исторический).
 
 ## Локальный стенд
@@ -52,6 +53,7 @@ php api/bin/seed-demo.php --force              # демо-данные (толь
 ```bash
 cd frontend && npm run check && npm test && npm run build
 php -l api/src/.../File.php     # по изменённым PHP-файлам
+python -m py_compile deploy/crm7_updater.py deploy/publish_update_feed.py
 ```
 
 CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build`; e2e — вручную.
@@ -71,6 +73,8 @@ CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build
 - Файлы (`storage/`) и БД — в томах и не попадают в образ; пересборка/релиз их не затрагивает.
 - Сборка образов и релиз идут через SSH к серверу: `python deploy/build_images.py [--push]`,
   `python deploy/release_crm7.py --env <env|all> --tag <ver>`.
+- Образы GHCR публичные. Фид `update.crm7.ru` публикуется из `deploy/update-feed.json`
+  через `python deploy/publish_update_feed.py`; файлы на сервере вручную не править.
 
 ## Документация
 

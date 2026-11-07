@@ -98,8 +98,8 @@ ssh -i $HOME\.ssh\id_ed25519 -p 21023 root@www.crm7.ru "echo SSH_OK"
 
 ### 1.4. Доступ к GHCR
 
-Образы приватные. На сервере один раз выполняют вход с GitHub PAT (scope
-`write:packages` — для пуша, `read:packages` — для пула):
+Образы публичные: клиенты тянут их анонимно, токен не нужен. Вход с GitHub PAT
+нужен только для публикации (scope `write:packages`):
 
 ```bash
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
@@ -458,13 +458,45 @@ python deploy/update_images.py --mode release --env k --tag sha-1a2b3c4
 | `frontend build not found` | нет `frontend/dist` | убрать `--skip-build` или собрать фронтенд |
 | `Connection refused` / `timed out` | нет SSH/VPN | проверить VPN, порт `21023`, ключ |
 | `Permission denied (publickey)` | не тот SSH-ключ | указать `--key` или добавить ключ на сервер |
-| `unauthorized` / `denied` при push/pull | GHCR не авторизован | `docker login ghcr.io` с PAT и нужными scope |
+| `unauthorized` / `denied` при push | GHCR не авторизован для публикации | `docker login ghcr.io` с PAT и scope `write:packages` |
 | `manifest unknown` / `not found` | тега нет в GHCR | сначала `build_images.py --push` с этим тегом |
 | `no space left on device` | закончилось место | `docker image prune`, `docker builder prune`; **не** удалять тома |
 | `build FAILED` | сборка на сервере не прошла | смотреть вывод выше: Docker, место, ошибка в коде |
 | `release FAILED (envs without OK: […])` | релиз не подтвердился | смотреть вывод и health; окружения могли обновиться частично |
 | health `database: error` | нет связи с БД | проверить `.env`, `config/`, логи `php`; образ не пересобирать |
+| `database backup failed` | нет `mariadb-dump`/`mysqldump` или прав | `docker compose exec db mariadb-dump --version`; проверить `MARIADB_*` |
+| `database did not become ready` | БД не стартовала | `docker compose logs db`; повторить обновление |
+| `health check failed` | приложение не поднялось | `docker compose logs --tail=100 php web`; дамп сохранён |
 | `could not resolve host` при git push | нет сети/VPN | коммит локальный; повторить push позже |
+
+### 3.8. Автообновление клиента
+
+Клиентское окружение обновляется по публичному фиду
+`https://update.crm7.ru/v1/releases.json`; токены не нужны.
+
+```powershell
+python deploy/crm7_updater.py --check
+python deploy/crm7_updater.py --apply --project-dir /srv/projects/crm7-demo --dry-run
+python deploy/crm7_updater.py --apply --project-dir /srv/projects/crm7-demo --yes
+```
+
+`--apply` делает дамп БД в `update-crm-7/` (режим 0600), меняет
+`CRM7_VERSION` в `.env`, тянет образы, поднимает `db` и ждёт готовности,
+применяет миграции, перезапускает контейнеры и проверяет health. При ошибке
+возвращает версию в `.env` и перезапускает контейнеры; дамп остаётся.
+Применённые миграции не откатываются. `--skip-backup` — только осознанно.
+
+Публикация фида после релиза, прошедшего test:
+
+```powershell
+python deploy/publish_update_feed.py --dry-run
+python deploy/publish_update_feed.py --verify-images
+```
+
+Источник фида — `deploy/update-feed.json`; версии идут по возрастанию,
+`min_from` — предыдущая версия. Сайт фида живёт в
+`/srv/build/crm7-update/public` и смонтирован в контейнер `crm7-update-web`,
+поэтому публикация не требует пересборки образа.
 
 ## 4. Безопасность
 

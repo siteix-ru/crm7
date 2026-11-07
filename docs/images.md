@@ -18,12 +18,13 @@
 демо и тестов в реестр не уезжают.**
 
 ## Реестр
-Приватный **GHCR**: `ghcr.io/siteix-ru/crm7-app` и `.../crm7-web`.
-Доступ — по GitHub PAT (scope `write:packages` для пуша, `read:packages` для
-пула). Образы приватные.
+Публичный **GHCR**: `ghcr.io/siteix-ru/crm7-app` и `.../crm7-web`.
+Репозиторий и образы открыты (MIT), поэтому клиенты тянут образы анонимно,
+без токенов. Публикация (`docker push`) требует GitHub PAT со scope
+`write:packages`.
 
 ```bash
-# на сервере (для сборки/пула) — один раз, токен не хранить в репозитории:
+# на dev-сервере для публикации — один раз, токен не хранить в репозитории:
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
 ```
 
@@ -75,8 +76,36 @@ python deploy/release_crm7.py --env k --tag sha-<old-sha>
 PHP-сервис публикует сетевой алиас `crm7-php`, поэтому один и тот же
 `nginx.conf` в образе работает во всех окружениях.
 
+## Обновление клиента
+`deploy/crm7_updater.py` — проверка и применение одного релиза по публичному
+фиду `https://update.crm7.ru/v1/releases.json`. Токены не нужны, образы
+публичные.
+
+```bash
+python deploy/crm7_updater.py --check
+python deploy/crm7_updater.py --apply --project-dir /srv/projects/crm7-demo --yes
+python deploy/crm7_updater.py --apply --project-dir /srv/projects/crm7-demo --dry-run
+```
+
+Перед обновлением скрипт делает дамп БД (`update-crm-7/`, режим 0600), меняет
+`CRM7_VERSION`, ждёт готовности `db`, применяет миграции, перезапускает
+контейнеры и проверяет `/api/v2/health`. При ошибке версия в `.env`
+откатывается, дамп сохраняется; применённые миграции не откатываются.
+
+## Фид обновлений
+Источник — `deploy/update-feed.json` (правится в git, проходит ревью).
+Публикация в `update.crm7.ru`:
+
+```bash
+python deploy/publish_update_feed.py --dry-run
+python deploy/publish_update_feed.py --verify-images
+```
+
+Скрипт проверяет версии, коммиты и `min_from`, при `--verify-images` — теги в
+GHCR, затем атомарно пишет `v1/releases.json` и `v1/health.json` на сервер.
+
 ## Данные при обновлении
 - БД, вложения, конфиг — в томах, обновление образа их не затрагивает.
 - Миграции применяются инкрементально (см. `docs/migrations.md`).
 - `seed-demo.php --force` — только demo; на k/prod не запускается.
-- Перенос наработок клиента (k → прод) — отдельный `mysqldump`/restore.
+- Перенос наработок клиента (k → прод) — отдельный `mariadb-dump`/restore.

@@ -674,7 +674,7 @@ Demo-режим (`DEMO_MODE=true` в `api/config/.env`):
 - демо-учётки по одной на роль (`demo_root` 90, `demo_admin` 50, `demo_manager` 10, `demo_client` 5; пароль `demo123456`) создаются `api/bin/seed-demo-users.php` и показываются на странице входа (клиент привязан к демо-менеджеру);
 - полный сброс demo: `/srv/projects/crm7-demo/reset-demo.sh` (сид демо-данных + демо-учётки).
 
-Выкладка (образы): `python deploy/build_images.py --push` (сборка на dev-сервере, теги `<version>` + `sha-<commit>`, приватный GHCR) → `python deploy/release_crm7.py --env all --tag <ver>` (pull → миграции → перезапуск; тома с данными не трогаются). Подробности — `docs/images.md`. Провижининг нового окружения — `provision_crm7_env.sh`; прежний `deploy/deploy_crm7.py` (SFTP-код) оставлен как legacy для bind-mount.
+Выкладка (образы): `python deploy/build_images.py --push` (сборка на dev-сервере, теги `<version>` + `sha-<commit>`, публичный GHCR) → `python deploy/release_crm7.py --env all --tag <ver>` (pull → миграции → перезапуск; тома с данными не трогаются). Подробности — `docs/images.md`. Провижининг нового окружения — `provision_crm7_env.sh`; прежний `deploy/deploy_crm7.py` (SFTP-код) оставлен как legacy для bind-mount.
 
 Правила миграций БД — `docs/migrations.md` (аддитивность, бэкап перед k/prod, сиды только demo; `migrate.php --status` и защита `--allow-destructive`).
 

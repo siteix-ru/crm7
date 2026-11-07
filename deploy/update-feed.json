@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "channel": "stable",
+  "repository": "https://github.com/siteix-ru/crm7",
+  "documentation": "https://github.com/siteix-ru/crm7#readme",
+  "releases": [
+    {
+      "version": "1.4.0",
+      "released_at": "2026-10-28",
+      "commit": "cb115a4",
+      "min_from": "",
+      "notes": "Первый публичный релиз 1.4.x: новый интерфейс, заявки, склад, отчёты и админка."
+    },
+    {
+      "version": "1.4.1",
+      "released_at": "2026-11-06",
+      "commit": "106d391",
+      "min_from": "1.4.0",
+      "notes": "Стабильный релиз: склады, права, группы, импорт и фото."
+    },
+    {
+      "version": "1.4.2",
+      "released_at": "2026-11-06",
+      "commit": "81fa0a4",
+      "min_from": "1.4.1",
+      "notes": "Пагинация внизу страниц и модалок, исправления интерфейса."
+    }
+  ]
+}

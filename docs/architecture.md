@@ -85,6 +85,9 @@
   тома `config/`, `storage/`, `var/`, `data/db/`.
 - Сборка: `python deploy/build_images.py [--push]` — frontend build → SFTP контекста → `docker build` на сервере.
 - Релиз: `python deploy/release_crm7.py --env <env|all> --tag <ver>` — версия в `.env` → pull → `migrate.php` → `up -d` → health.
+- Обновление клиента: `python deploy/crm7_updater.py --check|--apply` по публичному фиду
+  `https://update.crm7.ru/v1/releases.json`; источник фида — `deploy/update-feed.json`,
+  публикация — `python deploy/publish_update_feed.py`.
 
 Подробности: [`images.md`](images.md), [`deploy.md`](deploy.md), [`data-import.md`](data-import.md).
 
