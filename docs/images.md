@@ -91,6 +91,8 @@ python deploy/crm7_updater.py --apply --project-dir /srv/projects/crm7-demo --dr
 `CRM7_VERSION`, ждёт готовности `db`, применяет миграции, перезапускает
 контейнеры и проверяет `/api/v2/health`. При ошибке версия в `.env`
 откатывается, дамп сохраняется; применённые миграции не откатываются.
+На demo/k это запускают systemd-таймеры (`deploy/stand-updater/`, см.
+`docs/manual-update.md`).
 
 ## Фид обновлений
 Источник — `deploy/update-feed.json` (правится в git, проходит ревью).

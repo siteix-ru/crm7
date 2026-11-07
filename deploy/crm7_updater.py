@@ -167,6 +167,22 @@ def backup_database(project: pathlib.Path, backup_dir: pathlib.Path, dry_run: bo
     return target
 
 
+def prune_backups(backup_dir: pathlib.Path, keep: int) -> None:
+    if keep <= 0:
+        return
+    backups = sorted(
+        backup_dir.glob("crm7-*.sql"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    for old in backups[keep:]:
+        try:
+            old.unlink()
+            print(f"backup removed: {old}")
+        except OSError as error:
+            print(f"backup cleanup failed: {old}: {error}", file=sys.stderr)
+
+
 def wait_for_db(project: pathlib.Path, dry_run: bool, timeout: int = 60) -> None:
     if dry_run:
         print("+ wait for database readiness")
@@ -255,6 +271,9 @@ def apply_release(project: pathlib.Path, env_file: pathlib.Path, release: dict, 
             print(f"rollback failed: {rollback_error}", file=sys.stderr)
         return 1
 
+    if backup is not None and not args.skip_backup:
+        prune_backups(backup_dir, args.keep_backups)
+
     print(f"Готово: CRM7 обновлён до {target}.")
     return 0
 
@@ -270,9 +289,13 @@ def main() -> int:
     parser.add_argument("--env-file", help="путь к .env проекта")
     parser.add_argument("--backup-dir", help="каталог резервных копий БД")
     parser.add_argument("--skip-backup", action="store_true")
+    parser.add_argument("--keep-backups", type=int, default=10, help="сколько дампов БД хранить")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--yes", action="store_true", help="не спрашивать подтверждение")
     args = parser.parse_args()
+
+    if args.keep_backups < 0:
+        raise SystemExit("--keep-backups must be zero or greater")
 
     project = pathlib.Path(args.project_dir).resolve()
     env_file = pathlib.Path(args.env_file).resolve() if args.env_file else project / ".env"

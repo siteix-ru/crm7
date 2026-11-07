@@ -1,0 +1,12 @@
+[Unit]
+Description=CRM7 demo update check
+Documentation=https://github.com/siteix-ru/crm7
+
+[Timer]
+OnCalendar=*:0/30
+RandomizedDelaySec=3m
+Persistent=true
+Unit=crm7-update@demo.service
+
+[Install]
+WantedBy=timers.target

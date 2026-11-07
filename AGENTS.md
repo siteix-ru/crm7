@@ -20,7 +20,7 @@ CRM для заявок клиентов: склад с ценами и корз
 - `frontend/src/views/` — страницы; `frontend/src/lib/api/` — клиент API; `frontend/src/lib/stores/` — сторы;
   `frontend/src/lib/components/` — компоненты; `frontend/src/App.svelte` + `lib/router.svelte.ts` — роутинг.
 - `deploy/` — `Dockerfile.app`, `Dockerfile.web`, `nginx.conf`, `build_images.py`, `release_crm7.py`,
-  `crm7_updater.py`, `publish_update_feed.py`, `update-feed.json`.
+  `crm7_updater.py`, `publish_update_feed.py`, `update-feed.json`, `stand-updater/` (systemd-таймеры demo/k).
 - `docs/` — architecture, testing, ui, deploy, images, migrations, data-import, e2e, design-review, plan (исторический).
 
 ## Локальный стенд
@@ -75,6 +75,8 @@ CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build
   `python deploy/release_crm7.py --env <env|all> --tag <ver>`.
 - Образы GHCR публичные. Фид `update.crm7.ru` публикуется из `deploy/update-feed.json`
   через `python deploy/publish_update_feed.py`; файлы на сервере вручную не править.
+- На demo/k работают systemd-таймеры `crm7-update-*.timer`; пауза —
+  `/etc/crm7-updater/<env>.disabled`, логи — `/var/log/crm7-updater/`.
 
 ## Документация
 

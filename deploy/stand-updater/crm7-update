@@ -1,0 +1,44 @@
+#!/bin/sh
+set -eu
+
+env_name="${1:-}"
+case "$env_name" in
+    demo|k) ;;
+    *)
+        echo "usage: crm7-update demo|k" >&2
+        exit 2
+        ;;
+esac
+
+project="/srv/projects/crm7-$env_name"
+updater="/opt/crm7-updater/crm7_updater.py"
+log_dir="/var/log/crm7-updater"
+log_file="$log_dir/$env_name.log"
+disabled="/etc/crm7-updater/$env_name.disabled"
+lock_file="/run/crm7-update-$env_name.lock"
+
+if [ -e "$disabled" ]; then
+    echo "crm7-update: $env_name disabled by $disabled"
+    exit 0
+fi
+
+if [ ! -f "$project/docker-compose.yml" ]; then
+    echo "crm7-update: compose file not found in $project" >&2
+    exit 1
+fi
+
+mkdir -p "$log_dir"
+exec 9>"$lock_file"
+if ! flock -n 9; then
+    echo "crm7-update: $env_name is already running"
+    exit 0
+fi
+
+status=0
+{
+    echo "=== $(date -Is) $env_name ==="
+    python3 "$updater" --apply --yes --project-dir "$project" || status=$?
+    echo "=== done: $status ==="
+} >>"$log_file" 2>&1
+
+exit "$status"

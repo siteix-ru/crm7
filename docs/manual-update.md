@@ -498,6 +498,44 @@ python deploy/publish_update_feed.py --verify-images
 `/srv/build/crm7-update/public` и смонтирован в контейнер `crm7-update-web`,
 поэтому публикация не требует пересборки образа.
 
+### 3.9. Автообновление на стендах
+
+На сервере установлены systemd-таймеры:
+
+- `crm7-update-demo.timer` — каждые 30 минут;
+- `crm7-update-k.timer` — ежедневно в 03:30 (±20 минут).
+
+Оба запускают `/usr/local/bin/crm7-update <env>`, который вызывает
+`/opt/crm7-updater/crm7_updater.py --apply --yes`. Логи —
+`/var/log/crm7-updater/<env>.log` (logrotate, 8 недель), бэкапы БД —
+`/srv/projects/crm7-<env>/update-crm-7/` (хранится 10 последних).
+
+Установка/обновление юнитов: скопировать `deploy/crm7_updater.py` и каталог
+`deploy/stand-updater/` на сервер, затем:
+
+```bash
+sh stand-updater/install.sh
+```
+
+Пауза и возобновление:
+
+```bash
+touch /etc/crm7-updater/k.disabled   # или demo.disabled
+rm /etc/crm7-updater/k.disabled
+```
+
+Проверка:
+
+```bash
+systemctl list-timers --all | grep crm7
+systemctl start crm7-update@demo.service
+tail -20 /var/log/crm7-updater/demo.log
+```
+
+Таймеры реагируют только на опубликованный фид. Публикуйте фид после проверки
+demo: k подхватит релиз ночью. Перед ручным `release_crm7.py` на тот же стенд
+поставьте таймер на паузу, чтобы не было двух одновременных обновлений.
+
 ## 4. Безопасность
 
 - `k` — реальные данные клиента: `seed-demo.php` и `seed-dev.php` там не

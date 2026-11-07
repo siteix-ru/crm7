@@ -1,0 +1,12 @@
+[Unit]
+Description=CRM7 k update check
+Documentation=https://github.com/siteix-ru/crm7
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+RandomizedDelaySec=20m
+Persistent=true
+Unit=crm7-update@k.service
+
+[Install]
+WantedBy=timers.target

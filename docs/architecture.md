@@ -88,6 +88,8 @@
 - Обновление клиента: `python deploy/crm7_updater.py --check|--apply` по публичному фиду
   `https://update.crm7.ru/v1/releases.json`; источник фида — `deploy/update-feed.json`,
   публикация — `python deploy/publish_update_feed.py`.
+- Автообновление стендов: systemd-таймеры `crm7-update-demo.timer` (каждые 30 минут) и
+  `crm7-update-k.timer` (ежедневно в 03:30); юниты и установщик — `deploy/stand-updater/`.
 
 Подробности: [`images.md`](images.md), [`deploy.md`](deploy.md), [`data-import.md`](data-import.md).
 
