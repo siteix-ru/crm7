@@ -39,6 +39,7 @@
   import { router } from '../lib/router.svelte';
   import { config } from '../lib/config';
   import { formatDate, formatDateTime, formatPrice, stockQuantityText } from '../lib/format';
+  import { groupStockLevels, sortStockColumns } from '../lib/stocks/columns';
 
   function todayLocal(): string {
     const now = new Date();
@@ -117,20 +118,29 @@
     warehousesEnabled &&
       (auth.can('stocks.import') || auth.can('stocks.edit') || auth.can('stocks.manage'))
   );
-  const sortFields = $derived(
-    warehousesEnabled
-      ? [
-          { field: 'name', label: 'Название' },
-          { field: 'qty', label: 'Остаток' },
-          { field: 'warehouse', label: 'Склад' },
-          { field: 'price', label: 'Цена' }
-        ]
-      : [
-          { field: 'name', label: 'Название' },
-          { field: 'qty', label: 'Остаток' },
-          { field: 'price', label: 'Цена' }
-        ]
-  );
+  const sortFields = $derived.by(() => {
+    const fields = [{ field: 'name', label: 'Номенклатура' }];
+
+    if (viewMode === 'columns') {
+      for (const warehouse of selectedWarehouses) {
+        fields.push({ field: `warehouse_${warehouse.id}`, label: warehouse.name });
+      }
+
+      return fields;
+    }
+
+    fields.push({ field: 'qty', label: 'Остаток' });
+
+    if (warehousesEnabled && viewMode === 'list') {
+      fields.push({ field: 'warehouse', label: 'Склад' });
+    }
+
+    if (pricesEnabled) {
+      fields.push({ field: 'price', label: 'Цена' });
+    }
+
+    return fields;
+  });
   const groupsPreselected = Array.isArray(initialStockFilters.group_ids);
   let stockSort = $state(initialStockFilters.sort);
   let stockGroups = $state<number[]>(parseGroups(initialStockFilters.group_ids));
@@ -163,7 +173,12 @@
   let qtyOpDraft = $state<'' | 'gt' | 'lt'>(initialQtyOp);
   let qtyDraft = $state<string | number>(initialQtyValue);
   const PAGE_SIZES = [10, 20, 50, 100];
-  const initialView: 'list' | 'tiles' = initialStockFilters.view === 'tiles' ? 'tiles' : 'list';
+  const initialView: 'list' | 'tiles' | 'columns' =
+    initialStockFilters.view === 'tiles'
+      ? 'tiles'
+      : initialStockFilters.view === 'columns'
+        ? 'columns'
+        : 'list';
 
   function normalizePageSize(value: unknown, fallback: number): number {
     const size = Number(value);
@@ -173,13 +188,13 @@
 
   const initialPerPageList = normalizePageSize(initialStockFilters.per_page_list, 20);
   const initialPerPageTiles = normalizePageSize(initialStockFilters.per_page_tiles, 20);
-  let viewMode = $state<'list' | 'tiles'>(initialView);
+  let viewMode = $state<'list' | 'tiles' | 'columns'>(initialView);
   let perPageList = $state<number>(initialPerPageList);
   let perPageTiles = $state<number>(initialPerPageTiles);
   let perPage = $state<number>(initialView === 'tiles' ? initialPerPageTiles : initialPerPageList);
   let showPhotos = $state<boolean>(initialStockFilters.photos !== false);
   let viewOpen = $state(false);
-  let viewDraft = $state<'list' | 'tiles'>('list');
+  let viewDraft = $state<'list' | 'tiles' | 'columns'>('list');
   let photoDraft = $state<boolean>(true);
   let sortOpen = $state(false);
   let sortDraft = $state<string[]>(parseSort(initialStockFilters.sort));
@@ -194,6 +209,127 @@
   let helpOpen = $state(false);
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let loadSeq = 0;
+
+  const columnRows = $derived.by(() => groupStockLevels(levels));
+  const columnTotal = $derived(columnRows.length);
+  const columnSortTerms = $derived(parseSort(stockSort));
+  const columnSort = $derived.by(() => {
+    const term = columnSortTerms[0] ?? 'name_asc';
+    const dir: 'asc' | 'desc' = term.endsWith('_desc') ? 'desc' : 'asc';
+    const base = term.replace(/_(asc|desc)$/, '');
+    const warehouseId = base.startsWith('warehouse_') ? Number(base.slice(10)) : 0;
+    const field: 'name' | number = warehouseId > 0 ? warehouseId : 'name';
+
+    return { field, dir };
+  });
+  const sortedColumnRows = $derived(sortStockColumns(columnRows, columnSortTerms));
+  const columnPageRows = $derived.by(() => {
+    if (perPage <= 0) {
+      return sortedColumnRows;
+    }
+
+    const start = (page - 1) * perPage;
+
+    return sortedColumnRows.slice(start, start + perPage);
+  });
+  const pagerTotal = $derived(viewMode === 'columns' ? columnTotal : total);
+
+  let columnsScrollEl = $state<HTMLDivElement | null>(null);
+  let columnsHeadScrollEl = $state<HTMLDivElement | null>(null);
+  let columnsCanScroll = $state(false);
+  let columnsAtStart = $state(true);
+  let columnsAtEnd = $state(false);
+
+  function updateColumnsScrollState(): void {
+    const el = columnsScrollEl;
+
+    if (!el) {
+      columnsCanScroll = false;
+      columnsAtStart = true;
+      columnsAtEnd = true;
+      return;
+    }
+
+    const head = columnsHeadScrollEl;
+
+    if (head) {
+      head.scrollLeft = el.scrollLeft;
+    }
+
+    const max = el.scrollWidth - el.clientWidth;
+
+    columnsCanScroll = max > 1;
+    columnsAtStart = el.scrollLeft <= 1;
+    columnsAtEnd = el.scrollLeft >= max - 1;
+  }
+
+  function scrollColumns(direction: -1 | 1): void {
+    const el = columnsScrollEl;
+
+    if (!el) {
+      return;
+    }
+
+    el.scrollBy({
+      left: direction * Math.max(180, el.clientWidth * 0.8),
+      behavior: 'smooth'
+    });
+  }
+
+  function toggleColumnSort(field: 'name' | number): void {
+    const base = field === 'name' ? 'name' : `warehouse_${field}`;
+    const current = parseSort(stockSort);
+    const existing = current.find((term) => term.startsWith(`${base}_`));
+    const direction = existing?.endsWith('_asc') ? 'desc' : 'asc';
+    const next = [
+      `${base}_${direction}`,
+      ...current.filter((term) => !term.startsWith(`${base}_`))
+    ];
+    const value = next.join(',');
+
+    if (value === stockSort) {
+      return;
+    }
+
+    stockSort = value;
+    sortDraft = next;
+    page = 1;
+    saveStockFilters();
+  }
+
+  function syncColumnsFromHead(): void {
+    if (columnsScrollEl && columnsHeadScrollEl) {
+      columnsScrollEl.scrollLeft = columnsHeadScrollEl.scrollLeft;
+    }
+  }
+
+  $effect(() => {
+    const el = columnsScrollEl;
+
+    if (!el || viewMode !== 'columns') {
+      columnsCanScroll = false;
+      return;
+    }
+
+    const update = () => updateColumnsScrollState();
+    const observer = new ResizeObserver(update);
+
+    update();
+    observer.observe(el);
+
+    const table = el.querySelector('table');
+
+    if (table) {
+      observer.observe(table);
+    }
+
+    el.addEventListener('scroll', update, { passive: true });
+
+    return () => {
+      observer.disconnect();
+      el.removeEventListener('scroll', update);
+    };
+  });
 
   const canCreate = $derived(auth.can('requests.create') && appSettings.cartEnabled);
   const pricesEnabled = $derived(appSettings.pricesEnabled);
@@ -583,7 +719,12 @@
   }
 
   function openSort(): void {
-    sortDraft = parseSort(stockSort);
+    const allowed = new Set(sortFields.map((item) => item.field));
+    const terms = parseSort(stockSort).filter((term) =>
+      [...allowed].some((field) => term.startsWith(`${field}_`))
+    );
+
+    sortDraft = terms.length > 0 ? terms : ['name_asc'];
     sortOpen = true;
   }
 
@@ -597,6 +738,13 @@
     }
 
     stockSort = next;
+
+    if (viewMode === 'columns') {
+      page = 1;
+      saveStockFilters();
+      return;
+    }
+
     changeSort();
   }
 
@@ -725,6 +873,12 @@
 
     viewMode = viewDraft;
     showPhotos = photoDraft;
+
+    if (viewChanged) {
+      stockSort = 'name_asc';
+      sortDraft = ['name_asc'];
+    }
+
     priceTypeFilter = nextFilter;
     qtyOp = nextQtyOp;
     qty = nextQty;
@@ -844,7 +998,12 @@
     }
 
     try {
-      const data = await listLevels(selectedIds, filters, page, perPage);
+      const data = await listLevels(
+        selectedIds,
+        filters,
+        viewMode === 'columns' ? 1 : page,
+        viewMode === 'columns' ? 0 : perPage
+      );
 
       if (seq !== loadSeq) {
         return;
@@ -854,13 +1013,18 @@
       total = data.total;
       priceTypeTitle = data.prices?.type?.title ?? '';
 
-      const maxPage = perPage <= 0 ? 1 : Math.max(1, Math.ceil(data.total / perPage));
+      const pageTotal =
+        viewMode === 'columns' ? groupStockLevels(data.items).length : data.total;
+      const maxPage = perPage <= 0 ? 1 : Math.max(1, Math.ceil(pageTotal / perPage));
 
       if (page > maxPage) {
         page = maxPage;
         saveStockFilters();
-        void loadLevels(silent);
-        return;
+
+        if (viewMode !== 'columns') {
+          void loadLevels(silent);
+          return;
+        }
       }
     } catch (cause) {
       if (seq === loadSeq && !silent) {
@@ -902,6 +1066,11 @@
 
     page = next;
     saveStockFilters();
+
+    if (viewMode === 'columns') {
+      return;
+    }
+
     await loadLevels();
   }
 
@@ -914,6 +1083,11 @@
 
     page = 1;
     saveStockFilters();
+
+    if (viewMode === 'columns') {
+      return;
+    }
+
     void loadLevels();
   }
 
@@ -1111,7 +1285,7 @@
         <button
           type="button"
           class="sort-button"
-          class:active={viewMode === 'tiles'}
+          class:active={viewMode !== 'list'}
           title="Вид"
           aria-label="Вид: списком или плитками"
           onclick={openView}
@@ -1507,6 +1681,10 @@
           <input type="radio" name="stock-view" value="tiles" bind:group={viewDraft} />
           <span>Плитка</span>
         </label>
+        <label class="radio">
+          <input type="radio" name="stock-view" value="columns" bind:group={viewDraft} />
+          <span>Колоночный вид</span>
+        </label>
       </div>
 
       <div class="filter-group">
@@ -1720,6 +1898,187 @@
       </div>
     {:else}
       <div class="levels-wrap">
+      {#if viewMode === 'columns'}
+        <div class="columns-scroll-shell">
+          {#if columnsCanScroll}
+            <div class="columns-scroll-bar">
+              <span class="columns-scroll-label">Склады</span>
+              <div class="columns-scroll-controls">
+                <button
+                  type="button"
+                  class="columns-scroll-btn"
+                  title="Прокрутить склады влево"
+                  aria-label="Прокрутить склады влево"
+                  disabled={columnsAtStart}
+                  onclick={() => scrollColumns(-1)}
+                >
+                  <Icon name="arrow-left" size={16} />
+                </button>
+                <button
+                  type="button"
+                  class="columns-scroll-btn"
+                  title="Прокрутить склады вправо"
+                  aria-label="Прокрутить склады вправо"
+                  disabled={columnsAtEnd}
+                  onclick={() => scrollColumns(1)}
+                >
+                  <Icon name="arrow-right" size={16} />
+                </button>
+              </div>
+            </div>
+          {/if}
+          <div class="columns-sticky-head">
+            <div class="columns-head-scroll" bind:this={columnsHeadScrollEl} onscroll={syncColumnsFromHead}>
+              <table class="columns-table columns-table-head" aria-label="Заголовок таблицы остатков">
+                <colgroup>
+                  <col style="width: 280px" />
+                  {#each selectedWarehouses as warehouse (warehouse.id)}
+                    <col style="width: 220px" />
+                  {/each}
+                </colgroup>
+                <thead>
+                  <tr>
+                    <th
+                      scope="col"
+                      class="columns-name-head"
+                      aria-sort={columnSort.field === 'name' ? (columnSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                    >
+                      <button
+                        type="button"
+                        class="columns-head-button"
+                        title="Сортировать по названию"
+                        onclick={() => toggleColumnSort('name')}
+                      >
+                        <span>Название</span>
+                        {#if columnSort.field === 'name'}
+                          <Icon name={columnSort.dir === 'asc' ? 'arrow-up' : 'arrow-down'} size={12} />
+                        {/if}
+                      </button>
+                    </th>
+                    {#each selectedWarehouses as warehouse (warehouse.id)}
+                      <th
+                        scope="col"
+                        aria-sort={columnSort.field === warehouse.id ? (columnSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+                      >
+                        <button
+                          type="button"
+                          class="columns-head-button"
+                          title={`Сортировать по остатку: ${warehouse.name}`}
+                          onclick={() => toggleColumnSort(warehouse.id)}
+                        >
+                          <span>{warehouse.name}</span>
+                          {#if columnSort.field === warehouse.id}
+                            <Icon name={columnSort.dir === 'asc' ? 'arrow-up' : 'arrow-down'} size={12} />
+                          {/if}
+                        </button>
+                      </th>
+                    {/each}
+                  </tr>
+                </thead>
+              </table>
+            </div>
+          </div>
+          <div class="columns-table-wrap" bind:this={columnsScrollEl}>
+            <table class="columns-table" aria-label="Остатки по складам">
+              <colgroup>
+                <col style="width: 280px" />
+                {#each selectedWarehouses as warehouse (warehouse.id)}
+                  <col style="width: 220px" />
+                {/each}
+              </colgroup>
+              <tbody>
+              {#each columnPageRows as row (row.key)}
+                {@const first = row.levels.values().next().value}
+                <tr>
+                  <th scope="row" class="columns-name">
+                    <button
+                      type="button"
+                      class="name"
+                      title="Открыть номенклатуру"
+                      onclick={() => first && openItem(first)}
+                    >
+                      {row.name}
+                    </button>
+                    {#if groupsEnabled && row.group_title}
+                      <span class="column-group">{row.group_title}</span>
+                    {/if}
+                  </th>
+                  {#each selectedWarehouses as warehouse (warehouse.id)}
+                    {@const cell = row.levels.get(warehouse.id)}
+                    <td class="columns-cell" class:cart-over={cell ? inCart(cell) > cell.quantity : false}>
+                      {#if cell}
+                        {@const cartQty = inCart(cell)}
+                        <button
+                          type="button"
+                          class="column-main"
+                          title={`Открыть ${row.name} на складе ${warehouse.name}`}
+                          onclick={() => openItem(cell)}
+                        >
+                          <span class="column-qty">{stockQuantityText(cell.quantity, cell.unit)}</span>
+                          {#if pricesEnabled}
+                            <span class="price-lines">
+                              {#each visiblePriceRows(cell) as price (price.id)}
+                                <span class="price-line">
+                                  <span class="price-type">{price.title || 'Цена'}</span>
+                                  <span class="price" class:missing={price.price === null}>
+                                    {formatPrice(price.price)}
+                                  </span>
+                                </span>
+                              {/each}
+                            </span>
+                          {/if}
+                        </button>
+                        {#if canCreate && cell.active !== false}
+                          <!-- svelte-ignore a11y_click_events_have_key_events -->
+                          <!-- svelte-ignore a11y_no_static_element_interactions -->
+                          <div class="column-cart" onclick={(event) => event.stopPropagation()}>
+                            {#if cartQty > 0}
+                              <span class="add">
+                                <button
+                                  type="button"
+                                  class="step"
+                                  aria-label={`Уменьшить: ${row.name}`}
+                                  onclick={() => cart.decreaseAt(cell.warehouse_id, cell.name)}
+                                >
+                                  −
+                                </button>
+                                <span class="qty" aria-label={`В корзине: ${row.name}`}>
+                                  {cartQty.toLocaleString('ru-RU', { maximumFractionDigits: 3 })}
+                                </span>
+                                <button
+                                  type="button"
+                                  class="step"
+                                  aria-label={`Увеличить: ${row.name}`}
+                                  onclick={() => cart.increaseAt(cell.warehouse_id, cell.name)}
+                                >
+                                  +
+                                </button>
+                              </span>
+                            {:else}
+                              <Button
+                                variant="text"
+                                size="sm"
+                                title="Добавить в корзину"
+                                ariaLabel={`Добавить в корзину: ${row.name}`}
+                                onclick={() => addToCart(cell)}
+                              >
+                                <Icon name="cart" size={16} /> В корзину
+                              </Button>
+                            {/if}
+                          </div>
+                        {/if}
+                      {:else}
+                        <span class="column-empty">—</span>
+                      {/if}
+                    </td>
+                  {/each}
+                </tr>
+              {/each}
+            </tbody>
+          </table>
+          </div>
+        </div>
+      {:else}
       {#if viewMode === 'list'}
         <div class="levels-head" style={listVars}>
           <button type="button" class="levels-head-cell col-name" onclick={() => headerSort('name')}>
@@ -1895,12 +2254,13 @@
           </div>
         {/each}
       </div>
+      {/if}
       </div>
 
       <Pager
         {page}
         {perPage}
-        {total}
+        total={pagerTotal}
         loading={loading}
         perPageOptions={PAGE_SIZES}
         onchange={(next) => void goToPage(next)}
@@ -1933,7 +2293,8 @@
     margin-inline: auto;
   }
 
-  .page:has(.levels.tiles) {
+  .page:has(.levels.tiles),
+  .page:has(.columns-table) {
     max-width: 1600px;
   }
 
@@ -2408,6 +2769,244 @@
   .levels-wrap {
     display: flex;
     flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .columns-scroll-shell {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .columns-scroll-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+    padding-inline: 2px;
+  }
+
+  .columns-scroll-label {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .columns-scroll-controls {
+    display: flex;
+    gap: 4px;
+  }
+
+  .columns-scroll-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+  }
+
+  .columns-scroll-btn:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .columns-scroll-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+
+  .columns-table-wrap {
+    overflow: auto;
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+  }
+
+  .columns-sticky-head {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    overflow: hidden;
+    border: 1px solid var(--border-secondary);
+    border-bottom: 1px solid var(--border-secondary);
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    background: var(--surface);
+  }
+
+  .columns-head-scroll {
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .columns-head-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .columns-table {
+    width: max-content;
+    min-width: 760px;
+    table-layout: fixed;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
+
+  .columns-table-head thead th {
+    position: static;
+    top: auto;
+  }
+
+  .columns-table-head .columns-name-head {
+    position: sticky;
+    left: 0;
+  }
+
+  .columns-table th,
+  .columns-table td {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-secondary);
+    text-align: left;
+    vertical-align: top;
+  }
+
+  .columns-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding: 0;
+    background: var(--surface);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .columns-head-button {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 12px var(--space-4);
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .columns-head-button:hover {
+    color: var(--primary);
+  }
+
+  .columns-table-head thead th + th {
+    box-shadow: inset 1px 0 0 var(--border-secondary);
+  }
+
+  .columns-table tbody tr:last-child th,
+  .columns-table tbody tr:last-child td {
+    border-bottom: none;
+  }
+
+  .columns-table tbody tr:hover {
+    background: var(--fill-tertiary);
+  }
+
+  .columns-table .columns-name-head,
+  .columns-table .columns-name {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+    min-width: 260px;
+    max-width: 340px;
+    background: var(--surface);
+    box-shadow: 1px 0 0 var(--border-secondary);
+  }
+
+  .columns-table thead .columns-name-head {
+    z-index: 3;
+    background: var(--surface);
+  }
+
+  .columns-table tbody tr:hover .columns-name {
+    background: var(--surface);
+  }
+
+  .columns-name {
+    font-weight: 500;
+  }
+
+  .columns-name .name {
+    display: block;
+    max-width: 100%;
+    text-align: left;
+    line-height: 1.35;
+  }
+
+  .column-group {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 400;
+  }
+
+  .columns-cell {
+    min-width: 190px;
+  }
+
+  .columns-cell.cart-over {
+    background: var(--danger-bg);
+  }
+
+  .column-main {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .column-main:hover .column-qty {
+    color: var(--primary);
+  }
+
+  .column-qty {
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .column-main .price-lines {
+    gap: 2px;
+  }
+
+  .column-main .price-line {
+    font-size: 12px;
+  }
+
+  .column-cart {
+    margin-top: 8px;
+    padding-top: 6px;
+    border-top: 1px dashed var(--border-secondary);
+  }
+
+  .column-cart .add {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .column-empty {
+    color: var(--muted);
   }
 
   .levels-head {
@@ -2509,7 +3108,7 @@
     .levels-head {
       position: sticky;
       top: 0;
-      z-index: 2;
+      z-index: 4;
       display: grid;
       grid-template-columns:
         var(--photo, 88px) minmax(0, 1fr) minmax(0, 180px) var(--price, 100px)
@@ -2517,7 +3116,7 @@
       align-items: stretch;
       gap: 0;
       padding: 0;
-      background: var(--fill-tertiary);
+      background: var(--surface);
       border: 1px solid var(--border-secondary);
       border-bottom: 1px solid var(--border-secondary);
       border-radius: var(--radius-md) var(--radius-md) 0 0;
