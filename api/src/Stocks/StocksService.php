@@ -731,11 +731,26 @@ final class StocksService
 
     public static function normalizeFilters(array $input): array
     {
-        $qtyOp = in_array($input['qty_op'] ?? '', ['gt', 'lt'], true) ? (string) $input['qty_op'] : '';
+        $rawQtyOps = $input['qty_op'] ?? [];
+
+        if (!is_array($rawQtyOps)) {
+            $rawQtyOps = explode(',', (string) $rawQtyOps);
+        }
+
+        $qtyOps = [];
+
+        foreach ($rawQtyOps as $rawQtyOp) {
+            $qtyOp = trim((string) $rawQtyOp);
+
+            if (in_array($qtyOp, ['gt', 'eq', 'lt'], true) && !in_array($qtyOp, $qtyOps, true)) {
+                $qtyOps[] = $qtyOp;
+            }
+        }
+
         $qty = isset($input['qty']) && is_numeric($input['qty']) ? (float) $input['qty'] : null;
 
-        if ($qtyOp === '' || $qty === null) {
-            $qtyOp = '';
+        if ($qtyOps === [] || $qty === null) {
+            $qtyOps = [];
             $qty = null;
         }
 
@@ -790,7 +805,8 @@ final class StocksService
 
         return [
             'q' => trim((string) ($input['q'] ?? '')),
-            'qty_op' => $qtyOp,
+            'qty_op' => implode(',', $qtyOps),
+            'qty_ops' => $qtyOps,
             'qty' => $qty,
             'sort' => $sort,
             'show_zero' => $showZero,
@@ -925,8 +941,16 @@ final class StocksService
             $parts[] = 'поиск: ' . $filters['q'];
         }
 
-        if ($filters['qty_op'] !== '' && $filters['qty'] !== null) {
-            $parts[] = 'остаток ' . ($filters['qty_op'] === 'lt' ? 'меньше' : 'больше') . ' ' . $filters['qty'];
+        if (($filters['qty_ops'] ?? []) !== [] && $filters['qty'] !== null) {
+            $labels = array_map(
+                static fn (string $op): string => match ($op) {
+                    'lt' => 'меньше',
+                    'eq' => 'равно',
+                    default => 'больше',
+                },
+                $filters['qty_ops']
+            );
+            $parts[] = 'Остаток ' . implode(' или ', $labels) . ' ' . $filters['qty'];
         }
 
         if ($filters['show_zero'] ?? false) {

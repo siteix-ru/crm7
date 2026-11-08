@@ -353,10 +353,12 @@
             </div>
 
             <div class="levels-scroll">
-            <div class="levels-table">
+            <div class="levels-table" class:no-prices={!pricesEnabled}>
               <div class="levels-head">
                 <span class="levels-head-cell">Склад</span>
-                <span class="levels-head-cell col-price">Цена</span>
+                {#if pricesEnabled}
+                  <span class="levels-head-cell col-price">Цена</span>
+                {/if}
                 <span class="levels-head-cell col-stock">Остаток</span>
                 <span class="levels-head-cell col-cart">Корзина</span>
               </div>
@@ -371,6 +373,7 @@
                     </span>
                   </div>
 
+                  {#if pricesEnabled}
                   <div class="level-prices col-price">
                     {#if canEdit && priceColumns.length > 0}
                       {#each priceColumns as type (type.id)}
@@ -399,6 +402,7 @@
                       <span class="price-dash">—</span>
                     {/if}
                   </div>
+                  {/if}
 
                   <span class="level-value col-stock">
                     {stockQuantityText(level.quantity, level.unit || target.unit)}
@@ -970,6 +974,15 @@
     border: none;
     border-bottom: 1px solid var(--border-secondary);
     border-radius: 0;
+  }
+
+  .levels-table.no-prices {
+    min-width: 480px;
+  }
+
+  .levels-table.no-prices .levels-head,
+  .levels-table.no-prices .level-row {
+    grid-template-columns: minmax(0, 1fr) 120px 150px;
   }
 
   .levels-table .level-row:last-child {

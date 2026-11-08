@@ -1591,8 +1591,7 @@
   }
 
   .pt-scroll {
-    max-height: 70vh;
-    overflow: auto;
+    overflow: visible;
     border: 1px solid var(--border-secondary);
     border-radius: var(--radius-sm);
   }

@@ -52,6 +52,7 @@
   import TableOutlined from '@ant-design/icons-svg/es/asn/TableOutlined';
   import TagsOutlined from '@ant-design/icons-svg/es/asn/TagsOutlined';
   import TeamOutlined from '@ant-design/icons-svg/es/asn/TeamOutlined';
+  import UnorderedListOutlined from '@ant-design/icons-svg/es/asn/UnorderedListOutlined';
   import UserAddOutlined from '@ant-design/icons-svg/es/asn/UserAddOutlined';
   import UserOutlined from '@ant-design/icons-svg/es/asn/UserOutlined';
   import type { IconDefinition } from '@ant-design/icons-svg/es/types';
@@ -119,6 +120,9 @@
     tags: TagsOutlined,
     trash: DeleteOutlined,
     types: AppstoreOutlined,
+    list: UnorderedListOutlined,
+    tiles: AppstoreOutlined,
+    columns: TableOutlined,
     user: UserOutlined,
     'user-plus': UserAddOutlined,
     view: TableOutlined,

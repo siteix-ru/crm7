@@ -720,7 +720,7 @@ async function saveSettings(): Promise<void> {
   }
 </script>
 
-<section class="page">
+<section class="page page-wide">
   <div class="page-hero">
     <div class="filters">
       <div class="head">
@@ -1344,8 +1344,15 @@ async function saveSettings(): Promise<void> {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
+    width: 100%;
+    max-width: none;
+    margin: 0;
+  }
+
+  .page > :not(.page-hero) {
+    width: 100%;
     max-width: 900px;
-    margin: 0 auto;
+    margin-inline: auto;
   }
 
   h1 {

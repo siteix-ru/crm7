@@ -146,6 +146,11 @@ final class PriceService
         }
 
         $userId = $user !== null ? (int) ($user['ID'] ?? 0) : 0;
+        $level = $user !== null ? (int) ($user['LEVEL'] ?? 0) : 0;
+
+        if ($level >= 10) {
+            return $this->prices->enabledTypeIds();
+        }
 
         if ($userId > 0) {
             $ids = $this->prices->assignedTypeIds($userId);

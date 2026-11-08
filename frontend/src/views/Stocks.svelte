@@ -160,17 +160,29 @@
     { value: 'active', label: 'Активированные' },
     { value: 'inactive', label: 'Деактивированные' }
   ];
-  const initialQtyOpRaw = String(initialStockFilters.qty_op ?? '');
-  const initialQtyOp: '' | 'gt' | 'lt' =
-    initialQtyOpRaw === 'gt' || initialQtyOpRaw === 'lt' ? initialQtyOpRaw : '';
+  const QTY_OPS = ['gt', 'eq', 'lt'] as const;
+  const qtyOpOptions = [
+    { value: 'gt', label: 'Больше' },
+    { value: 'eq', label: 'Равно' },
+    { value: 'lt', label: 'Меньше' }
+  ];
+
+  function parseQtyOps(value: unknown): string[] {
+    const raw = Array.isArray(value) ? value : String(value ?? '').split(',');
+    const selected = new Set(raw.map((item) => String(item).trim()));
+
+    return QTY_OPS.filter((op) => selected.has(op));
+  }
+
+  const initialQtyOps = parseQtyOps(initialStockFilters.qty_op);
   const initialQtyValue =
-    initialQtyOp !== '' && Number.isFinite(Number(initialStockFilters.qty))
+    initialQtyOps.length > 0 && Number.isFinite(Number(initialStockFilters.qty))
       ? String(Number(initialStockFilters.qty))
       : '';
-  let qtyOp = $state<'' | 'gt' | 'lt'>(initialQtyOp);
+  let qtyOps = $state<string[]>(initialQtyOps);
   let qty = $state(initialQtyValue);
   let statusDraft = $state<string[]>([]);
-  let qtyOpDraft = $state<'' | 'gt' | 'lt'>(initialQtyOp);
+  let qtyOpsDraft = $state<string[]>(initialQtyOps);
   let qtyDraft = $state<string | number>(initialQtyValue);
   const PAGE_SIZES = [10, 20, 50, 100];
   const initialView: 'list' | 'tiles' | 'columns' =
@@ -466,8 +478,8 @@
       result.no_group = stockNoGroup;
     }
 
-    if (qtyOp !== '' && qty !== '' && Number.isFinite(Number(qty))) {
-      result.qty_op = qtyOp;
+    if (qtyOps.length > 0 && qty !== '' && Number.isFinite(Number(qty))) {
+      result.qty_op = qtyOps.join(',');
       result.qty = String(Number(qty));
     }
 
@@ -478,7 +490,7 @@
     query !== '' ||
       groupFilterActive ||
       (canDeactivate && stockActive !== 'all') ||
-      (qtyOp !== '' && qty !== '')
+      (qtyOps.length > 0 && qty !== '')
   );
   const selectedWarehouses = $derived(warehouses.filter((item) => selectedIds.includes(item.id)));
   const headDate = $derived(
@@ -609,7 +621,7 @@
     stockNoGroup = hasUngrouped;
     statusActive = true;
     statusInactive = true;
-    qtyOp = '';
+    qtyOps = [];
     qty = '';
     priceTypeFilter = [];
     page = 1;
@@ -805,7 +817,7 @@
       query,
       page,
       active: stockActive,
-      qty_op: qtyOp,
+      qty_op: qtyOps.join(','),
       qty
     });
   }
@@ -822,7 +834,7 @@
         ? priceTypeFilter
         : availablePriceTypes.map((type) => type.id);
     priceTypesDraft = selectedPrices.map(String);
-    qtyOpDraft = qtyOp;
+    qtyOpsDraft = [...qtyOps];
     qtyDraft = qty;
     viewOpen = true;
   }
@@ -832,7 +844,7 @@
     photoDraft = true;
     statusDraft = ['active', 'inactive'];
     priceTypesDraft = availablePriceTypes.map((type) => String(type.id));
-    qtyOpDraft = '';
+    qtyOpsDraft = [];
     qtyDraft = '';
   }
 
@@ -854,12 +866,13 @@
       (nextStatusActive !== statusActive || nextStatusInactive !== statusInactive);
     const qtyRaw = String(qtyDraft ?? '').trim();
     const qtyNumber = qtyRaw === '' ? null : Number(qtyRaw);
+    const nextQtyOps = parseQtyOps(qtyOpsDraft);
     const nextQty =
-      qtyOpDraft !== '' && qtyNumber !== null && Number.isFinite(qtyNumber)
+      nextQtyOps.length > 0 && qtyNumber !== null && Number.isFinite(qtyNumber)
         ? String(qtyNumber)
         : '';
-    const nextQtyOp = nextQty !== '' ? qtyOpDraft : '';
-    const qtyChanged = nextQtyOp !== qtyOp || nextQty !== qty;
+    const qtyChanged =
+      nextQtyOps.join(',') !== qtyOps.join(',') || nextQty !== qty;
     const currentFilter = [...priceTypeFilter].sort((a, b) => a - b);
     const priceChanged =
       nextFilter.length !== currentFilter.length ||
@@ -880,7 +893,7 @@
     }
 
     priceTypeFilter = nextFilter;
-    qtyOp = nextQtyOp;
+    qtyOps = nextQtyOps;
     qty = nextQty;
 
     if (statusChanged) {
@@ -1640,12 +1653,14 @@
     </Modal>
 
     <Modal open={warehouseOpen} title="Склады" onclose={() => (warehouseOpen = false)}>
-      <div class="sort-options">
+      <div class="warehouse-modal">
         <div class="options-head">
           <button type="button" class="link-btn" onclick={selectAllWarehouses}>Отметить все</button>
           <button type="button" class="link-btn" onclick={clearAllWarehouses}>Снять все</button>
+          <span class="options-count">Выбрано: {warehouseDraft.length} из {warehouses.length}</span>
         </div>
 
+        <div class="warehouse-list">
         {#each warehouses as warehouse (warehouse.id)}
           <label class="sort-option warehouse-option">
             <input type="checkbox" value={warehouse.id} bind:group={warehouseDraft} />
@@ -1663,30 +1678,39 @@
             {/if}
           </label>
         {/each}
-      </div>
+        </div>
       <div class="modal-actions">
         <Button variant="ghost" onclick={() => (warehouseOpen = false)}>Отмена</Button>
         <Button onclick={applyWarehouse}>Применить</Button>
       </div>
+      </div>
     </Modal>
 
     <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-      <div class="filters-form">
-        <div class="view-options">
-        <label class="radio">
-          <input type="radio" name="stock-view" value="list" bind:group={viewDraft} />
-          <span>Список</span>
-        </label>
-        <label class="radio">
-          <input type="radio" name="stock-view" value="tiles" bind:group={viewDraft} />
-          <span>Плитка</span>
-        </label>
-        <label class="radio">
-          <input type="radio" name="stock-view" value="columns" bind:group={viewDraft} />
-          <span>Колоночный вид</span>
-        </label>
+      <div class="filters-form view-modal">
+      <div class="view-filters-body">
+        <div class="filter-group view-mode-group">
+        <span class="filter-label">Вид</span>
+        <div class="view-mode-grid">
+          <label class="view-mode-card" class:active={viewDraft === 'list'}>
+            <input type="radio" name="stock-view" value="list" bind:group={viewDraft} />
+            <Icon name="list" size={18} />
+            <span>Список</span>
+          </label>
+          <label class="view-mode-card" class:active={viewDraft === 'tiles'}>
+            <input type="radio" name="stock-view" value="tiles" bind:group={viewDraft} />
+            <Icon name="tiles" size={18} />
+            <span>Плитка</span>
+          </label>
+          <label class="view-mode-card" class:active={viewDraft === 'columns'}>
+            <input type="radio" name="stock-view" value="columns" bind:group={viewDraft} />
+            <Icon name="columns" size={18} />
+            <span>Колоночный вид</span>
+          </label>
+        </div>
       </div>
 
+      {#if viewDraft !== 'columns'}
       <div class="filter-group">
         <span class="filter-label">Фото в номенклатуре</span>
         <div class="view-options">
@@ -1700,6 +1724,7 @@
           </label>
         </div>
       </div>
+      {/if}
 
       {#if canDeactivate}
         <div class="filter-group">
@@ -1713,28 +1738,27 @@
         </div>
       {/if}
 
-      <div class="filter-group">
+      <div class="filter-group qty-filter-group">
         <span class="filter-label">Остаток</span>
-        <div class="filter-fields">
-          <label class="filter-field">
-            <span>Условие</span>
-            <select bind:value={qtyOpDraft}>
-              <option value="">Любой</option>
-              <option value="gt">Больше</option>
-              <option value="lt">Меньше</option>
-            </select>
-          </label>
-          <label class="filter-field">
-            <span>Значение</span>
-            <input
-              type="number"
-              min="0"
-              step="any"
-              bind:value={qtyDraft}
-              disabled={qtyOpDraft === ''}
-              placeholder="Например, 10"
-            />
-          </label>
+        <div class="qty-filter-row">
+          <MultiSelect
+            label="Условие"
+            options={qtyOpOptions}
+            bind:values={qtyOpsDraft}
+            allLabel="Любое"
+            emptyLabel="Нет условий"
+            maxHeight="180px"
+          />
+          <input
+            class="qty-filter-input"
+            type="number"
+            min="0"
+            step="any"
+            bind:value={qtyDraft}
+            disabled={qtyOpsDraft.length === 0}
+            placeholder="Количество"
+            aria-label="Количество"
+          />
         </div>
       </div>
 
@@ -1752,6 +1776,7 @@
         </div>
       {/if}
 
+        </div>
         <div class="modal-actions">
           <Button variant="ghost" onclick={resetView}>Сбросить</Button>
           <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
@@ -1989,6 +2014,7 @@
               <tbody>
               {#each columnPageRows as row (row.key)}
                 {@const first = row.levels.values().next().value}
+                {@const total = [...row.levels.values()].reduce((sum, level) => sum + level.quantity, 0)}
                 <tr>
                   <th scope="row" class="columns-name">
                     <button
@@ -2002,6 +2028,7 @@
                     {#if groupsEnabled && row.group_title}
                       <span class="column-group">{row.group_title}</span>
                     {/if}
+                    <span class="column-total">Всего: {stockQuantityText(total, row.unit)}</span>
                   </th>
                   {#each selectedWarehouses as warehouse (warehouse.id)}
                     {@const cell = row.levels.get(warehouse.id)}
@@ -2014,7 +2041,12 @@
                           title={`Открыть ${row.name} на складе ${warehouse.name}`}
                           onclick={() => openItem(cell)}
                         >
-                          <span class="column-qty">{stockQuantityText(cell.quantity, cell.unit)}</span>
+                          <span class="column-stat">
+                            <span class="column-label">Остаток</span>
+                            <span class="column-qty" class:out-of-stock={cell.quantity <= 0}>
+                              {stockQuantityText(cell.quantity, cell.unit)}
+                            </span>
+                          </span>
                           {#if pricesEnabled}
                             <span class="price-lines">
                               {#each visiblePriceRows(cell) as price (price.id)}
@@ -2033,37 +2065,43 @@
                           <!-- svelte-ignore a11y_no_static_element_interactions -->
                           <div class="column-cart" onclick={(event) => event.stopPropagation()}>
                             {#if cartQty > 0}
-                              <span class="add">
-                                <button
-                                  type="button"
-                                  class="step"
-                                  aria-label={`Уменьшить: ${row.name}`}
-                                  onclick={() => cart.decreaseAt(cell.warehouse_id, cell.name)}
-                                >
-                                  −
-                                </button>
-                                <span class="qty" aria-label={`В корзине: ${row.name}`}>
-                                  {cartQty.toLocaleString('ru-RU', { maximumFractionDigits: 3 })}
+                              <span class="column-cart-line">
+                                <span class="column-label">В корзине</span>
+                                <span class="add">
+                                  <button
+                                    type="button"
+                                    class="step"
+                                    aria-label={`Уменьшить: ${row.name}`}
+                                    onclick={() => cart.decreaseAt(cell.warehouse_id, cell.name)}
+                                  >
+                                    −
+                                  </button>
+                                  <span class="qty" aria-label={`В корзине: ${row.name}`}>
+                                    {cartQty.toLocaleString('ru-RU', { maximumFractionDigits: 3 })}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    class="step"
+                                    aria-label={`Увеличить: ${row.name}`}
+                                    onclick={() => cart.increaseAt(cell.warehouse_id, cell.name)}
+                                  >
+                                    +
+                                  </button>
                                 </span>
-                                <button
-                                  type="button"
-                                  class="step"
-                                  aria-label={`Увеличить: ${row.name}`}
-                                  onclick={() => cart.increaseAt(cell.warehouse_id, cell.name)}
-                                >
-                                  +
-                                </button>
                               </span>
                             {:else}
-                              <Button
-                                variant="text"
-                                size="sm"
-                                title="Добавить в корзину"
-                                ariaLabel={`Добавить в корзину: ${row.name}`}
-                                onclick={() => addToCart(cell)}
-                              >
-                                <Icon name="cart" size={16} /> В корзину
-                              </Button>
+                              <span class="column-add-row">
+                                <span class="column-add-label">Добавить в корзину</span>
+                                <button
+                                  type="button"
+                                  class="column-add-icon"
+                                  title="Добавить в корзину"
+                                  aria-label={`Добавить в корзину: ${row.name}`}
+                                  onclick={() => addToCart(cell)}
+                                >
+                                  <Icon name="cart" size={16} />
+                                </button>
+                              </span>
                             {/if}
                           </div>
                         {/if}
@@ -2131,6 +2169,7 @@
             class="level"
             class:cart-over={cartQty > 0 && cartQty > level.quantity}
             class:inactive={level.active === false}
+            class:out-of-stock={level.quantity <= 0}
             role="button"
             tabindex="0"
             aria-label={`Открыть номенклатуру: ${level.name}`}
@@ -2176,12 +2215,14 @@
                 <div class="meta">
                   <span class="inactive-tag">деактивирована</span>
                 </div>
+              {:else if level.quantity <= 0}
+                <span class="tile-badge out-of-stock">Нет в наличии</span>
               {/if}
             </div>
             {#if (warehousesEnabled && level.warehouse_name) || (groupsEnabled && level.group_title)}
               <div class="meta col-meta">
-                {#if warehousesEnabled && level.warehouse_name}<span class="wh">{level.warehouse_name}</span>{/if}
-                {#if groupsEnabled && level.group_title}<span class="group">{level.group_title}</span>{/if}
+                {#if warehousesEnabled && level.warehouse_name}<span class="meta-chip wh">{level.warehouse_name}</span>{/if}
+                {#if groupsEnabled && level.group_title}<span class="meta-chip group">{level.group_title}</span>{/if}
               </div>
             {/if}
             <div class="level-bottom">
@@ -2236,17 +2277,32 @@
                       </button>
                     </span>
                   {:else}
-                    <span class="add add-empty">
-                      <Button
-                        variant="text"
-                        size="sm"
-                        title="Добавить в корзину"
-                        ariaLabel={`Добавить в корзину: ${level.name}`}
-                        onclick={() => addToCart(level)}
-                      >
-                        <Icon name="cart" size={16} /> Добавить
-                      </Button>
-                    </span>
+                    {#if viewMode === 'tiles'}
+                      <span class="column-add-row">
+                        <span class="column-add-label">Добавить в корзину</span>
+                        <button
+                          type="button"
+                          class="column-add-icon"
+                          title="Добавить в корзину"
+                          aria-label={`Добавить в корзину: ${level.name}`}
+                          onclick={() => addToCart(level)}
+                        >
+                          <Icon name="cart" size={16} />
+                        </button>
+                      </span>
+                    {:else}
+                      <span class="add add-empty">
+                        <Button
+                          variant="text"
+                          size="sm"
+                          title="Добавить в корзину"
+                          ariaLabel={`Добавить в корзину: ${level.name}`}
+                          onclick={() => addToCart(level)}
+                        >
+                          <Icon name="cart" size={16} /> В корзину
+                        </Button>
+                      </span>
+                    {/if}
                   {/if}
                 </div>
               {/if}
@@ -2551,12 +2607,181 @@
     gap: var(--space-2);
   }
 
+  .warehouse-modal {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-height: 0;
+    max-height: min(68vh, 620px);
+  }
+
+  .warehouse-modal .options-head {
+    flex: 0 0 auto;
+  }
+
+  .warehouse-list {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: var(--space-3);
+    scrollbar-gutter: stable;
+  }
+
+  .warehouse-modal .modal-actions {
+    flex: 0 0 auto;
+    margin-top: var(--space-2);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-secondary);
+  }
+
+  :global(.dialog-body:has(.warehouse-modal)) {
+    overflow: hidden;
+  }
+
+  .view-modal {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: min(68vh, 620px);
+  }
+
+  .view-filters-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    padding-right: var(--space-3);
+    scrollbar-gutter: stable;
+  }
+
+  .view-mode-group {
+    margin-top: 0;
+  }
+
+  .view-mode-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .view-mode-card {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-height: 44px;
+    padding: 8px 6px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+  }
+
+  .view-mode-card input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .view-mode-card:hover {
+    border-color: var(--primary);
+  }
+
+  .view-mode-card.active {
+    border-color: var(--primary);
+    background: var(--primary-bg);
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .view-mode-card:focus-within {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
+  }
+
+  .view-modal .modal-actions {
+    position: static;
+    flex: 0 0 auto;
+    margin-top: var(--space-2);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-secondary);
+  }
+
+  :global(.dialog-body:has(.view-modal)) {
+    overflow: hidden;
+  }
+
+  .qty-filter-group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
+  }
+
+  .qty-filter-group .filter-label {
+    margin-bottom: 0;
+    white-space: nowrap;
+  }
+
+  .qty-filter-row {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .qty-filter-row :global(.multi) {
+    flex: 1 1 auto;
+    min-width: 160px;
+  }
+
+  .qty-filter-input {
+    width: 120px;
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    box-sizing: border-box;
+  }
+
+  .qty-filter-input:focus {
+    border-color: var(--primary);
+    outline: none;
+  }
+
+  .qty-filter-input:disabled {
+    background: var(--fill-tertiary);
+    color: var(--text-description);
+    cursor: not-allowed;
+  }
+
   .options-head {
     display: flex;
-    gap: var(--space-4);
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3);
     margin-bottom: var(--space-1);
     padding-bottom: var(--space-2);
     border-bottom: 1px solid var(--border-secondary);
+  }
+
+  .options-count {
+    margin-left: auto;
+    color: var(--muted);
+    font-size: 12px;
+    white-space: nowrap;
   }
 
   .link-btn {
@@ -2684,6 +2909,27 @@
     gap: var(--space-2);
     font-size: 14px;
     cursor: pointer;
+  }
+
+  .warehouse-option {
+    padding: 7px 9px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .warehouse-option:hover {
+    background: var(--fill-tertiary);
+  }
+
+  .warehouse-option:has(input:checked) {
+    border-color: color-mix(in srgb, var(--primary) 24%, var(--border-secondary));
+    background: color-mix(in srgb, var(--primary) 5%, var(--surface));
+  }
+
+  .warehouse-option:focus-within {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
   }
 
   .sort-option input[type='checkbox'] {
@@ -2868,7 +3114,7 @@
 
   .columns-table th,
   .columns-table td {
-    padding: 10px 12px;
+    padding: 8px 12px;
     border-bottom: 1px solid var(--border-secondary);
     text-align: left;
     vertical-align: top;
@@ -2913,8 +3159,16 @@
     border-bottom: none;
   }
 
+  .columns-table tbody tr:nth-child(even) {
+    background: color-mix(in srgb, var(--text) 2%, var(--surface));
+  }
+
+  .columns-table tbody tr:nth-child(even) .columns-name {
+    background: color-mix(in srgb, var(--text) 2%, var(--surface));
+  }
+
   .columns-table tbody tr:hover {
-    background: var(--fill-tertiary);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
   }
 
   .columns-table .columns-name-head,
@@ -2934,7 +3188,7 @@
   }
 
   .columns-table tbody tr:hover .columns-name {
-    background: var(--surface);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
   }
 
   .columns-name {
@@ -2958,6 +3212,7 @@
 
   .columns-cell {
     min-width: 190px;
+    box-shadow: inset 1px 0 0 var(--border-secondary);
   }
 
   .columns-cell.cart-over {
@@ -2967,7 +3222,7 @@
   .column-main {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: 3px;
     width: 100%;
     padding: 0;
     border: 0;
@@ -2981,31 +3236,129 @@
     color: var(--primary);
   }
 
-  .column-qty {
-    font-weight: 600;
+  .column-stat {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
     white-space: nowrap;
   }
 
+  .column-label {
+    display: inline;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .column-qty {
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  .column-qty.out-of-stock {
+    color: var(--danger);
+  }
+
+  .column-total {
+    display: block;
+    margin-top: 3px;
+    color: var(--muted);
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+  }
+
   .column-main .price-lines {
-    gap: 2px;
+    gap: 1px;
   }
 
   .column-main .price-line {
     font-size: 12px;
+    line-height: 1.25;
   }
 
   .column-cart {
-    margin-top: 8px;
-    padding-top: 6px;
-    border-top: 1px dashed var(--border-secondary);
+    width: 100%;
+    margin-top: 3px;
+    white-space: nowrap;
+  }
+
+  .column-cart-line {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    white-space: nowrap;
   }
 
   .column-cart .add {
+    width: auto;
+    justify-content: flex-end;
+  }
+
+  .column-cart .qty {
+    min-width: 22px;
+    font-size: 14px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .column-cart .step {
+    width: 24px;
+    height: 24px;
+  }
+
+  .column-add-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
     width: 100%;
+    padding: 0;
+  }
+
+  .column-add-label {
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+  }
+
+  .column-add-icon {
+    display: inline-flex;
+    align-items: center;
     justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--primary);
+    cursor: pointer;
+  }
+
+  .column-add-icon:hover {
+    background: var(--fill-tertiary);
+    color: var(--primary-hover);
+  }
+
+  .column-main:focus-visible,
+  .column-add-icon:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 1px;
   }
 
   .column-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 28px;
     color: var(--muted);
   }
 
@@ -3305,12 +3658,13 @@
     border-radius: var(--radius-md);
     background: var(--surface);
     overflow: hidden;
-    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
   }
 
   .levels.tiles .level:hover {
     border-color: var(--border-secondary);
     box-shadow: var(--shadow-md);
+    transform: translateY(-1px);
   }
 
   .levels.tiles .level:last-child {
@@ -3331,6 +3685,7 @@
     -webkit-line-clamp: 2;
     line-clamp: 2;
     -webkit-box-orient: vertical;
+    min-height: 2.6em;
     overflow: hidden;
     font-weight: 600;
     line-height: 1.3;
@@ -3341,9 +3696,10 @@
   }
 
   .levels.tiles .meta {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4px;
     font-size: 12px;
   }
 
@@ -3351,11 +3707,31 @@
   .levels.tiles .meta .group {
     max-width: 100%;
     color: var(--text-description);
-    font-size: 12px;
-    line-height: 1.3;
+    font-size: 11px;
+    line-height: 1.6;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .levels.tiles .meta-chip {
+    display: inline-flex;
+    max-width: 100%;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--fill-tertiary);
+  }
+
+  .levels.tiles .tile-badge {
+    display: inline-flex;
+    width: fit-content;
+    padding: 0 7px;
+    border-radius: 999px;
+    background: var(--danger-bg);
+    color: var(--danger);
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.6;
   }
 
   .levels.tiles .stat-label {
@@ -3394,6 +3770,7 @@
   .levels.tiles .col-price .price {
     font-size: 16px;
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
 
   .levels.tiles .price-lines {
@@ -3403,7 +3780,12 @@
   .levels.tiles .col-stock .quantity {
     font-size: 14px;
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
     color: var(--text);
+  }
+
+  .levels.tiles .level.out-of-stock .quantity {
+    color: var(--danger);
   }
 
   .levels.tiles .cart-stat {
@@ -3521,6 +3903,7 @@
   .price-lines .price {
     flex: 0 0 auto;
     font-weight: 600;
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 

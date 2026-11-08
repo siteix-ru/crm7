@@ -74,6 +74,18 @@ final class PriceRepository
     }
 
     /**
+     * @return int[]
+     */
+    public function enabledTypeIds(): array
+    {
+        $rows = Database::pdo()->query(
+            'SELECT ID FROM price_types WHERE ENABLED = 1 ORDER BY SORT ASC, ID ASC'
+        )->fetchAll() ?: [];
+
+        return array_map(static fn (array $row): int => (int) $row['ID'], $rows);
+    }
+
+    /**
      * Закреплённые типы цен пользователя.
      *
      * @return array<int, array{id:int,title:string}>

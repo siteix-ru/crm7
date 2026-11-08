@@ -202,9 +202,18 @@ final class StocksRepository
             $params[] = '%' . $filters['q'] . '%';
         }
 
-        if (($filters['qty_op'] ?? '') !== '' && isset($filters['qty'])) {
-            $sql .= ' AND l.QUANTITY ' . ($filters['qty_op'] === 'lt' ? '<' : '>') . ' ?';
-            $params[] = $filters['qty'];
+        $qtyOps = $filters['qty_ops'] ?? [];
+
+        if ($qtyOps !== [] && isset($filters['qty'])) {
+            $conditions = [];
+
+            foreach ($qtyOps as $qtyOp) {
+                $operator = $qtyOp === 'lt' ? '<' : ($qtyOp === 'eq' ? '=' : '>');
+                $conditions[] = 'l.QUANTITY ' . $operator . ' ?';
+                $params[] = $filters['qty'];
+            }
+
+            $sql .= ' AND (' . implode(' OR ', $conditions) . ')';
         }
 
         $groupIds = $filters['group_ids'] ?? [];
