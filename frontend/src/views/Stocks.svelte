@@ -115,8 +115,7 @@
 
   const warehousesEnabled = $derived(appSettings.warehousesEnabled);
   const canManageWarehouses = $derived(
-    warehousesEnabled &&
-      (auth.can('stocks.import') || auth.can('stocks.edit') || auth.can('stocks.manage'))
+    warehousesEnabled && auth.can('stocks.warehouses.manage')
   );
   const sortFields = $derived.by(() => {
     const fields = [{ field: 'name', label: 'Номенклатура' }];
@@ -493,10 +492,6 @@
       (qtyOps.length > 0 && qty !== '')
   );
   const selectedWarehouses = $derived(warehouses.filter((item) => selectedIds.includes(item.id)));
-  const headDate = $derived(
-    selectedWarehouses.length === 1 ? selectedWarehouses[0].actual_date : null
-  );
-
   function openItem(level: StockLevel): void {
     router.navigate(`/stocks/items/${level.id}`);
   }
@@ -1230,9 +1225,6 @@
     <div class="filters">
     <div class="head">
       <h1>Номенклатура</h1>
-      {#if headDate}
-        <p class="head-subtitle">Остатки на {formatDate(headDate)}</p>
-      {/if}
     </div>
 
     {#if !loading && warehouses.length > 0}
@@ -1264,7 +1256,7 @@
             <Icon name="sort" size={16} />
         </button>
 
-        {#if warehousesEnabled}
+        {#if warehousesEnabled && warehouses.length > 1}
           <button
             type="button"
             class="sort-button"
@@ -1306,9 +1298,8 @@
           <Icon name="view" size={16} />
         </button>
 
-        <span class="toolbar-divider" aria-hidden="true"></span>
-
         {#if auth.can('settings.manage') || canManageWarehouses}
+          <span class="toolbar-divider" aria-hidden="true"></span>
           {#if auth.can('settings.manage')}
             <button
               type="button"
@@ -1353,10 +1344,10 @@
             </button>
           {/if}
 
-          <span class="toolbar-divider" aria-hidden="true"></span>
         {/if}
 
         {#if canEdit}
+          <span class="toolbar-divider" aria-hidden="true"></span>
           <button
             type="button"
             class="sort-button"
@@ -1652,6 +1643,7 @@
       </div>
     </Modal>
 
+    {#if warehouses.length > 1}
     <Modal open={warehouseOpen} title="Склады" onclose={() => (warehouseOpen = false)}>
       <div class="warehouse-modal">
         <div class="options-head">
@@ -1685,6 +1677,7 @@
       </div>
       </div>
     </Modal>
+    {/if}
 
     <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
       <div class="filters-form view-modal">
@@ -1710,7 +1703,6 @@
         </div>
       </div>
 
-      {#if viewDraft !== 'columns'}
       <div class="filter-group">
         <span class="filter-label">Фото в номенклатуре</span>
         <div class="view-options">
@@ -1724,7 +1716,6 @@
           </label>
         </div>
       </div>
-      {/if}
 
       {#if canDeactivate}
         <div class="filter-group">
@@ -1927,7 +1918,6 @@
         <div class="columns-scroll-shell">
           {#if columnsCanScroll}
             <div class="columns-scroll-bar">
-              <span class="columns-scroll-label">Склады</span>
               <div class="columns-scroll-controls">
                 <button
                   type="button"
@@ -2017,6 +2007,17 @@
                 {@const total = [...row.levels.values()].reduce((sum, level) => sum + level.quantity, 0)}
                 <tr>
                   <th scope="row" class="columns-name">
+                    <div class="columns-name-inner">
+                      {#if showPhotos}
+                        <div class="columns-name-photo">
+                          <PhotoGallery
+                            photos={first?.photos ?? []}
+                            variant="list"
+                            onopen={() => first && openItem(first)}
+                          />
+                        </div>
+                      {/if}
+                      <div class="columns-name-text">
                     <button
                       type="button"
                       class="name"
@@ -2029,6 +2030,8 @@
                       <span class="column-group">{row.group_title}</span>
                     {/if}
                     <span class="column-total">Всего: {stockQuantityText(total, row.unit)}</span>
+                  </div>
+                    </div>
                   </th>
                   {#each selectedWarehouses as warehouse (warehouse.id)}
                     {@const cell = row.levels.get(warehouse.id)}
@@ -2367,12 +2370,6 @@
     font-weight: 600;
     line-height: 1.4;
     color: var(--text);
-  }
-
-  .head-subtitle {
-    margin: 0;
-    font-size: 14px;
-    color: var(--text-description);
   }
 
   .tabs {
@@ -2719,20 +2716,15 @@
   }
 
   .qty-filter-group {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3);
+    display: block;
   }
 
   .qty-filter-group .filter-label {
-    margin-bottom: 0;
-    white-space: nowrap;
+    margin-bottom: var(--space-2);
   }
 
   .qty-filter-row {
     display: flex;
-    flex: 1 1 auto;
     align-items: center;
     gap: var(--space-2);
     min-width: 0;
@@ -3027,14 +3019,9 @@
   .columns-scroll-bar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-end;
     gap: var(--space-2);
     padding-inline: 2px;
-  }
-
-  .columns-scroll-label {
-    color: var(--muted);
-    font-size: 12px;
   }
 
   .columns-scroll-controls {
@@ -3193,6 +3180,31 @@
 
   .columns-name {
     font-weight: 500;
+  }
+
+  .columns-name-inner {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .columns-name-photo {
+    flex: 0 0 56px;
+    width: 56px;
+    max-width: 56px;
+    overflow: hidden;
+  }
+
+  .columns-name-photo :global(.gallery) {
+    width: 56px;
+    max-width: 56px;
+    height: 56px;
+  }
+
+  .columns-name-text {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .columns-name .name {

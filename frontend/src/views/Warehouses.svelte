@@ -651,17 +651,23 @@
 </Modal>
 
 <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-  <div class="filters-form">
-    <div class="view-options">
-      <label class="radio">
-        <input type="radio" name="wh-view" value="list" bind:group={viewDraft} />
-        <span>Список</span>
-      </label>
-      <label class="radio">
-        <input type="radio" name="wh-view" value="tiles" bind:group={viewDraft} />
-        <span>Плитка</span>
-      </label>
-    </div>
+  <div class="filters-form view-modal">
+      <div class="view-filters-body">
+              <div class="filter-group view-mode-group">
+          <span class="filter-label">Вид</span>
+          <div class="view-mode-grid">
+            <label class="view-mode-card" class:active={viewDraft === 'list'}>
+              <input type="radio" name="wh-view" value="list" bind:group={viewDraft} />
+              <Icon name="list" size={18} />
+              <span>Список</span>
+            </label>
+            <label class="view-mode-card" class:active={viewDraft === 'tiles'}>
+              <input type="radio" name="wh-view" value="tiles" bind:group={viewDraft} />
+              <Icon name="tiles" size={18} />
+              <span>Плитки</span>
+            </label>
+          </div>
+        </div>
 
     <div class="filter-group">
       <span class="filter-label" title="Если ничего не выбрано — показываются все">Статусы</span>
@@ -673,7 +679,9 @@
       />
     </div>
 
-    <div class="modal-actions">
+                </div>
+
+      <div class="modal-actions">
       <Button variant="ghost" onclick={resetView}>Сбросить</Button>
       <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
       <Button onclick={applyView}>Применить</Button>

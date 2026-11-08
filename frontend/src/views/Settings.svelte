@@ -6,6 +6,8 @@
     getDatabaseSettings,
     getEmailSettings,
     getSystemSettings,
+    listModules,
+    type ModuleItem,
     listQueue,
     listTemplates,
     saveDatabaseSettings,
@@ -35,12 +37,15 @@
     SystemSettings
   } from '../lib/api/types';
   import Admin from './Admin.svelte';
+  import PageBadge from '../lib/components/dev/PageBadge.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Input from '../lib/components/ui/Input.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { auth } from '../lib/stores/auth.svelte';
+  import { router } from '../lib/router.svelte';
+  import { settingsBadgeId } from '../lib/dev/page-badges';
   import { APP_VERSION } from '../lib/about';
   import { emailTypeLabel, queueStatusLabel } from '../lib/labels';
   import { formatDateTime } from '../lib/format';
@@ -62,15 +67,6 @@
   let templateBody = $state('');
 
   let system = $state<SystemSettings | null>(null);
-  let slaReaction = $state('2');
-  let slaResolution = $state('24');
-  let spfDone = $state(false);
-  let salesEnabled = $state(true);
-  let emailExportEnabled = $state(true);
-  let stockReserveEnabled = $state(false);
-  let stockAllowZero = $state(false);
-  let pricesEnabled = $state(false);
-  let groupsEnabled = $state(false);
   let mailEnabled = $state(true);
   let appTitle = $state('CRM7');
   let appDescription = $state('');
@@ -80,11 +76,6 @@
   let contactEmail = $state('');
   let contactPhone = $state('');
   let responsible = $state('');
-  let photoRatio = $state('square');
-  let photoFit = $state('contain');
-  let photoSizePreview = $state('160');
-  let photoSizeCard = $state('600');
-  let photoSizeMax = $state('1600');
 
   let db = $state<DatabaseSettings | null>(null);
   let dbPort = $state('3306');
@@ -112,13 +103,12 @@
   let scheduleExtra = $state('');
   let scheduleActive = $state(true);
 
-  type SettingsTab = 'general' | 'work' | 'modules' | 'mail' | 'docs' | 'database' | 'updates';
+  type SettingsTab = 'general' | 'modules' | 'mail' | 'docs' | 'database' | 'updates';
 
   type MailTab = 'smtp' | 'templates' | 'schedules' | 'queue';
 
   const settingsTabs: { code: SettingsTab; title: string; icon: string }[] = [
     { code: 'general', title: 'Общие', icon: 'settings' },
-    { code: 'work', title: 'Параметры работы', icon: 'sliders' },
     { code: 'modules', title: 'Модули', icon: 'types' },
     { code: 'mail', title: 'Почта', icon: 'mail' },
     { code: 'docs', title: 'Документы', icon: 'requests' },
@@ -133,8 +123,19 @@
     { code: 'queue', title: 'Очередь отправки', icon: 'send' }
   ];
 
-  let tab = $state<SettingsTab>('general');
-  let mailTab = $state<MailTab>('smtp');
+  let moduleItems = $state<ModuleItem[]>([]);
+  let modulesLoading = $state(false);
+  let modulesError = $state('');
+  let modulesExpanded = $state(false);
+  let mailExpanded = $state(false);
+
+  const settingsRoute = $derived.by(() => {
+    const parts = router.current.path.split('/').filter(Boolean);
+    const section = parts[1] ?? '';
+    const sub = parts[2] ? decodeURIComponent(parts[2]) : '';
+
+    return { section, sub };
+  });
 
   const canManageSettings = $derived(auth.can('settings.manage'));
   const canManageTech = $derived(auth.can('roles.manage'));
@@ -146,7 +147,7 @@
 
   const visibleSettingsTabs = $derived(
     settingsTabs.filter((item) => {
-      if (item.code === 'work' || item.code === 'modules' || item.code === 'database' || item.code === 'updates') {
+      if (item.code === 'modules' || item.code === 'database' || item.code === 'updates') {
         return canManageTech;
       }
 
@@ -158,21 +159,97 @@
     })
   );
 
-  $effect(() => {
-    if (!visibleSettingsTabs.some((item) => item.code === tab)) {
-      tab = visibleSettingsTabs[0]?.code ?? 'general';
+  const tab = $derived<SettingsTab>(
+    visibleSettingsTabs.some((item) => item.code === settingsRoute.section)
+      ? (settingsRoute.section as SettingsTab)
+      : (visibleSettingsTabs[0]?.code ?? 'general')
+  );
+
+  const mailTab = $derived<MailTab>(
+    visibleMailTabs.some((item) => item.code === settingsRoute.sub)
+      ? (settingsRoute.sub as MailTab)
+      : (visibleMailTabs[0]?.code ?? 'smtp')
+  );
+
+  const moduleCode = $derived(
+    moduleItems.some((module) => module.code === settingsRoute.sub)
+      ? settingsRoute.sub
+      : (moduleItems[0]?.code ?? '')
+  );
+
+  const activeTitle = $derived.by(() => {
+    const section = visibleSettingsTabs.find((item) => item.code === tab);
+
+    if (tab === 'modules') {
+      const module = moduleItems.find((item) => item.code === moduleCode);
+      return module ? `${section?.title ?? ''} / ${module.title}` : section?.title ?? '';
     }
+
+    if (tab === 'mail') {
+      const mail = visibleMailTabs.find((item) => item.code === mailTab);
+      return mail ? `${section?.title ?? ''} / ${mail.title}` : section?.title ?? '';
+    }
+
+    return section?.title ?? '';
   });
 
+  const pageBadgeId = $derived(
+    settingsBadgeId(tab, tab === 'modules' ? moduleCode : tab === 'mail' ? mailTab : '')
+  );
+
   $effect(() => {
-    if (tab === 'mail' && !visibleMailTabs.some((item) => item.code === mailTab)) {
-      mailTab = visibleMailTabs[0]?.code ?? 'smtp';
+    const firstSection = visibleSettingsTabs[0]?.code;
+
+    if (!firstSection) {
+      return;
+    }
+
+    if (!settingsRoute.section) {
+      router.navigate(`/settings/${firstSection}`, true);
+      return;
+    }
+
+    if (!visibleSettingsTabs.some((item) => item.code === settingsRoute.section)) {
+      router.navigate(`/settings/${firstSection}`, true);
+      return;
+    }
+
+    if (settingsRoute.section === 'modules') {
+      if (modulesLoading || moduleItems.length === 0) {
+        return;
+      }
+
+      if (!moduleItems.some((module) => module.code === settingsRoute.sub)) {
+        router.navigate(`/settings/modules/${encodeURIComponent(moduleItems[0].code)}`, true);
+      }
+    }
+
+    if (settingsRoute.section === 'mail') {
+      if (visibleMailTabs.length === 0) {
+        return;
+      }
+
+      if (!visibleMailTabs.some((item) => item.code === settingsRoute.sub)) {
+        router.navigate(`/settings/mail/${visibleMailTabs[0].code}`, true);
+      }
     }
   });
 
   $effect(() => {
     if (tab === 'updates' && canManageTech && !updateChecked && !updateBusy) {
       void checkForUpdates();
+    }
+  });
+
+  $effect(() => {
+    if (tab === 'modules') {
+      modulesExpanded = true;
+    }
+  });
+
+  $effect(() => {
+    if (tab === 'mail') {
+      mailExpanded = true;
     }
   });
 
@@ -270,6 +347,11 @@
 
   onMount(() => {
     void load();
+
+    if (auth.can('roles.manage')) {
+      void loadModuleItems();
+    }
+
     return () => stopUpdatePolling();
   });
 
@@ -285,15 +367,6 @@
       if (canSettings) {
         system = await getSystemSettings();
         mailEnabled = system.mail_enabled;
-        slaReaction = String(system.sla_reaction_hours);
-        slaResolution = String(system.sla_resolution_hours);
-        spfDone = system.spf_checklist;
-        salesEnabled = system.sales_enabled;
-        emailExportEnabled = system.email_export_enabled;
-        stockReserveEnabled = system.stock_reserve_enabled;
-        stockAllowZero = system.stock_allow_zero;
-        pricesEnabled = system.prices_enabled;
-        groupsEnabled = system.groups_enabled;
         appTitle = system.app_title;
         appDescription = system.app_description;
         organization = system.organization;
@@ -302,11 +375,6 @@
         contactEmail = system.contact_email;
         contactPhone = system.contact_phone;
         responsible = system.responsible;
-        photoRatio = system.photo_ratio || 'square';
-        photoFit = system.photo_fit || 'contain';
-        photoSizePreview = String(system.photo_size_preview);
-        photoSizeCard = String(system.photo_size_card);
-        photoSizeMax = String(system.photo_size_max);
 
         if (auth.can('roles.manage')) {
           db = await getDatabaseSettings();
@@ -354,7 +422,35 @@
     }
   }
 
+  async function loadModuleItems(force = false): Promise<void> {
+    if (modulesLoading) {
+      return;
+    }
+
+    if (!force && moduleItems.length > 0) {
+      return;
+    }
+
+    modulesLoading = true;
+    modulesError = '';
+
+    try {
+      const data = await listModules();
+      moduleItems = data.modules;
+    } catch (cause) {
+      modulesError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить модули';
+    } finally {
+      modulesLoading = false;
+    }
+  }
+
+  function syncModuleItems(next: ModuleItem[]): void {
+    moduleItems = next;
+  }
+
   async function onModulesSaved(): Promise<void> {
+    void loadModuleItems(true);
+    void appSettings.load();
     try {
       const data = await getSystemSettings();
       system = data;
@@ -425,15 +521,6 @@ async function saveSystem(): Promise<void> {
 
   try {
     system = await saveSystemSettings({
-      sla_reaction_hours: Number(slaReaction) || 2,
-      sla_resolution_hours: Number(slaResolution) || 24,
-      spf_checklist: spfDone,
-      sales_enabled: salesEnabled,
-      email_export_enabled: emailExportEnabled,
-      stock_reserve_enabled: stockReserveEnabled,
-      stock_allow_zero: stockAllowZero,
-      prices_enabled: pricesEnabled,
-      groups_enabled: groupsEnabled,
       app_title: appTitle,
       app_description: appDescription,
       organization,
@@ -442,21 +529,8 @@ async function saveSystem(): Promise<void> {
       contact_email: contactEmail,
       contact_phone: contactPhone,
       responsible,
-      photo_ratio: photoRatio,
-      photo_fit: photoFit,
-      photo_size_preview: Number(photoSizePreview) || 160,
-      photo_size_card: Number(photoSizeCard) || 600,
-      photo_size_max: Number(photoSizeMax) || 1600
     });
 
-    slaReaction = String(system.sla_reaction_hours);
-    slaResolution = String(system.sla_resolution_hours);
-    salesEnabled = system.sales_enabled;
-    emailExportEnabled = system.email_export_enabled;
-    stockReserveEnabled = system.stock_reserve_enabled;
-    stockAllowZero = system.stock_allow_zero;
-    pricesEnabled = system.prices_enabled;
-    groupsEnabled = system.groups_enabled;
     mailEnabled = system.mail_enabled;
     appTitle = system.app_title;
     appDescription = system.app_description;
@@ -466,11 +540,6 @@ async function saveSystem(): Promise<void> {
     contactEmail = system.contact_email;
     contactPhone = system.contact_phone;
     responsible = system.responsible;
-    photoRatio = system.photo_ratio || 'square';
-    photoFit = system.photo_fit || 'contain';
-    photoSizePreview = String(system.photo_size_preview);
-    photoSizeCard = String(system.photo_size_card);
-    photoSizeMax = String(system.photo_size_max);
     appSettings.set(
       system.sales_enabled,
       system.email_export_enabled,
@@ -721,27 +790,119 @@ async function saveSettings(): Promise<void> {
 </script>
 
 <section class="page page-wide">
-  <div class="page-hero">
-    <div class="filters">
-      <div class="head">
-        <h1>Настройки</h1>
+  <div class="settings-layout">
+    <aside class="settings-sidebar" aria-label="Настройки">
+      <div class="settings-sidebar-head">
+        <span class="settings-sidebar-title">Настройки</span>
       </div>
 
-      <div class="tabs tab-scroll">
+      <nav class="settings-nav">
         {#each visibleSettingsTabs as item (item.code)}
-          <button
-            type="button"
-            class:active={tab === item.code}
-            title={item.title}
-            aria-label={item.title}
-            onclick={() => (tab = item.code)}
-          >
-            <Icon name={item.icon} size={16} />
-          </button>
+          {#if item.code === 'modules'}
+            <button
+              type="button"
+              class="settings-nav-item"
+              class:active={tab === item.code}
+              aria-expanded={modulesExpanded}
+              onclick={() => {
+                modulesExpanded = !modulesExpanded;
+                if (modulesExpanded) mailExpanded = false;
+              }}
+            >
+              <Icon name={item.icon} size={16} />
+              <span class="settings-nav-label">{item.title}</span>
+              <Icon name={modulesExpanded ? 'arrow-up' : 'arrow-down'} size={14} />
+            </button>
+
+            {#if modulesExpanded}
+              <div class="settings-nav-children">
+                {#if modulesLoading}
+                  <div class="settings-nav-state"><Spinner size={14} /></div>
+                {:else if modulesError}
+                  <div class="settings-nav-state error">{modulesError}</div>
+                {:else if moduleItems.length === 0}
+                  <div class="settings-nav-state">Нет модулей</div>
+                {:else}
+                  {#each moduleItems as module (module.code)}
+                    <a
+                      class="settings-nav-child"
+                      class:active={tab === 'modules' && moduleCode === module.code}
+                      href={`#/settings/modules/${encodeURIComponent(module.code)}`}
+                      aria-current={tab === 'modules' && moduleCode === module.code ? 'page' : undefined}
+                      onclick={() => {
+                        modulesExpanded = true;
+                        mailExpanded = false;
+                      }}
+                    >
+                      <span class="settings-nav-label">{module.title}</span>
+                      {#if !module.enabled}
+                        <span class="settings-nav-dot" title="Отключён" aria-label="Отключён"></span>
+                      {/if}
+                    </a>
+                  {/each}
+                {/if}
+              </div>
+            {/if}
+          {:else if item.code === 'mail'}
+            <button
+              type="button"
+              class="settings-nav-item"
+              class:active={tab === item.code}
+              aria-expanded={mailExpanded}
+              onclick={() => {
+                mailExpanded = !mailExpanded;
+                if (mailExpanded) modulesExpanded = false;
+              }}
+            >
+              <Icon name={item.icon} size={16} />
+              <span class="settings-nav-label">{item.title}</span>
+              <Icon name={mailExpanded ? 'arrow-up' : 'arrow-down'} size={14} />
+            </button>
+
+            {#if mailExpanded}
+              <div class="settings-nav-children">
+                {#each visibleMailTabs as mailItem (mailItem.code)}
+                  <a
+                    class="settings-nav-child"
+                    class:active={tab === 'mail' && mailTab === mailItem.code}
+                    href={`#/settings/mail/${mailItem.code}`}
+                    aria-current={tab === 'mail' && mailTab === mailItem.code ? 'page' : undefined}
+                    onclick={() => {
+                      mailExpanded = true;
+                      modulesExpanded = false;
+                    }}
+                  >
+                    <span class="settings-nav-label">{mailItem.title}</span>
+                  </a>
+                {/each}
+              </div>
+            {/if}
+          {:else}
+            <a
+              class="settings-nav-item"
+              class:active={tab === item.code}
+              href={`#/settings/${item.code}`}
+              aria-current={tab === item.code ? 'page' : undefined}
+              onclick={() => {
+                modulesExpanded = false;
+                mailExpanded = false;
+              }}
+            >
+              <Icon name={item.icon} size={16} />
+              <span class="settings-nav-label">{item.title}</span>
+            </a>
+          {/if}
         {/each}
+      </nav>
+    </aside>
+
+    <div class="settings-main">
+      <div class="settings-main-head">
+        <div class="head">
+          <h1>{activeTitle || 'Настройки'}</h1>
+        </div>
       </div>
-    </div>
-  </div>
+
 
   {#if error}
     <div class="alert">{error}</div>
@@ -758,23 +919,23 @@ async function saveSettings(): Promise<void> {
   {:else if loading}
     <div class="center"><Spinner size={26} /></div>
   {:else}
-    {#if tab === 'mail' && visibleMailTabs.length > 0}
-      <div class="subtabs tab-scroll">
-        {#each visibleMailTabs as item (item.code)}
-          <button
-            type="button"
-            class:active={mailTab === item.code}
-            onclick={() => (mailTab = item.code)}
-          >
-            <Icon name={item.icon} size={16} />
-            <span>{item.title}</span>
-          </button>
-        {/each}
-      </div>
-    {/if}
+
 
     {#if tab === 'modules'}
-      <Admin section="modules" onsaved={onModulesSaved} />
+      {#if moduleCode}
+        <Admin
+          section="modules"
+          moduleCode={moduleCode}
+          onsaved={onModulesSaved}
+          onmoduleschange={syncModuleItems}
+        />
+      {:else if modulesLoading}
+        <div class="center"><Spinner size={26} /></div>
+      {:else}
+        <div class="card">
+          <p class="hint">Выберите модуль в меню «Модули».</p>
+        </div>
+      {/if}
     {:else if tab === 'docs'}
       <Admin section="docs" />
     {/if}
@@ -1004,139 +1165,6 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'work'}
-      <div class="card">
-        <h2>Параметры работы</h2>
-
-      <h3>Сроки SLA</h3>
-      <div class="grid">
-        <Input label="SLA: срок реакции, часов" type="number" bind:value={slaReaction} />
-        <Input label="SLA: срок решения, часов" type="number" bind:value={slaResolution} />
-      </div>
-
-      <h3>Фото номенклатуры</h3>
-      <div class="grid">
-        <label class="field">
-          <span class="label">Формат фото</span>
-          <select bind:value={photoRatio}>
-            <option value="dynamic">По фото (динамический)</option>
-            <option value="square">Квадрат (1:1)</option>
-            <option value="landscape">Горизонтальный (4:3)</option>
-            <option value="portrait">Вертикальный (3:4)</option>
-          </select>
-        </label>
-        <label class="field">
-          <span class="label">Несовпадение пропорций</span>
-          <select bind:value={photoFit}>
-            <option value="contain">Вписывать (без обрезки)</option>
-            <option value="cover">Заполнять (с обрезкой)</option>
-          </select>
-        </label>
-      </div>
-
-      <div class="grid">
-        <Input label="Фото: превью, px" type="number" bind:value={photoSizePreview} />
-        <Input label="Фото: карточка, px" type="number" bind:value={photoSizeCard} />
-        <Input label="Фото: максимум, px" type="number" bind:value={photoSizeMax} />
-      </div>
-
-      <p class="hint">
-        Размер по длинной стороне, 80–4000 px. Значения выравниваются: максимум ≥ карточка ≥ превью.
-      </p>
-
-      <h3>Продажи и склад</h3>
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={salesEnabled} />
-        Продажи включены (оформление заявок и черновиков)
-      </label>
-
-      {#if !salesEnabled}
-        <p class="hint">
-          Сотрудники и клиенты могут только просматривать остатки; создание и правка заявок недоступны.
-        </p>
-      {/if}
-
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={stockReserveEnabled} />
-        Уменьшать остатки складов при оформлении заявки (резервировать)
-      </label>
-
-      {#if stockReserveEnabled}
-        <p class="hint">
-          При отмене заявки или удалении номенклатуры остаток возвращается.
-        </p>
-      {/if}
-
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={stockAllowZero} />
-        Разрешать номенклатуру с нулевым или отрицательным остатком
-      </label>
-
-      <p class="hint">
-        {stockAllowZero
-          ? 'Нулевой остаток показывается в списках; отрицательный — с пометкой «поз заказ».'
-          : 'Нулевой остаток скрыт в выборе; нельзя запросить больше, чем есть на складе.'}
-      </p>
-
-      <h3>Цены и группы</h3>
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={pricesEnabled} />
-        Использовать цены для номенклатуры
-      </label>
-
-      <p class="hint">
-        {pricesEnabled
-          ? 'Клиент видит цену по своему типу профиля; тип задаётся в карточке сотрудника, цены — в номенклатуре.'
-          : 'Цены скрыты: клиент добавляет номенклатуру в заявку без стоимости.'}
-      </p>
-
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={groupsEnabled} />
-        Разрешить использовать группы номенклатуры
-      </label>
-
-      <p class="hint">
-        {groupsEnabled
-          ? 'Группы создаются в разделе «Номенклатура» и используются в фильтрах остатков и выбора позиций.'
-          : 'Группы скрыты в интерфейсе; созданные группы и привязки сохраняются.'}
-      </p>
-
-      <h3>Почта</h3>
-      <label class="checkbox">
-        <input type="checkbox" bind:checked={spfDone} />
-        SPF/DKIM/DMARC для домена настроены
-      </label>
-
-      {#if mailEnabled}
-        <label class="checkbox">
-          <input type="checkbox" bind:checked={emailExportEnabled} />
-          Разрешить экспорт на электронную почту
-        </label>
-
-        {#if !emailExportEnabled}
-          <p class="hint">
-            В модалках экспорта останется только скачивание файла.
-          </p>
-        {/if}
-      {/if}
-
-      {#if system}
-        <details class="advanced">
-          <summary>Как настроить SPF/DKIM/DMARC</summary>
-          <ul class="steps">
-            {#each system.spf_steps as step}
-              <li>{step}</li>
-            {/each}
-          </ul>
-        </details>
-      {/if}
-
-      <div class="actions">
-        <Button loading={busy} onclick={() => void saveSystem()}>Сохранить</Button>
-      </div>
-      </div>
-    {/if}
-
     {#if tab === 'mail' && mailTab === 'templates' && canManageTech}
       <div class="card">
         <h2>Шаблоны писем</h2>
@@ -1337,6 +1365,12 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
   {/if}
+    </div>
+  </div>
+
+  {#if import.meta.env.DEV}
+    <PageBadge id={pageBadgeId} />
+  {/if}
 </section>
 
 <style>
@@ -1354,6 +1388,140 @@ async function saveSettings(): Promise<void> {
     max-width: 900px;
     margin-inline: auto;
   }
+  .page > .settings-layout {
+    max-width: 1240px;
+  }
+
+  .settings-layout {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: var(--space-5);
+    align-items: start;
+    width: 100%;
+    max-width: 1240px;
+    margin-inline: auto;
+  }
+
+  .settings-sidebar {
+    position: sticky;
+    top: var(--space-4);
+    max-height: calc(100vh - 32px);
+    overflow-y: auto;
+    padding: 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
+  }
+
+  .settings-sidebar-head {
+    padding: 6px 10px 10px;
+  }
+
+  .settings-sidebar-title {
+    color: var(--text);
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .settings-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .settings-nav-item,
+  .settings-nav-child {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    min-height: 34px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    text-align: left;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .settings-nav-item {
+    gap: 8px;
+    padding: 7px 10px;
+  }
+
+  .settings-nav-label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-nav-item:hover,
+  .settings-nav-child:hover {
+    background: var(--fill-tertiary);
+  }
+
+  .settings-nav-item.active,
+  .settings-nav-child.active {
+    border-color: transparent;
+    background: var(--primary-bg);
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .settings-nav-children {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 2px 0 6px 14px;
+    padding-left: 8px;
+    border-left: 1px solid var(--border-secondary);
+  }
+
+  .settings-nav-child {
+    min-height: 30px;
+    gap: 8px;
+    padding: 6px 10px;
+    color: var(--muted);
+  }
+
+  .settings-nav-state {
+    padding: 6px 10px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .settings-nav-state.error {
+    color: var(--danger);
+  }
+
+  .settings-nav-dot {
+    flex: 0 0 6px;
+    width: 6px;
+    height: 6px;
+    margin-left: 2px;
+    border-radius: 50%;
+    background: var(--muted);
+  }
+
+  .settings-main {
+    width: 100%;
+    max-width: 960px;
+    min-width: 0;
+  }
+
+  .settings-main-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-4);
+  }
+
 
   h1 {
     margin: 0;
@@ -1368,14 +1536,6 @@ async function saveSettings(): Promise<void> {
     font-size: 16px;
   }
 
-  .filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    align-items: center;
-    justify-content: flex-start;
-  }
-
   .head {
     display: flex;
     flex-direction: column;
@@ -1383,79 +1543,18 @@ async function saveSettings(): Promise<void> {
     gap: var(--space-1);
   }
 
-  .tabs {
-    display: flex;
-    gap: var(--space-2);
-    margin-left: auto;
-  }
+  @media (max-width: 900px) {
+    .settings-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
 
-  .subtabs {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-1);
-    padding: 5px;
-    background: var(--fill-tertiary);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
+    .settings-sidebar {
+      position: static;
+      max-height: none;
+    }
 
-  .subtabs button {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    padding: 8px 12px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--muted);
-    font: inherit;
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .subtabs button:hover {
-    color: var(--text);
-    background: var(--surface);
-  }
-
-  .subtabs button.active {
-    color: var(--primary);
-    background: var(--surface);
-    border-color: var(--border);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .tabs button {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
-  }
-
-  .tabs button:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
-  .tabs button.active {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  @media (max-width: 720px) {
-    .tabs {
-      width: 100%;
-      margin-left: 0;
+    .settings-main {
+      max-width: none;
     }
   }
 
@@ -1528,194 +1627,6 @@ async function saveSettings(): Promise<void> {
   h3 {
     margin: var(--space-3) 0 0;
     font-size: 14px;
-  }
-
-  .advanced {
-    padding: var(--space-3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--fill-tertiary);
-  }
-
-  .advanced summary {
-    color: var(--muted);
-    font-size: 13px;
-    cursor: pointer;
-  }
-
-  .advanced .steps {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin: var(--space-2) 0 0;
-    padding-left: 20px;
-    color: var(--text-description);
-    font-size: 13px;
-  }
-
-  .schedules {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .schedule-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: var(--space-3);
-  }
-
-  .s-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  .s-title {
-    font-weight: 500;
-  }
-
-  .s-meta {
-    font-size: 12px;
-    color: var(--muted);
-  }
-
-  .s-actions {
-    display: flex;
-    gap: var(--space-2);
-    align-items: center;
-  }
-
-  .s-del {
-    padding: 9px 16px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: transparent;
-    color: var(--danger);
-    cursor: pointer;
-    font-size: 14px;
-    font-weight: 500;
-  }
-
-  .s-del:hover:not(:disabled) {
-    border-color: var(--danger);
-    background: rgba(220, 38, 38, 0.06);
-  }
-
-  .s-del:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .template-item {
-    padding: 4px 10px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    font-size: 12px;
-    cursor: pointer;
-    color: var(--muted);
-  }
-
-  .template-item.active {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .queue-head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: var(--space-3);
-  }
-
-  .queue-head .hint {
-    margin-top: 4px;
-  }
-
-  .queue {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .queue-row {
-    display: grid;
-    grid-template-columns: 1.2fr 2fr 80px 120px;
-    gap: var(--space-2);
-    font-size: 13px;
-    align-items: center;
-  }
-
-  .q-to,
-  .q-subject {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .q-status {
-    font-size: 12px;
-    border-radius: 999px;
-    padding: 1px 8px;
-    text-align: center;
-    background: #ecfdf5;
-    color: #047857;
-  }
-
-  .q-status.pending {
-    background: #fffbeb;
-    color: #b45309;
-  }
-
-  .q-status.failed {
-    background: var(--danger-bg);
-    color: var(--danger);
-  }
-
-  .q-date {
-    color: var(--muted);
-    font-size: 12px;
-  }
-
-  .q-error {
-    font-size: 12px;
-    color: var(--danger);
-  }
-
-  .hint {
-    color: var(--muted);
-    font-size: 13px;
-    margin: 0;
-  }
-
-  .mono {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 12px;
-    word-break: break-all;
-  }
-
-  .alert {
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    background: var(--danger-bg);
-    color: var(--danger);
-    font-size: 13px;
-  }
-
-  .notice {
-    padding: 8px 12px;
-    border-radius: var(--radius-sm);
-    background: #ecfdf5;
-    color: #047857;
-    font-size: 13px;
   }
 
   .log {

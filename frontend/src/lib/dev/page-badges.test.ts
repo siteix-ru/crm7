@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { badgeForRoute, pageBadges } from './page-badges';
+import { badgeForRoute, pageBadges, settingsBadgeId } from './page-badges';
 
 const badges = {
   '/': { id: 'HOME', task: '' },
@@ -39,6 +39,14 @@ describe('badgeForRoute', () => {
 
   it('returns null for unknown routes', () => {
     expect(badgeForRoute('/unknown', badges)).toBeNull();
+  });
+
+  it('builds a separate badge for each settings tab', () => {
+    expect(settingsBadgeId('general')).toBe('SETTINGS-GENERAL');
+    expect(settingsBadgeId('modules', 'manager_assign')).toBe(
+      'SETTINGS-MODULES-MANAGER-ASSIGN'
+    );
+    expect(settingsBadgeId('mail', 'smtp')).toBe('SETTINGS-MAIL-SMTP');
   });
 
   it('covers every route registered for the app', () => {

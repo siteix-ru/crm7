@@ -5,13 +5,10 @@ declare(strict_types=1);
 namespace App\Modules;
 
 use App\Core\Database;
-use App\Core\Logger;
 use App\Http\HttpException;
 use App\Repositories\SettingsRepository;
-use App\Stocks\StocksService;
 use App\Support\Modules;
 use App\Users\UserAdminService;
-use Throwable;
 
 /**
  * Настройка модулей: вкл/выкл + доступ ролей (через права в level_capabilities).
@@ -28,10 +25,32 @@ final class ModuleService
         ['level' => 1, 'title' => 'Гость'],
     ];
 
+    private const SETTINGS = [
+        'requests' => [
+            'sales.enabled' => ['type' => 'bool'],
+            'sla.reaction_hours' => ['type' => 'int', 'min' => 1, 'max' => 168, 'default' => 2],
+            'sla.resolution_hours' => ['type' => 'int', 'min' => 1, 'max' => 720, 'default' => 24],
+            'stock.reserve_enabled' => ['type' => 'bool'],
+            'stock.allow_zero' => ['type' => 'bool'],
+        ],
+        'stock_edit' => [
+            'prices.enabled' => ['type' => 'bool'],
+            'groups.enabled' => ['type' => 'bool'],
+            'stocks.photo_ratio' => ['type' => 'enum', 'values' => ['dynamic', 'square', 'landscape', 'portrait'], 'default' => 'square'],
+            'stocks.photo_fit' => ['type' => 'enum', 'values' => ['contain', 'cover'], 'default' => 'contain'],
+            'stocks.photo_size_preview' => ['type' => 'int', 'min' => 80, 'max' => 4000, 'default' => 160],
+            'stocks.photo_size_card' => ['type' => 'int', 'min' => 80, 'max' => 4000, 'default' => 600],
+            'stocks.photo_size_max' => ['type' => 'int', 'min' => 80, 'max' => 4000, 'default' => 1600],
+        ],
+        'mail' => [
+            'mail.export_enabled' => ['type' => 'bool'],
+            'mail.spf_checklist' => ['type' => 'bool'],
+        ],
+    ];
+
     public function __construct(
         private readonly SettingsRepository $settings = new SettingsRepository(),
-        private readonly UserAdminService $users = new UserAdminService(),
-        private readonly StocksService $stocks = new StocksService()
+        private readonly UserAdminService $users = new UserAdminService()
     ) {
     }
 
@@ -62,7 +81,6 @@ final class ModuleService
             throw new HttpException(422, 'validation_error', 'Некорректный список модулей');
         }
 
-        $wasWarehousesEnabled = $this->settings->warehousesEnabled();
         $settings = [];
         $access = [];
 
@@ -75,6 +93,10 @@ final class ModuleService
             }
 
             $settings[(string) $module['setting']] = ($row['enabled'] ?? true) ? '1' : '0';
+
+            foreach ($this->readModuleSettings($code, $row['settings'] ?? []) as $key => $value) {
+                $settings[$key] = $value;
+            }
 
             $legacyLevels = (array) ($row['levels'] ?? []);
             $groupRows = is_array($row['groups'] ?? null) ? $row['groups'] : null;
@@ -90,23 +112,8 @@ final class ModuleService
             }
         }
 
+        $settings['module.warehouses'] = '1';
         $this->settings->many($settings);
-
-        $warehousesRow = $requested['warehouses'] ?? null;
-        $warehousesEnabled = is_array($warehousesRow)
-            ? (bool) ($warehousesRow['enabled'] ?? true)
-            : $wasWarehousesEnabled;
-
-        if ($wasWarehousesEnabled && !$warehousesEnabled) {
-            try {
-                $this->stocks->collapseWarehouses($actor);
-            } catch (Throwable $exception) {
-                $this->settings->many(['module.warehouses' => '1']);
-                Logger::error('stocks.collapse failed', ['error' => $exception->getMessage()]);
-
-                throw new HttpException(500, 'collapse_failed', 'Не удалось объединить склады. Подробности — в журнале.');
-            }
-        }
 
         $this->applyAccess($actor, $capabilities, $access);
 
@@ -216,6 +223,61 @@ final class ModuleService
     /**
      * @return array<string, mixed>
      */
+    private function moduleSettingsPayload(string $code): array
+    {
+        $result = [];
+
+        foreach (self::SETTINGS[$code] ?? [] as $key => $definition) {
+            $raw = $this->settings->get($key);
+            $type = (string) $definition['type'];
+
+            if ($type === 'bool') {
+                $result[$key] = $raw === '1';
+            } elseif ($type === 'int') {
+                $value = $raw === null ? (int) $definition['default'] : (int) $raw;
+                $result[$key] = max((int) $definition['min'], min((int) $definition['max'], $value));
+            } else {
+                $value = (string) ($raw ?? $definition['default']);
+                $result[$key] = in_array($value, $definition['values'], true)
+                    ? $value
+                    : (string) $definition['default'];
+            }
+        }
+
+        return $result;
+    }
+
+    private function readModuleSettings(string $code, mixed $input): array
+    {
+        if (!is_array($input)) {
+            return [];
+        }
+
+        $result = [];
+
+        foreach (self::SETTINGS[$code] ?? [] as $key => $definition) {
+            if (!array_key_exists($key, $input)) {
+                continue;
+            }
+
+            $type = (string) $definition['type'];
+            $value = $input[$key];
+
+            if ($type === 'bool') {
+                $result[$key] = (bool) $value ? '1' : '0';
+            } elseif ($type === 'int') {
+                $number = (int) $value;
+                $result[$key] = (string) max((int) $definition['min'], min((int) $definition['max'], $number));
+            } else {
+                $result[$key] = in_array($value, $definition['values'], true)
+                    ? (string) $value
+                    : (string) $definition['default'];
+            }
+        }
+
+        return $result;
+    }
+
     private function payload(): array
     {
         $current = $this->levelCapabilities();
@@ -255,6 +317,7 @@ final class ModuleService
                 'levels' => $levels,
                 'capabilities' => array_values((array) $module['capabilities']),
                 'groups' => $groups,
+                'settings' => $this->moduleSettingsPayload((string) $module['code']),
             ];
         }
 

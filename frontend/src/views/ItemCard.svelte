@@ -31,7 +31,9 @@
 
   let tab = $state<'main' | 'levels' | 'composition'>('main');
 
-  const canCreate = $derived(auth.can('requests.create') && appSettings.cartEnabled);
+  const canCreate = $derived(
+    auth.can('requests.create') && appSettings.requestsEnabled && appSettings.cartEnabled
+  );
   const isSet = $derived(item?.type === 'set');
   const levels = $derived(item?.levels ?? []);
   const composition = $derived(item?.composition ?? []);
@@ -353,18 +355,20 @@
             </div>
 
             <div class="levels-scroll">
-            <div class="levels-table" class:no-prices={!pricesEnabled}>
+            <div class="levels-table" class:no-prices={!pricesEnabled} class:no-cart={!canCreate}>
               <div class="levels-head">
                 <span class="levels-head-cell">Склад</span>
                 {#if pricesEnabled}
                   <span class="levels-head-cell col-price">Цена</span>
                 {/if}
                 <span class="levels-head-cell col-stock">Остаток</span>
-                <span class="levels-head-cell col-cart">Корзина</span>
+                {#if canCreate}
+                  <span class="levels-head-cell col-cart">Корзина</span>
+                {/if}
               </div>
 
               {#each levels as level (level.warehouse_sid)}
-                {@const levelCartQty = cart.quantityOf(level.warehouse_id, target.name)}
+                {@const levelCartQty = canCreate ? cart.quantityOf(level.warehouse_id, target.name) : 0}
                 <div class="level-row" class:current={level.current}>
                   <div class="level-wh">
                     <span class="level-name">
@@ -408,6 +412,7 @@
                     {stockQuantityText(level.quantity, level.unit || target.unit)}
                   </span>
 
+                  {#if canCreate}
                   <div class="level-cart col-cart">
                     {#if canCreate && target.active !== false}
                       {#if levelCartQty > 0}
@@ -445,6 +450,7 @@
                       {/if}
                     {/if}
                   </div>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -983,6 +989,19 @@
   .levels-table.no-prices .levels-head,
   .levels-table.no-prices .level-row {
     grid-template-columns: minmax(0, 1fr) 120px 150px;
+  }
+  .levels-table.no-cart .levels-head,
+  .levels-table.no-cart .level-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 220px) 120px;
+  }
+
+  .levels-table.no-prices.no-cart .levels-head,
+  .levels-table.no-prices.no-cart .level-row {
+    grid-template-columns: minmax(0, 1fr) 120px;
+  }
+
+  .levels-table.no-prices.no-cart {
+    min-width: 360px;
   }
 
   .levels-table .level-row:last-child {

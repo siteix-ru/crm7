@@ -36,8 +36,17 @@
 
   type AdminSection = 'modules' | 'roles' | 'docs';
 
-  let { section = null, onsaved }: { section?: AdminSection | null; onsaved?: () => void } =
-    $props();
+  let {
+    section = null,
+    onsaved,
+    moduleCode = null,
+    onmoduleschange
+  }: {
+    section?: AdminSection | null;
+    onsaved?: () => void;
+    moduleCode?: string | null;
+    onmoduleschange?: (modules: ModuleItem[]) => void;
+  } = $props();
 
   const embedded = $derived(section !== null);
 
@@ -103,6 +112,8 @@ let usersPerPage = $state(20);
 
   let modules = $state<ModuleItem[]>([]);
   let moduleRoles = $state<ModuleRole[]>([]);
+  let modulesBaseline = $state('');
+  let modulesSaved = $state(false);
 
   const moduleOrder = [
     'requests',
@@ -127,9 +138,15 @@ let usersPerPage = $state(20);
       return (ai === -1 ? moduleOrder.length : ai) - (bi === -1 ? moduleOrder.length : bi);
     })
   );
+  const visibleModules = $derived(
+    moduleCode === null
+      ? sortedModules
+      : sortedModules.filter((module) => module.code === moduleCode)
+  );
   const moduleRoleOptions = $derived(
     moduleRoles.map((role) => ({ value: String(role.level), label: role.title }))
   );
+  const modulesDirty = $derived(modulesBaseline !== JSON.stringify(modules));
   let modulesLoading = $state(false);
   let modulesBusy = $state(false);
   let modulesNotice = $state('');
@@ -367,11 +384,14 @@ let usersPerPage = $state(20);
     modulesLoading = true;
     modulesError = '';
     modulesNotice = '';
+    modulesSaved = false;
 
     try {
       const data = await listModules();
       modules = data.modules;
       moduleRoles = data.roles;
+      modulesBaseline = JSON.stringify(data.modules);
+      onmoduleschange?.(data.modules);
     } catch (cause) {
       modulesError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить модули';
     } finally {
@@ -379,23 +399,43 @@ let usersPerPage = $state(20);
     }
   }
 
-  function toggleModuleEnabled(code: string): void {
+  function toggleModuleEnabled(code: string): boolean {
     const current = modules.find((module) => module.code === code);
 
-    if (
-      code === 'warehouses' &&
-      current?.enabled &&
-      !confirm(
-        'Отключение модуля «Склады» необратимо: остатки и цены будут объединены по номенклатуре, остальные склады удалены. Продолжить?'
-      )
-    ) {
-      return;
+    if (code === 'warehouses' || !current || !canManageRoles) {
+      return false;
     }
 
-    modules = modules.map((module) =>
+    const message = current.enabled
+      ? `Выключить модуль «${current.title}»? Пользователи потеряют доступ к разделу.`
+      : `Включить модуль «${current.title}»? Доступ к разделу появится у выбранных ролей.`;
+    const warning =
+      code === 'warehouses' && current.enabled
+        ? ' Складские остатки и связи с заявками сохранятся.'
+        : '';
+
+    if (!confirm(message + warning)) {
+      return false;
+    }
+
+    const nextModules = modules.map((module) =>
       module.code === code ? { ...module, enabled: !module.enabled } : module
     );
+    modules = nextModules;
     modulesNotice = '';
+    modulesSaved = false;
+    onmoduleschange?.(nextModules);
+    return true;
+  }
+
+  function setModuleSetting(code: string, key: string, value: string | number | boolean): void {
+    modules = modules.map((module) =>
+      module.code === code
+        ? { ...module, settings: { ...module.settings, [key]: value } }
+        : module
+    );
+    modulesNotice = '';
+    modulesSaved = false;
   }
 
   function setModuleLevels(code: string, values: string[]): void {
@@ -407,6 +447,7 @@ let usersPerPage = $state(20);
       module.code === code ? { ...module, levels } : module
     );
     modulesNotice = '';
+    modulesSaved = false;
   }
 
   function setModuleGroupLevels(code: string, groupCode: string, values: string[]): void {
@@ -427,18 +468,35 @@ let usersPerPage = $state(20);
       return { ...module, groups, levels: allLevels };
     });
     modulesNotice = '';
+    modulesSaved = false;
+  }
+
+  function resetModulesDraft(): void {
+    if (!modulesBaseline) {
+      return;
+    }
+
+    const nextModules = JSON.parse(modulesBaseline) as ModuleItem[];
+    modules = nextModules;
+    modulesNotice = '';
+    modulesSaved = false;
+    onmoduleschange?.(nextModules);
   }
 
   async function saveModulesDraft(): Promise<void> {
     modulesBusy = true;
     modulesError = '';
     modulesNotice = '';
+    modulesSaved = false;
 
     try {
       const data = await saveModules(modules);
       modules = data.modules;
       moduleRoles = data.roles;
+      modulesBaseline = JSON.stringify(data.modules);
       modulesNotice = 'Сохранено';
+      modulesSaved = true;
+      onmoduleschange?.(data.modules);
       await appSettings.load();
       onsaved?.();
     } catch (cause) {
@@ -614,98 +672,411 @@ let usersPerPage = $state(20);
     {#if modulesLoading}
       <div class="center"><Spinner /></div>
     {:else}
-      <p class="hint">
-        Выключенный модуль скрывается в интерфейсе и блокируется на сервере. В группах доступа выберите
-        роли, которым доступны отдельные возможности модуля. Изменения применяются после сохранения.
-      </p>
-
-      <div class="modules">
-        {#each sortedModules as module (module.code)}
+      <div class="module-page" class:embedded>
+        {#each visibleModules as module (module.code)}
+          {@const moduleSettings = module.settings ?? {}}
           <div
             class="module-card"
             class:off={!module.enabled}
-            class:has-groups={module.groups.length > 1}
+            class:has-groups={module.groups.length > 0}
           >
             <div class="module-head">
-              <span class="module-title">{module.title}</span>
+              <div class="module-heading">
+                <div class="module-title-row">
+                  <span class="module-title">{module.title}</span>
+                  <span class="module-status" class:on={module.enabled}>
+                    {module.enabled ? 'Включён' : 'Отключён'}
+                  </span>
+                  {#if module.code === 'warehouses'}
+                    <span class="module-required-badge">Обязательный</span>
+                  {/if}
+                </div>
+                <p class="module-desc">{module.description}</p>
+              </div>
+
               <div class="module-actions">
                 {#if module.capabilities.length > 0}
                   <HelpTip
-                    text="Выберите роли для каждой группы доступа. Пустой список скрывает возможность у всех. Изменения применяются после сохранения."
+                    text="Роли определяют, какие действия доступны сотрудникам. Изменения вступают в силу после сохранения."
                   />
                 {/if}
                 <label
                   class="switch"
-                  title={module.enabled ? 'Выключить модуль' : 'Включить модуль'}
+                  title={module.code === 'warehouses' ? 'Модуль «Склады» нельзя отключить' : module.enabled ? 'Выключить модуль' : 'Включить модуль'}
                 >
                   <input
                     type="checkbox"
                     checked={module.enabled}
-                    disabled={!canManageRoles}
-                    aria-label={module.enabled ? `Выключить модуль «${module.title}»` : `Включить модуль «${module.title}»`}
-                    onchange={() => toggleModuleEnabled(module.code)}
+                    disabled={!canManageRoles || module.code === 'warehouses'}
+                    aria-label={module.code === 'warehouses' ? 'Модуль «Склады» обязателен' : module.enabled ? `Выключить модуль ${module.title}` : `Включить модуль ${module.title}`}
+                    onchange={(event) => {
+                      const input = event.currentTarget as HTMLInputElement;
+
+                      if (!toggleModuleEnabled(module.code)) {
+                        input.checked = !input.checked;
+                      }
+                    }}
                   />
                   <span class="switch-track" aria-hidden="true"></span>
                 </label>
               </div>
             </div>
 
-            <p class="module-desc">{module.description}</p>
+            {#if !module.enabled}
+              <div class="module-off-note">
+                Модуль отключён. Настройки доступа сохраняются, но не применяются.
+              </div>
+            {/if}
 
-            {#if module.groups.length > 1}
-              <div class="module-groups" class:off={!module.enabled}>
-                {#each module.groups as group (group.code)}
-                  <div class="module-group">
-                    <span class="module-group-title">{group.title}</span>
-                    {#if group.description}
-                      <p class="module-group-desc">{group.description}</p>
-                    {/if}
+            {#if module.code === 'requests' || module.code === 'stock_edit' || module.code === 'mail'}
+              <div class="module-settings">
+                <div class="module-access-head">
+                  <h3>
+                    {module.code === 'requests'
+                      ? 'Параметры заявок'
+                      : module.code === 'stock_edit'
+                        ? 'Параметры номенклатуры'
+                        : 'Параметры почты'}
+                  </h3>
+                </div>
+
+                {#if module.code === 'requests'}
+                  <label class="module-check">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(moduleSettings['sales.enabled'])}
+                      disabled={!canManageRoles || !module.enabled}
+                      onchange={(event) =>
+                        setModuleSetting(
+                          module.code,
+                          'sales.enabled',
+                          event.currentTarget.checked
+                        )}
+                    />
+                    <span>Оформление заявок и черновиков</span>
+                  </label>
+
+                  <div class="module-settings-grid">
+                    <label class="module-setting-field">
+                      <span>SLA: срок реакции, часов</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="168"
+                        value={Number(moduleSettings['sla.reaction_hours'] ?? 2)}
+                        disabled={!canManageRoles || !module.enabled}
+                        oninput={(event) =>
+                          setModuleSetting(
+                            module.code,
+                            'sla.reaction_hours',
+                            Number(event.currentTarget.value)
+                          )}
+                      />
+                    </label>
+                    <label class="module-setting-field">
+                      <span>SLA: срок решения, часов</span>
+                      <input
+                        type="number"
+                        min="1"
+                        max="720"
+                        value={Number(moduleSettings['sla.resolution_hours'] ?? 24)}
+                        disabled={!canManageRoles || !module.enabled}
+                        oninput={(event) =>
+                          setModuleSetting(
+                            module.code,
+                            'sla.resolution_hours',
+                            Number(event.currentTarget.value)
+                          )}
+                      />
+                    </label>
+                  </div>
+
+                  <label class="module-check">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(moduleSettings['stock.reserve_enabled'])}
+                      disabled={!canManageRoles || !module.enabled}
+                      onchange={(event) =>
+                        setModuleSetting(
+                          module.code,
+                          'stock.reserve_enabled',
+                          event.currentTarget.checked
+                        )}
+                    />
+                    <span>Уменьшать остатки складов при оформлении заявки</span>
+                  </label>
+
+                  <label class="module-check">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(moduleSettings['stock.allow_zero'])}
+                      disabled={!canManageRoles || !module.enabled}
+                      onchange={(event) =>
+                        setModuleSetting(
+                          module.code,
+                          'stock.allow_zero',
+                          event.currentTarget.checked
+                        )}
+                    />
+                    <span>Разрешать нулевой и отрицательный остаток</span>
+                  </label>
+                {:else if module.code === 'stock_edit'}
+                  <label class="module-check">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(moduleSettings['prices.enabled'])}
+                      disabled={!canManageRoles || !module.enabled}
+                      onchange={(event) =>
+                        setModuleSetting(
+                          module.code,
+                          'prices.enabled',
+                          event.currentTarget.checked
+                        )}
+                    />
+                    <span>Использовать цены для номенклатуры</span>
+                  </label>
+
+                  <label class="module-check">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(moduleSettings['groups.enabled'])}
+                      disabled={!canManageRoles || !module.enabled}
+                      onchange={(event) =>
+                        setModuleSetting(
+                          module.code,
+                          'groups.enabled',
+                          event.currentTarget.checked
+                        )}
+                    />
+                    <span>Использовать группы номенклатуры</span>
+                  </label>
+
+                  <div class="module-settings-grid">
+                    <label class="module-setting-field">
+                      <span>Формат фото</span>
+                      <select
+                        value={String(moduleSettings['stocks.photo_ratio'] ?? 'square')}
+                        disabled={!canManageRoles || !module.enabled}
+                        onchange={(event) =>
+                          setModuleSetting(
+                            module.code,
+                            'stocks.photo_ratio',
+                            event.currentTarget.value
+                          )}
+                      >
+                        <option value="dynamic">По фото</option>
+                        <option value="square">Квадрат 1:1</option>
+                        <option value="landscape">Горизонтальный 4:3</option>
+                        <option value="portrait">Вертикальный 3:4</option>
+                      </select>
+                    </label>
+                    <label class="module-setting-field">
+                      <span>Несовпадение пропорций</span>
+                      <select
+                        value={String(moduleSettings['stocks.photo_fit'] ?? 'contain')}
+                        disabled={!canManageRoles || !module.enabled}
+                        onchange={(event) =>
+                          setModuleSetting(
+                            module.code,
+                            'stocks.photo_fit',
+                            event.currentTarget.value
+                          )}
+                      >
+                        <option value="contain">Вписывать без обрезки</option>
+                        <option value="cover">Заполнять с обрезкой</option>
+                      </select>
+                    </label>
+                  </div>
+
+                  <div class="module-settings-grid">
+                    <label class="module-setting-field">
+                      <span>Фото: превью, px</span>
+                      <input
+                        type="number"
+                        min="80"
+                        max="4000"
+                        value={Number(moduleSettings['stocks.photo_size_preview'] ?? 160)}
+                        disabled={!canManageRoles || !module.enabled}
+                        oninput={(event) =>
+                          setModuleSetting(
+                            module.code,
+                            'stocks.photo_size_preview',
+                            Number(event.currentTarget.value)
+                          )}
+                      />
+                    </label>
+                    <label class="module-setting-field">
+                      <span>Фото: карточка, px</span>
+                      <input
+                        type="number"
+                        min="80"
+                        max="4000"
+                        value={Number(moduleSettings['stocks.photo_size_card'] ?? 600)}
+                        disabled={!canManageRoles || !module.enabled}
+                        oninput={(event) =>
+                          setModuleSetting(
+                            module.code,
+                            'stocks.photo_size_card',
+                            Number(event.currentTarget.value)
+                          )}
+                      />
+                    </label>
+                    <label class="module-setting-field">
+                      <span>Фото: максимум, px</span>
+                      <input
+                        type="number"
+                        min="80"
+                        max="4000"
+                        value={Number(moduleSettings['stocks.photo_size_max'] ?? 1600)}
+                        disabled={!canManageRoles || !module.enabled}
+                        oninput={(event) =>
+                          setModuleSetting(
+                            module.code,
+                            'stocks.photo_size_max',
+                            Number(event.currentTarget.value)
+                          )}
+                      />
+                    </label>
+                  </div>
+                {:else}
+                  <label class="module-check">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(moduleSettings['mail.export_enabled'])}
+                      disabled={!canManageRoles || !module.enabled}
+                      onchange={(event) =>
+                        setModuleSetting(
+                          module.code,
+                          'mail.export_enabled',
+                          event.currentTarget.checked
+                        )}
+                    />
+                    <span>Разрешить экспорт на электронную почту</span>
+                  </label>
+
+                  <label class="module-check">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(moduleSettings['mail.spf_checklist'])}
+                      disabled={!canManageRoles || !module.enabled}
+                      onchange={(event) =>
+                        setModuleSetting(
+                          module.code,
+                          'mail.spf_checklist',
+                          event.currentTarget.checked
+                        )}
+                    />
+                    <span>SPF/DKIM/DMARC для домена настроены</span>
+                  </label>
+                {/if}
+              </div>
+            {/if}
+
+            {#if module.groups.length > 0}
+              <div class="module-access">
+                <div class="module-access-head">
+                  <h3>
+                    {module.groups.length === 1 ? 'Группа доступа' : 'Группы доступа'}
+                  </h3>
+                </div>
+
+                <div
+                  class="module-groups"
+                  class:off={!module.enabled}
+                >
+                  {#each module.groups as group (group.code)}
+                    <div class="module-group">
+                      <div class="module-group-head">
+                        <div class="module-group-heading">
+                          <span class="module-group-title">{group.title}</span>
+                          {#if group.description}
+                            <p class="module-group-desc">{group.description}</p>
+                          {/if}
+                        </div>
+                      </div>
+
+                      <MultiSelect
+                        label={group.title}
+                        options={moduleRoleOptions}
+                        values={group.levels.map(String)}
+                        onchange={(values) => setModuleGroupLevels(module.code, group.code, values)}
+                        allLabel="Все роли"
+                        emptyLabel="Нет ролей"
+                        emptyValuesLabel="Нет ролей"
+                        maxHeight="240px"
+                        disabled={!canManageRoles || !module.enabled}
+                      />
+                    </div>
+                  {/each}
+                </div>
+              </div>
+            {:else if module.capabilities.length > 0}
+              <div class="module-access">
+                <div class="module-access-head">
+                  <h3>Доступ по ролям</h3>
+                </div>
+
+                <div
+                  class="module-single-access"
+                  class:off={!module.enabled}
+                >
+                  <div class="module-group module-group-single">
+                    <div class="module-group-head">
+                      <div class="module-group-heading">
+                        <span class="module-group-title">Роли с доступом</span>
+                        <p class="module-group-desc">
+                          Отметьте роли, которым доступен модуль.
+                        </p>
+                      </div>
+                    </div>
+
                     <MultiSelect
-                      label={group.title}
+                      label="Роли с доступом"
                       options={moduleRoleOptions}
-                      values={group.levels.map(String)}
-                      onchange={(values) => setModuleGroupLevels(module.code, group.code, values)}
+                      values={module.levels.map(String)}
+                      onchange={(values) => setModuleLevels(module.code, values)}
                       allLabel="Все роли"
                       emptyLabel="Нет ролей"
-                      emptyValuesLabel="Никому"
+                      emptyValuesLabel="Нет ролей"
                       maxHeight="240px"
-                      showCount
                       disabled={!canManageRoles || !module.enabled}
                     />
                   </div>
-                {/each}
-              </div>
-            {:else if module.capabilities.length > 0}
-              <div class="module-roles" class:off={!module.enabled}>
-                <span class="module-roles-label">Доступные роли</span>
-                <MultiSelect
-                  label="Доступные роли"
-                  options={moduleRoleOptions}
-                  values={module.levels.map(String)}
-                  onchange={(values) => setModuleLevels(module.code, values)}
-                  allLabel="Все роли"
-                  emptyLabel="Нет ролей"
-                  emptyValuesLabel="Никому"
-                  maxHeight="240px"
-                  showCount
-                  disabled={!canManageRoles || !module.enabled}
-                />
+                </div>
               </div>
             {/if}
           </div>
         {/each}
+
+        {#if visibleModules.length === 0}
+          <p class="hint">Модуль не найден</p>
+        {/if}
       </div>
 
       {#if !canManageRoles}
-        <p class="hint">Менять права ролей может только технический администратор.</p>
+        <p class="hint">Изменять доступ к модулям могут только администраторы.</p>
       {/if}
 
-      <p class="hint">
-        Настройки системы и журнал закреплены за техническим администратором и не входят в модули.
-      </p>
-
-      <div class="actions">
-        <Button loading={modulesBusy} onclick={() => void saveModulesDraft()}>Сохранить</Button>
+      <div
+        class="module-footer"
+      >
+        <span class="module-save-state" class:dirty={modulesDirty}>
+          {#if modulesDirty}
+            Есть несохранённые изменения
+          {:else if modulesSaved}
+            Изменения сохранены
+          {/if}
+        </span>
+        <div class="module-footer-actions">
+          {#if modulesDirty}
+            <Button variant="ghost" disabled={modulesBusy} onclick={resetModulesDraft}>
+              Отменить
+            </Button>
+          {/if}
+          <Button loading={modulesBusy} disabled={!modulesDirty} onclick={() => void saveModulesDraft()}>
+            Сохранить
+          </Button>
+        </div>
       </div>
     {/if}
   {/if}
@@ -1027,17 +1398,21 @@ let usersPerPage = $state(20);
     gap: var(--space-4);
   }
 
-  .modules {
+  .module-page {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: var(--space-3);
   }
 
+  .module-page.embedded {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .module-card {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
-    padding: var(--space-4);
+    gap: var(--space-4);
+    padding: var(--space-5);
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
@@ -1055,13 +1430,29 @@ let usersPerPage = $state(20);
 
   .module-head {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
-    gap: var(--space-2);
+    gap: var(--space-3);
+    padding-bottom: var(--space-3);
+    border-bottom: 1px solid var(--border-secondary);
+  }
+
+  .module-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+  }
+
+  .module-title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
 
   .module-title {
-    font-size: 16px;
+    font-size: 18px;
     font-weight: 600;
     color: var(--text);
     transition: color 0.15s ease;
@@ -1069,6 +1460,37 @@ let usersPerPage = $state(20);
 
   .module-card.off .module-title {
     color: var(--text-description);
+  }
+
+  .module-status {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--fill-tertiary);
+    color: var(--text-description);
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .module-status.on {
+    background: var(--success-bg);
+    color: var(--success-text);
+  }
+  .module-required-badge {
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--primary-bg);
+    color: var(--primary);
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  .module-off-note {
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    background: var(--warning-bg);
+    color: var(--warning-text);
+    font-size: 12px;
+    line-height: 1.4;
   }
 
   .module-actions {
@@ -1085,34 +1507,136 @@ let usersPerPage = $state(20);
     color: var(--text-description);
   }
 
-  .module-roles {
+  .module-settings {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
-    margin-top: auto;
+    gap: var(--space-3);
+    padding: var(--space-3);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--fill-tertiary);
   }
 
-  .module-roles.off,
+  .module-settings-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--space-3);
+  }
+
+  .module-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text);
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .module-check input {
+    width: 16px;
+    height: 16px;
+    accent-color: var(--primary);
+  }
+
+  .module-setting-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--text-description);
+    font-size: 12px;
+  }
+
+  .module-setting-field input,
+  .module-setting-field select {
+    width: 100%;
+    height: 34px;
+    padding: 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font: inherit;
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+
+  .module-setting-field input:focus,
+  .module-setting-field select:focus {
+    border-color: var(--primary);
+    outline: none;
+  }
+
+  .module-setting-field input:disabled,
+  .module-setting-field select:disabled {
+    background: var(--fill-tertiary);
+    color: var(--text-description);
+    cursor: not-allowed;
+  }
+
+  .module-access {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .module-access-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .module-access-head h3 {
+    margin: 0;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 600;
+  }
+
   .module-groups.off {
     opacity: 0.55;
   }
 
-  .module-roles-label {
-    font-size: 13px;
-    color: var(--text-description);
+  .module-single-access {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-3);
+    align-items: stretch;
   }
+
+  .module-single-access.off {
+    opacity: 0.55;
+  }
+
 
   .module-groups {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-3);
-    margin-top: auto;
   }
 
   .module-group {
     display: flex;
     flex-direction: column;
-    gap: var(--space-1);
+    gap: var(--space-2);
+    min-width: 0;
+    padding: var(--space-3);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--fill-tertiary);
+  }
+
+  .module-group-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-2);
+  }
+
+  .module-group-heading {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
     min-width: 0;
   }
 
@@ -1129,73 +1653,38 @@ let usersPerPage = $state(20);
 
   .module-group-desc {
     margin: 0;
-    font-size: 12px;
-    line-height: 1.4;
+    max-width: 80ch;
     color: var(--text-description);
+    font-size: 13px;
+    line-height: 1.5;
   }
 
-  .switch {
-    position: relative;
-    flex: 0 0 40px;
-    width: 40px;
-    height: 22px;
+  .module-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border-top: 1px solid var(--border-secondary);
+    background: var(--surface);
   }
 
-  .switch input {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    margin: 0;
-    opacity: 0;
-    cursor: pointer;
+  .module-save-state {
+    color: var(--muted);
+    font-size: 12px;
   }
 
-  .switch-track {
-    position: absolute;
-    inset: 0;
-    border-radius: 999px;
-    background: var(--border);
-    transition: background 0.15s ease;
+  .module-save-state.dirty {
+    color: var(--warning-text);
   }
 
-  .switch-track::after {
-    content: '';
-    position: absolute;
-    top: 3px;
-    left: 3px;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
-    transition: transform 0.15s ease;
-  }
-
-  .switch input:checked + .switch-track {
-    background: var(--primary);
-  }
-
-  .switch input:checked + .switch-track::after {
-    transform: translateX(18px);
-  }
-
-  .switch input:focus-visible + .switch-track {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
-
-  .switch input:disabled {
-    cursor: not-allowed;
-  }
-
-  .switch input:disabled + .switch-track {
-    opacity: 0.55;
-  }
-
-  @media (max-width: 980px) {
-    .modules {
-      grid-template-columns: 1fr;
-    }
+  .module-footer-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
   }
 
   h1 {

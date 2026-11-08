@@ -15,6 +15,7 @@
   import type { ChatMessage, ChatThread, ClientItem, ManagerItem } from '../lib/api/types';
   import { router } from '../lib/router.svelte';
   import { auth } from '../lib/stores/auth.svelte';
+  import { appSettings } from '../lib/stores/app-settings.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
@@ -286,10 +287,13 @@
 
     try {
       const query = pickerQuery.trim();
-      const [clients, staff] = await Promise.all([listClients(query, 1, 50), listManagers()]);
       const needle = query.toLowerCase();
+      const clientsPromise = appSettings.clientsEnabled
+        ? listClients(query, 1, 50)
+        : Promise.resolve(null);
+      const [clients, staff] = await Promise.all([clientsPromise, listManagers()]);
 
-      pickerClients = clients.items.filter((client) => client.active);
+      pickerClients = clients?.items.filter((client) => client.active) ?? [];
       pickerStaff = staff.items.filter((item) => {
         if (item.id === auth.user?.id) {
           return false;
@@ -537,7 +541,9 @@
       <input
         class="picker-search"
         bind:value={pickerQuery}
-        placeholder="Поиск: имя, компания, ИНН, телефон"
+        placeholder={appSettings.clientsEnabled
+          ? 'Поиск: имя, компания, логин, телефон'
+          : 'Поиск: имя, логин'}
         oninput={() => void loadPicker()}
       />
 

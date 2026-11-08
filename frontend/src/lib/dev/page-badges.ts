@@ -48,7 +48,6 @@ export const pageBadges: Record<string, PageBadge> = {
   '/my-reports': { id: 'REP-MY', task: '' },
   '/substitutions': { id: 'STAFF-SUBST', task: '' },
   '/notifications': { id: 'NOTIFY', task: '' },
-  '/settings': { id: 'SETTINGS', task: '' },
   '/users/:id': { id: 'USER-PROFILE', task: '' },
   '/legal/:code': { id: 'LEGAL', task: '' },
   '/admin/audit': { id: 'AUDIT-LOG', task: '' },
@@ -62,6 +61,20 @@ function resolve(route: string, badge: PageBadge): ResolvedPageBadge | null {
   if (!id) return null;
 
   return { route, id, task: badge.task.trim() };
+}
+
+export function settingsBadgeId(tab: string, sub = ''): string {
+  const normalize = (value: string): string =>
+    value
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+  const section = normalize(tab);
+  const suffix = sub ? `-${normalize(sub)}` : '';
+
+  return `SETTINGS-${section}${suffix}`;
 }
 
 export function badgeForRoute(

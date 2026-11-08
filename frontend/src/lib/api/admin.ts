@@ -78,15 +78,6 @@ export function getSystemSettings(): Promise<SystemSettings> {
 }
 
 export function saveSystemSettings(payload: {
-  sla_reaction_hours: number;
-  sla_resolution_hours: number;
-  spf_checklist: boolean;
-  sales_enabled: boolean;
-  email_export_enabled: boolean;
-  stock_reserve_enabled: boolean;
-  stock_allow_zero: boolean;
-  prices_enabled: boolean;
-  groups_enabled: boolean;
   app_title: string;
   app_description: string;
   organization: string;
@@ -95,11 +86,6 @@ export function saveSystemSettings(payload: {
   contact_email: string;
   contact_phone: string;
   responsible: string;
-  photo_ratio: string;
-  photo_fit: string;
-  photo_size_preview: number;
-  photo_size_card: number;
-  photo_size_max: number;
 }): Promise<SystemSettings> {
   return apiRequest<SystemSettings>('/admin/settings/system', {
     method: 'POST',
@@ -241,6 +227,7 @@ export interface ModuleItem {
   levels: number[];
   capabilities: string[];
   groups: ModuleAccessGroup[];
+  settings: Record<string, string | number | boolean>;
 }
 
 export interface ModuleRole {
@@ -270,7 +257,8 @@ export function saveModules(modules: ModuleItem[]): Promise<ModulesResponse> {
             levels: module.levels,
             groups: Object.fromEntries(
               module.groups.map((group) => [group.code, group.levels])
-            )
+            ),
+            settings: module.settings
           }
         ])
       )

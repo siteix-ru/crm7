@@ -40,7 +40,7 @@ final class StocksService
 
     public const SINGLE_WAREHOUSE_SID = 'single-warehouse';
 
-    private const SINGLE_WAREHOUSE_LEVEL = '{50},{10},{5},';
+    private const SINGLE_WAREHOUSE_LEVEL = '{90},{50},{10},{5},{1},';
 
     /** Типы складов, доступные в карточке. */
     public const WAREHOUSE_TYPES = ['main', 'transit', 'returns', 'reserve', 'defect'];
@@ -64,7 +64,13 @@ final class StocksService
 
     public function warehouses(array $user, array $capabilities): array
     {
-        $all = in_array('stocks.manage', $capabilities, true);
+        $singleMode = !$this->settings->warehousesEnabled();
+
+        if ($singleMode && !$this->canViewStocks($capabilities)) {
+            return ['items' => [], 'can_import' => false, 'can_edit' => false];
+        }
+
+        $all = $singleMode || $this->canAccessAllWarehouses($capabilities);
         $rows = $this->stocks->warehousesForUser((int) $user['LEVEL'], (string) $user['SID'], $all);
 
         return [
@@ -83,7 +89,8 @@ final class StocksService
 
     public function searchCounts(array $user, array $capabilities, array $filters): array
     {
-        $all = in_array('stocks.manage', $capabilities, true);
+        $all = !$this->settings->warehousesEnabled()
+            || $this->canAccessAllWarehouses($capabilities);
         $rows = $this->stocks->warehousesForUser((int) $user['LEVEL'], (string) $user['SID'], $all);
         $sids = array_map(static fn (array $row): string => (string) $row['SID'], $rows);
         $bySid = $this->stocks->searchCounts($sids, $this->applyActiveFilter($capabilities, self::normalizeFilters($filters)));
@@ -310,7 +317,7 @@ final class StocksService
         foreach ($this->stocks->warehousesForUser(
             (int) $user['LEVEL'],
             (string) $user['SID'],
-            in_array('stocks.manage', $capabilities, true)
+            $this->canAccessAllWarehouses($capabilities)
         ) as $wh) {
             $whSid = (string) $wh['SID'];
             $row = $existing[$whSid] ?? null;
@@ -530,6 +537,14 @@ final class StocksService
                 'article' => (string) ($row['article'] ?? ''),
             ], $this->stocks->searchNomenclature($query, $limit)),
         ];
+    }
+
+    private function canViewStocks(array $capabilities): bool
+    {
+        return in_array('stocks.view', $capabilities, true)
+            || in_array('stocks.edit', $capabilities, true)
+            || in_array('stocks.import', $capabilities, true)
+            || in_array('stocks.manage', $capabilities, true);
     }
 
     private function requireView(array $capabilities): void
@@ -845,7 +860,7 @@ final class StocksService
         )));
 
         if ($warehouseIds === []) {
-            $all = in_array('stocks.manage', $capabilities, true);
+            $all = $this->canAccessAllWarehouses($capabilities);
             $warehouses = array_values(array_filter(
                 $this->stocks->warehousesForUser((int) $user['LEVEL'], (string) $user['SID'], $all),
                 static fn (array $row): bool => ($row['ACTIVE'] ?? 'Y') === 'Y'
@@ -1234,7 +1249,7 @@ final class StocksService
         foreach ($this->stocks->warehousesForUser(
             (int) $user['LEVEL'],
             (string) $user['SID'],
-            in_array('stocks.manage', $capabilities, true)
+            $this->canAccessAllWarehouses($capabilities)
         ) as $wh) {
             $accessible[(string) $wh['SID']] = $wh;
         }
@@ -1435,7 +1450,7 @@ final class StocksService
 
     public function renameWarehouse(array $user, array $capabilities, int $warehouseId, array $input): array
     {
-        $this->requireEdit($capabilities);
+        $this->requireWarehouseAdmin($capabilities);
 
         $warehouse = $this->stocks->findWarehouseById($warehouseId);
 
@@ -1471,13 +1486,19 @@ final class StocksService
         return ['warehouse' => ['id' => $warehouseId, 'name' => $name]];
     }
 
+    private function canManageWarehouses(array $capabilities): bool
+    {
+        return in_array('stocks.warehouses.manage', $capabilities, true);
+    }
+
+    private function canAccessAllWarehouses(array $capabilities): bool
+    {
+        return in_array('stocks.manage', $capabilities, true) || $this->canManageWarehouses($capabilities);
+    }
+
     private function requireWarehouseAdmin(array $capabilities): void
     {
-        if (
-            !in_array('stocks.edit', $capabilities, true)
-            && !in_array('stocks.import', $capabilities, true)
-            && !in_array('stocks.manage', $capabilities, true)
-        ) {
+        if (!$this->canManageWarehouses($capabilities)) {
             throw new HttpException(403, 'forbidden', 'Недостаточно прав для управления складами');
         }
     }
@@ -2336,7 +2357,15 @@ final class StocksService
             throw new HttpException(404, 'not_found', 'Склад не найден');
         }
 
-        if (in_array('stocks.manage', $capabilities, true)) {
+        if (!$this->settings->warehousesEnabled()) {
+            if (!$this->canViewStocks($capabilities)) {
+                throw new HttpException(403, 'forbidden', 'Недостаточно прав для просмотра номенклатуры');
+            }
+
+            return $warehouse;
+        }
+
+        if ($this->canAccessAllWarehouses($capabilities)) {
             return $warehouse;
         }
 

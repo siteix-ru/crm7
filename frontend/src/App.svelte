@@ -81,7 +81,10 @@
   });
 
   const route = $derived(router.current.path);
-  const devBadge = $derived(import.meta.env.DEV ? badgeForRoute(route) : null);
+  const isSettingsRoute = $derived(route === '/settings' || route.startsWith('/settings/'));
+  const devBadge = $derived(
+    import.meta.env.DEV && !isSettingsRoute ? badgeForRoute(route) : null
+  );
   const requestMatch = $derived(matchRoute('/requests/:id', route));
   const clientMatch = $derived(matchRoute('/clients/:id', route));
   const staffMatch = $derived(matchRoute('/staff/:id', route));
@@ -228,9 +231,9 @@
       <NotFound />
     {:else if route === '/notifications'}
       <Notifications />
-    {:else if route === '/settings' && !auth.can('settings.manage') && !auth.can('mail.manage') && !auth.can('mail.send')}
+    {:else if isSettingsRoute && !auth.can('settings.manage') && !auth.can('mail.manage') && !auth.can('mail.send')}
       <NotFound />
-    {:else if route === '/settings'}
+    {:else if isSettingsRoute}
       <Settings />
     {:else if userMatch}
       <ManagerProfile id={Number(userMatch.id)} />

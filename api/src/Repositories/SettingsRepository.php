@@ -166,7 +166,11 @@ final class SettingsRepository
     {
         $name = trim((string) $this->get('stocks.single_name'));
 
-        return $name !== '' ? $name : 'Основной склад';
+        if ($name === '' || preg_match('/^\?+(?:\s+\?+)*$/', $name) === 1) {
+            return 'Основной склад';
+        }
+
+        return $name;
     }
 
     public function appTitle(): string

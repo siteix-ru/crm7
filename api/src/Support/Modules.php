@@ -34,7 +34,7 @@ final class Modules
                     [
                         'code' => 'view_all',
                         'title' => 'Просмотр всех заявок',
-                        'description' => 'Все заявки компании, включая чужие',
+                        'description' => 'Все заявки компании, включая заявки других сотрудников. Роль видит полный список, карточки и историю обращений.',
                         'capabilities' => ['requests.view.all', 'requests.view.own'],
                         'access' => ['requests.view.all'],
                         'grant' => ['requests.view.all', 'requests.view.own'],
@@ -42,7 +42,7 @@ final class Modules
                     [
                         'code' => 'view_own',
                         'title' => 'Просмотр своих заявок',
-                        'description' => 'Только заявки, назначенные на сотрудника',
+                        'description' => 'Только заявки, назначенные на сотрудника. Доступны карточки и история по своим обращениям.',
                         'capabilities' => ['requests.view.own'],
                         'access' => ['requests.view.own'],
                         'grant' => ['requests.view.own'],
@@ -50,7 +50,7 @@ final class Modules
                     [
                         'code' => 'create',
                         'title' => 'Создание заявок',
-                        'description' => 'Новые заявки и черновики; создатель видит свои заявки',
+                        'description' => 'Создание новых заявок и черновиков. Создатель автоматически видит свои заявки и может продолжить работу с ними.',
                         'capabilities' => ['requests.create', 'requests.view.own'],
                         'access' => ['requests.create'],
                         'grant' => ['requests.create', 'requests.view.own'],
@@ -58,7 +58,7 @@ final class Modules
                     [
                         'code' => 'edit',
                         'title' => 'Редактирование заявок',
-                        'description' => 'Смена статуса, состава и параметров заявки',
+                        'description' => 'Изменение статуса, состава, параметров и сроков заявки. Редактирование доступно в рамках выданных прав.',
                         'capabilities' => ['requests.transition'],
                         'access' => ['requests.transition'],
                         'grant' => ['requests.transition'],
@@ -66,7 +66,7 @@ final class Modules
                     [
                         'code' => 'comment',
                         'title' => 'Комментирование',
-                        'description' => 'Комментарии и внутренняя переписка по заявкам',
+                        'description' => 'Добавление комментариев и ведение внутренней переписки. Обсуждение доступно в карточке заявки.',
                         'capabilities' => ['requests.comment'],
                         'access' => ['requests.comment'],
                         'grant' => ['requests.comment'],
@@ -74,7 +74,7 @@ final class Modules
                     [
                         'code' => 'assign',
                         'title' => 'Назначение и настройка',
-                        'description' => 'Назначение и переназначение ответственных менеджеров',
+                        'description' => 'Назначение и переназначение ответственных менеджеров. Роль может передавать заявки между сотрудниками.',
                         'capabilities' => ['requests.assign'],
                         'access' => ['requests.assign'],
                         'grant' => ['requests.assign'],
@@ -94,7 +94,7 @@ final class Modules
                     [
                         'code' => 'view_all',
                         'title' => 'Просмотр всех клиентов',
-                        'description' => 'Все клиенты компании и их карточки',
+                        'description' => 'Все клиенты компании и их карточки. Доступны контакты, реквизиты, история заявок и закреплённые менеджеры.',
                         'capabilities' => ['clients.view.all', 'clients.view.own'],
                         'access' => ['clients.view.all'],
                         'grant' => ['clients.view.all', 'clients.view.own'],
@@ -102,7 +102,7 @@ final class Modules
                     [
                         'code' => 'view_own',
                         'title' => 'Просмотр своих клиентов',
-                        'description' => 'Только клиенты, закреплённые за сотрудником',
+                        'description' => 'Только клиенты, закреплённые за сотрудником. Доступны карточки и история по своим клиентам.',
                         'capabilities' => ['clients.view.own'],
                         'access' => ['clients.view.own'],
                         'grant' => ['clients.view.own'],
@@ -110,7 +110,7 @@ final class Modules
                     [
                         'code' => 'edit',
                         'title' => 'Редактирование клиентов',
-                        'description' => 'Контакты, реквизиты и данные клиентской карточки',
+                        'description' => 'Редактирование контактов, реквизитов и данных клиентской карточки. Изменения сохраняются в общей базе клиентов.',
                         'capabilities' => ['clients.edit', 'clients.view.own'],
                         'access' => ['clients.edit'],
                         'grant' => ['clients.edit', 'clients.view.own'],
@@ -118,7 +118,7 @@ final class Modules
                     [
                         'code' => 'confirm',
                         'title' => 'Подтверждение регистрации',
-                        'description' => 'Активация, отклонение и блокировка клиентов',
+                        'description' => 'Активация, отклонение и блокировка клиентов. Роль управляет заявками на регистрацию и статусом клиентских аккаунтов.',
                         'capabilities' => ['clients.confirm', 'clients.view.own'],
                         'access' => ['clients.confirm'],
                         'grant' => ['clients.confirm', 'clients.view.own'],
@@ -141,7 +141,7 @@ final class Modules
                     [
                         'code' => 'use',
                         'title' => 'Использование чата',
-                        'description' => 'Переписка с клиентами и сотрудниками',
+                        'description' => 'Переписка с клиентами и сотрудниками. Доступны личные и групповые диалоги, вложения и история сообщений.',
                         'capabilities' => ['chat.use'],
                         'access' => ['chat.use'],
                         'grant' => ['chat.use'],
@@ -149,7 +149,7 @@ final class Modules
                     [
                         'code' => 'moderate',
                         'title' => 'Модерация чата',
-                        'description' => 'Контроль переписки и управление диалогами',
+                        'description' => 'Контроль переписки и управление диалогами. Роль может просматривать обращения и модерировать нарушения.',
                         'capabilities' => ['chat.moderate', 'chat.use'],
                         'access' => ['chat.moderate'],
                         'grant' => ['chat.moderate', 'chat.use'],
@@ -179,7 +179,7 @@ final class Modules
                     [
                         'code' => 'users',
                         'title' => 'Сотрудники и учётные записи',
-                        'description' => 'Создание, блокировка, доступы и данные сотрудников',
+                        'description' => 'Создание и блокировка сотрудников, изменение доступов и данных учётных записей. Роль управляет карточками сотрудников.',
                         'capabilities' => ['users.manage'],
                         'access' => ['users.manage'],
                         'grant' => ['users.manage'],
@@ -187,7 +187,7 @@ final class Modules
                     [
                         'code' => 'roles',
                         'title' => 'Роли и права',
-                        'description' => 'Настройка ролей и наборов разрешений',
+                        'description' => 'Настройка ролей и наборов разрешений. Изменения определяют доступ сотрудников к разделам системы.',
                         'capabilities' => ['roles.manage'],
                         'access' => ['roles.manage'],
                         'grant' => ['roles.manage'],
@@ -195,7 +195,7 @@ final class Modules
                     [
                         'code' => 'prices',
                         'title' => 'Типы цен сотрудников',
-                        'description' => 'Назначение доступных типов цен в карточке сотрудника',
+                        'description' => 'Назначение доступных типов цен в карточке сотрудника. Роль управляет тем, какие цены видит сотрудник.',
                         'capabilities' => ['prices.assign'],
                         'access' => ['prices.assign'],
                         'grant' => ['prices.assign'],
@@ -221,7 +221,7 @@ final class Modules
                     [
                         'code' => 'self',
                         'title' => 'Самостоятельная регистрация',
-                        'description' => 'Гостям доступна форма регистрации клиента',
+                        'description' => 'Гостям доступна форма самостоятельной регистрации клиента. Заявки на регистрацию попадают на подтверждение администратору.',
                         'capabilities' => ['registration.use'],
                         'access' => ['registration.use'],
                         'grant' => ['registration.use'],
@@ -241,7 +241,7 @@ final class Modules
                     [
                         'code' => 'edit',
                         'title' => 'Редактирование номенклатуры',
-                        'description' => 'Создание и изменение позиций, цены и остатки',
+                        'description' => 'Создание и изменение позиций, цен и остатков. Доступно редактирование карточек номенклатуры.',
                         'capabilities' => ['stocks.edit'],
                         'access' => ['stocks.edit'],
                         'grant' => ['stocks.edit'],
@@ -249,7 +249,7 @@ final class Modules
                     [
                         'code' => 'import',
                         'title' => 'Импорт номенклатуры',
-                        'description' => 'Загрузка позиций из файлов',
+                        'description' => 'Загрузка позиций из файлов. Роль может обновлять номенклатуру пакетно.',
                         'capabilities' => ['stocks.import'],
                         'access' => ['stocks.import'],
                         'grant' => ['stocks.import'],
@@ -257,7 +257,7 @@ final class Modules
                     [
                         'code' => 'manage',
                         'title' => 'Справочники',
-                        'description' => 'Типы, группы и ценовые категории номенклатуры',
+                        'description' => 'Управление типами, группами и ценовыми категориями номенклатуры. Справочники используются во всех карточках товаров.',
                         'capabilities' => ['stocks.manage'],
                         'access' => ['stocks.manage'],
                         'grant' => ['stocks.manage'],
@@ -265,7 +265,7 @@ final class Modules
                     [
                         'code' => 'deactivate',
                         'title' => 'Снятие с продажи',
-                        'description' => 'Деактивация и возврат позиций в продажу',
+                        'description' => 'Деактивация и возврат позиций в продажу. Роль управляет доступностью складских позиций.. Роль управляет доступностью товаров в каталоге.',
                         'capabilities' => ['stocks.deactivate'],
                         'access' => ['stocks.deactivate'],
                         'grant' => ['stocks.deactivate'],
@@ -293,7 +293,7 @@ final class Modules
                     [
                         'code' => 'smtp',
                         'title' => 'Настройка SMTP',
-                        'description' => 'Сервер, порт, учётные данные и проверка подключения',
+                        'description' => 'Настройка сервера, порта и учётных данных SMTP. Доступна проверка подключения и параметров отправки.',
                         'capabilities' => ['mail.manage'],
                         'access' => ['mail.manage'],
                         'grant' => ['mail.manage'],
@@ -301,7 +301,7 @@ final class Modules
                     [
                         'code' => 'send',
                         'title' => 'Отправка писем и уведомлений',
-                        'description' => 'Шаблоны писем, очередь отправки и расписание отчётов',
+                        'description' => 'Работа с шаблонами писем, очередью отправки и расписанием отчётов. Роль может отправлять письма и уведомления.',
                         'capabilities' => ['mail.send'],
                         'access' => ['mail.send'],
                         'grant' => ['mail.send'],
@@ -309,7 +309,7 @@ final class Modules
                     [
                         'code' => 'recovery',
                         'title' => 'Восстановление пароля',
-                        'description' => 'Форма восстановления для гостей и отправка доступа из карточек',
+                        'description' => 'Форма восстановления пароля для гостей и отправка доступа из карточек. Роль управляет восстановлением учётных записей.',
                         'capabilities' => ['mail.recovery'],
                         'access' => ['mail.recovery'],
                         'grant' => ['mail.recovery'],
@@ -348,51 +348,27 @@ final class Modules
             [
                 'code' => 'warehouses',
                 'title' => 'Склады',
-                'description' => 'Несколько складов, страница и карточка склада',
+                'description' => 'Управление складами, адресами и доступом к складам',
                 'setting' => 'module.warehouses',
-                'capabilities' => ['stocks.view', 'stocks.edit', 'stocks.import', 'stocks.manage', 'stocks.deactivate'],
-                'access' => ['stocks.edit', 'stocks.import', 'stocks.manage'],
-                'grant' => ['stocks.view', 'stocks.edit', 'stocks.import', 'stocks.manage'],
+                'capabilities' => ['stocks.view', 'stocks.warehouses.manage'],
+                'access' => ['stocks.view', 'stocks.warehouses.manage'],
+                'grant' => ['stocks.view', 'stocks.warehouses.manage'],
                 'groups' => [
                     [
                         'code' => 'view',
                         'title' => 'Просмотр складов',
-                        'description' => 'Список складов и остатки',
+                        'description' => 'Видеть список складов и остатки в них.',
                         'capabilities' => ['stocks.view'],
                         'access' => ['stocks.view'],
                         'grant' => ['stocks.view'],
                     ],
                     [
-                        'code' => 'edit',
-                        'title' => 'Редактирование складов',
-                        'description' => 'Создание и изменение складов и остатков',
-                        'capabilities' => ['stocks.edit', 'stocks.view'],
-                        'access' => ['stocks.edit'],
-                        'grant' => ['stocks.edit', 'stocks.view'],
-                    ],
-                    [
-                        'code' => 'import',
-                        'title' => 'Импорт остатков',
-                        'description' => 'Загрузка остатков из файлов',
-                        'capabilities' => ['stocks.import', 'stocks.view'],
-                        'access' => ['stocks.import'],
-                        'grant' => ['stocks.import', 'stocks.view'],
-                    ],
-                    [
                         'code' => 'manage',
-                        'title' => 'Справочники складов',
-                        'description' => 'Типы, группы и ценовые категории',
-                        'capabilities' => ['stocks.manage', 'stocks.view'],
-                        'access' => ['stocks.manage'],
-                        'grant' => ['stocks.manage', 'stocks.view'],
-                    ],
-                    [
-                        'code' => 'deactivate',
-                        'title' => 'Снятие с продажи',
-                        'description' => 'Деактивация и возврат позиций в продажу',
-                        'capabilities' => ['stocks.deactivate', 'stocks.view'],
-                        'access' => ['stocks.deactivate'],
-                        'grant' => ['stocks.deactivate', 'stocks.view'],
+                        'title' => 'Управление складами',
+                        'description' => 'Создание, редактирование, адреса, ответственные и доступ к складам.',
+                        'capabilities' => ['stocks.warehouses.manage', 'stocks.view'],
+                        'access' => ['stocks.warehouses.manage'],
+                        'grant' => ['stocks.warehouses.manage', 'stocks.view'],
                     ],
                 ],
                 'guards' => ['#^/stocks/warehouses(/|$)#', '#^/stocks/\d+$#', '#^/stocks/\d+/items$#'],
@@ -409,7 +385,7 @@ final class Modules
                     [
                         'code' => 'view_all',
                         'title' => 'Просмотр всех отчётов',
-                        'description' => 'Отчёты по всем сотрудникам и заявкам',
+                        'description' => 'Отчёты по всем сотрудникам и заявкам. Доступны общие показатели и детализация по компании.',
                         'capabilities' => ['reports.view.all', 'reports.view.own'],
                         'access' => ['reports.view.all'],
                         'grant' => ['reports.view.all', 'reports.view.own'],
@@ -417,7 +393,7 @@ final class Modules
                     [
                         'code' => 'view_own',
                         'title' => 'Просмотр своих отчётов',
-                        'description' => 'Отчёты только по своим заявкам',
+                        'description' => 'Отчёты только по своим заявкам. Доступна персональная статистика сотрудника.',
                         'capabilities' => ['reports.view.own'],
                         'access' => ['reports.view.own'],
                         'grant' => ['reports.view.own'],
@@ -425,7 +401,7 @@ final class Modules
                     [
                         'code' => 'export',
                         'title' => 'Выгрузка отчётов',
-                        'description' => 'Экспорт отчётов в файлы',
+                        'description' => 'Экспорт отчётов в файлы. Роль может выгружать данные для дальнейшей обработки.',
                         'capabilities' => ['reports.export', 'reports.view.own'],
                         'access' => ['reports.export'],
                         'grant' => ['reports.export', 'reports.view.own'],

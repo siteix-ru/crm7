@@ -41,16 +41,6 @@ final class AdminController extends ApiController
             throw new HttpException(403, 'forbidden', 'Недостаточно прав');
         }
 
-        $isTechAdmin = in_array('roles.manage', $capabilities, true);
-        $reaction = max(1, min(168, (int) $request->input('sla_reaction_hours', 2)));
-        $resolution = max(1, min(720, (int) $request->input('sla_resolution_hours', 24)));
-        $spf = (bool) $request->input('spf_checklist', false);
-        $sales = (bool) $request->input('sales_enabled', true);
-        $emailExport = (bool) $request->input('email_export_enabled', true);
-        $stockReserve = (bool) $request->input('stock_reserve_enabled', false);
-        $stockAllowZero = (bool) $request->input('stock_allow_zero', false);
-        $pricesEnabled = (bool) $request->input('prices_enabled', false);
-        $groupsEnabled = (bool) $request->input('groups_enabled', false);
         $appTitle = mb_substr(trim((string) $request->input('app_title', '')), 0, 60);
         $appDescription = mb_substr(trim((string) $request->input('app_description', '')), 0, 300);
         $organization = mb_substr(trim((string) $request->input('organization', '')), 0, 255);
@@ -59,41 +49,8 @@ final class AdminController extends ApiController
         $contactEmail = mb_substr(trim((string) $request->input('contact_email', '')), 0, 255);
         $contactPhone = mb_substr(trim((string) $request->input('contact_phone', '')), 0, 100);
         $responsible = mb_substr(trim((string) $request->input('responsible', '')), 0, 500);
-        $photoRatio = (string) $request->input('photo_ratio', 'square');
-        $photoRatio = in_array($photoRatio, ['dynamic', 'square', 'landscape', 'portrait'], true) ? $photoRatio : 'square';
-        $photoFit = (string) $request->input('photo_fit', 'contain') === 'cover' ? 'cover' : 'contain';
-        $photoSizePreview = $this->photoSize($request->input('photo_size_preview', 160), 160);
-        $photoSizeCard = max($this->photoSize($request->input('photo_size_card', 600), 600), $photoSizePreview);
-        $photoSizeMax = max($this->photoSize($request->input('photo_size_max', 1600), 1600), $photoSizeCard);
-
-        if (!$isTechAdmin) {
-            $sizes = $this->settings->photoSizes();
-            $reaction = (int) ($this->settings->get('sla.reaction_hours') ?? 2);
-            $resolution = (int) ($this->settings->get('sla.resolution_hours') ?? 24);
-            $spf = $this->settings->get('mail.spf_checklist') === '1';
-            $sales = $this->settings->salesEnabled();
-            $emailExport = $this->settings->emailExportEnabled();
-            $stockReserve = $this->settings->stockReserveEnabled();
-            $stockAllowZero = $this->settings->allowZeroStock();
-            $pricesEnabled = $this->settings->pricesEnabled();
-            $groupsEnabled = $this->settings->groupsEnabled();
-            $photoRatio = $this->settings->photoRatio();
-            $photoFit = $this->settings->photoFit();
-            $photoSizePreview = $sizes['preview'];
-            $photoSizeCard = $sizes['card'];
-            $photoSizeMax = $sizes['max'];
-        }
 
         $this->settings->many([
-            'sla.reaction_hours' => (string) $reaction,
-            'sla.resolution_hours' => (string) $resolution,
-            'mail.spf_checklist' => $spf ? '1' : '0',
-            'sales.enabled' => $sales ? '1' : '0',
-            'mail.export_enabled' => $emailExport ? '1' : '0',
-            'stock.reserve_enabled' => $stockReserve ? '1' : '0',
-            'stock.allow_zero' => $stockAllowZero ? '1' : '0',
-            'prices.enabled' => $pricesEnabled ? '1' : '0',
-            'groups.enabled' => $groupsEnabled ? '1' : '0',
             'branding.title' => $appTitle,
             'branding.description' => $appDescription,
             'branding.organization' => $organization,
@@ -102,11 +59,6 @@ final class AdminController extends ApiController
             'branding.contact_email' => $contactEmail,
             'branding.contact_phone' => $contactPhone,
             'branding.responsible' => $responsible,
-            'stocks.photo_ratio' => $photoRatio,
-            'stocks.photo_fit' => $photoFit,
-            'stocks.photo_size_preview' => (string) $photoSizePreview,
-            'stocks.photo_size_card' => (string) $photoSizeCard,
-            'stocks.photo_size_max' => (string) $photoSizeMax,
         ]);
 
         return Response::ok($this->systemSettingsPayload());
@@ -156,13 +108,6 @@ final class AdminController extends ApiController
                 'Проверьте отправку тестового письма на внешний ящик и заголовки SPF/DKIM',
             ],
         ];
-    }
-
-    private function photoSize(mixed $value, int $default): int
-    {
-        $size = (int) $value;
-
-        return $size >= 80 && $size <= 4000 ? $size : $default;
     }
 
     public function priceTypes(Request $request): Response

@@ -49,6 +49,7 @@
   let avatarInput: HTMLInputElement | null = $state(null);
 
   let settings = $state<NotificationSettingItem[]>([]);
+  let settingsLoaded = $state(false);
   let settingsBusy = $state(false);
   let settingsNotice = $state('');
 
@@ -63,6 +64,41 @@
   const letter = $derived(avatarLetter(avatarSeed));
   const avatarBg = $derived(avatarColor(avatarSeed));
   const roleTitle = $derived(staffLevelTitle(auth.level));
+  function notificationAvailable(event: string): boolean {
+    if (!appSettings.notificationsEnabled) {
+      return false;
+    }
+
+    if (event.startsWith('request.')) {
+      return appSettings.requestsEnabled;
+    }
+
+    if (event === 'chat.message') {
+      return appSettings.chatEnabled;
+    }
+
+    if (event.startsWith('substitution.')) {
+      return appSettings.substitutionsEnabled;
+    }
+
+    if (event.startsWith('user.')) {
+      return appSettings.registrationEnabled && appSettings.clientsEnabled;
+    }
+
+    return true;
+  }
+
+  const visibleSettings = $derived(settings.filter((item) => notificationAvailable(item.event)));
+  const showNotifications = $derived(settingsLoaded && visibleSettings.length > 0);
+  const visibleTabs = $derived(
+    tabs.filter((item) => item.id !== 'notifications' || showNotifications)
+  );
+
+  $effect(() => {
+    if (tab === 'notifications' && !showNotifications) {
+      tab = 'profile';
+    }
+  });
 
   onMount(() => {
     if (auth.user) {
@@ -75,6 +111,9 @@
       })
       .catch(() => {
         settings = [];
+      })
+      .finally(() => {
+        settingsLoaded = true;
       });
   });
 
@@ -276,7 +315,7 @@
       </div>
 
       <div class="tabs tab-scroll" role="tablist" aria-label="Разделы профиля">
-        {#each tabs as item (item.id)}
+        {#each visibleTabs as item (item.id)}
           <button
             type="button"
             role="tab"
@@ -392,7 +431,7 @@
   {/if}
 
   {#if tab === 'notifications'}
-    {#if settings.length > 0}
+    {#if visibleSettings.length > 0}
       <div class="card">
         <div class="card-head">
           <div>
@@ -407,7 +446,7 @@
             <span>В системе</span>
             <span>На e-mail</span>
           </div>
-          {#each settings as item (item.event)}
+          {#each visibleSettings as item (item.event)}
             <div class="notify-row">
               <span class="notify-title">{item.title}</span>
               <label>
