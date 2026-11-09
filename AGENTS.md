@@ -10,6 +10,23 @@ CRM для заявок клиентов: склад с ценами и корз
 - Бэкенд: PHP 8.2+ (собственный REST API v2 без фреймворка) + MySQL/MariaDB.
 - Источник истины — этот репозиторий (GitHub `siteix-ru/crm7`, ветка `master`).
 
+## Старт новой сессии
+
+1. Где находимся: `git status -sb`, `git log --oneline -5`. Чужие незакоммиченные
+   правки не откатывать — сначала посмотреть `git status`.
+2. Сервер, стенды, доступы, версии — [`docs/server.md`](docs/server.md). SSH-алиасы:
+   `crm7-server` (root@172.30.173.240), `crm7-dev` (fynjy@172.30.173.240),
+   `www.crm7.ru` (root@178.155.15.42:21023).
+3. Локальный стенд: `run-dev.cmd` — API + Vite на свободных портах (на этой
+   машине обычно API `:8090`, фронт `:5180`), БД `crm_local` (MariaDB, root/root),
+   учётки `admin`/`administrator`/`manager`/`manager2`/`client`, пароль `Secret123`.
+4. Секреты: `api/config/.env` (gitignored), PAT для проверок API —
+   `~/.secrets/crm7/gh-token-runner.txt`.
+5. Перед коммитом: `cd frontend && npm run check && npm test && npm run build`,
+   PHP-файлы — `php -l`. Стиль коммитов: `CRM7: <область> — <суть>` (русский).
+6. Self-hosted runner для `deploy-test.yml` живёт на сервере: проверка статуса и
+   ручной запуск — в `docs/server.md`.
+
 ## Структура
 
 - `api/public/index.php` — точка входа API и все роуты; `api/public/router.php` — для `php -S`.
@@ -102,3 +119,17 @@ CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build
 - [`docs/deploy.md`](docs/deploy.md), [`docs/images.md`](docs/images.md), [`docs/migrations.md`](docs/migrations.md).
 - [`docs/server.md`](docs/server.md) — сервер `172.30.173.240`: доступ, карта контейнеров, домены, сборка и релиз.
 - [`docs/manual-update.md`](docs/manual-update.md) — ручное обновление Git и Docker через консоль.
+
+## Поддержание инструкций
+
+`AGENTS.md` — точка входа для новых сессий: он должен позволить продолжить
+разработку без поиска по чатам и серверу. Обновляйте его, когда меняются доступы,
+порты, домены, способы запуска/сборки/тестов/деплоя и текущее состояние стендов.
+
+- Выяснили или изменили что-то — внесите это сюда (или в `docs/` со ссылкой
+  отсюда) до конца сессии.
+- Раз в месяц перечитывайте файл и сверяйте с реальностью: `git log`, состояние
+  сервера, версии стендов.
+- Дата последнего обновления — в конце файла.
+
+Обновлено: 2026-11-09
