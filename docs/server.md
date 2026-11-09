@@ -115,6 +115,28 @@ CI на push в `master` (`.github/workflows/ci.yml`) сам собирает и
 Раскатка — workflow `deploy-test.yml` (self-hosted runner на сервере) или
 `release_crm7.py`.
 
+### Self-hosted runner
+
+Runner `crm7-server` живёт на сервере и обслуживает `deploy-test.yml`:
+
+- каталог `/srv/runner-crm7`, пользователь `ghrunner` (группа `docker`),
+  версия runner `2.338.2`;
+- сервис `actions.runner.crm7.service` (`systemctl status|restart|stop`),
+  логи — `journalctl -u actions.runner.crm7.service`;
+- метки: `self-hosted`, `Linux`, `X64`, `crm7`;
+- перерегистрация: `./register.sh` под `ghrunner` (скрипт сам выбирает
+  `--pat` для `ghp_`/`github_pat_` и `--token` для registration token);
+  PAT после регистрации удаляется, runner хранит только credentials;
+- `ghrunner` имеет право писать `/srv/projects/crm7-test/.env` (группа
+  `docker`, `664`) — workflow делает там `sed -i`.
+
+Проверить, что runner на месте:
+
+```powershell
+$tok = (Get-Content "$env:USERPROFILE\.secrets\crm7\gh-token-runner.txt" -Raw).Trim()
+curl.exe -s -H "Authorization: Bearer $tok" https://api.github.com/repos/siteix-ru/crm7/actions/runners
+```
+
 ## Проверка
 
 ```powershell
