@@ -46,6 +46,11 @@ const AUDIT_LABELS: Record<string, string> = {
   'item_type.update': 'Правка типа номенклатуры',
   'item_type.delete': 'Удаление типа номенклатуры',
   'stocks.warehouse.rename': 'Переименование склада',
+  'stocks.warehouse.create': 'Создание склада',
+  'stocks.warehouse.update': 'Изменение склада',
+  'stocks.warehouse.delete': 'Удаление склада',
+  'stocks.warehouse.user.add': 'Добавление доступа к складу',
+  'stocks.warehouse.user.remove': 'Удаление доступа к складу',
   'stocks.manage': 'Управление складом'
 };
 

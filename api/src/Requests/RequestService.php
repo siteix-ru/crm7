@@ -446,7 +446,8 @@ final class RequestService
         $chat = $this->chat->threadForClient($user, $capabilities, (int) $request['client_id'], $id);
 
         $decoratedItems = $this->prices->decorateItems(
-            $this->requests->itemsForRequests([$id])[$id] ?? []
+            $this->requests->itemsForRequests([$id])[$id] ?? [],
+            $user
         );
 
         return [
@@ -578,7 +579,9 @@ final class RequestService
         $targetClient = $newClient !== null
             ? ['ID' => 0, 'LEVEL' => 5]
             : $this->users->findById($clientId);
-        $availableTypes = $this->prices->availableTypesForUser($targetClient);
+        $availableTypes = $this->prices->enabledForUser($user)
+            ? $this->prices->availableTypesForUser($targetClient, false)
+            : [];
         $availableIds = array_map(static fn (array $type): int => (int) $type['id'], $availableTypes);
         $requestedTypeId = (int) ($input['price_type_id'] ?? 0);
         $priceTypeId = 0;
@@ -730,7 +733,7 @@ final class RequestService
             $target = $client;
         }
 
-        if (!$this->prices->enabled()) {
+        if (!$this->prices->enabledForUser($user)) {
             return [
                 'enabled' => false,
                 'type' => null,
@@ -741,7 +744,7 @@ final class RequestService
             ];
         }
 
-        $availableTypes = $this->prices->availableTypesForUser($target);
+        $availableTypes = $this->prices->availableTypesForUser($target, false);
         $availableIds = array_map(static fn (array $type): int => (int) $type['id'], $availableTypes);
         $requestedTypeId = (int) ($input['price_type_id'] ?? 0);
         $selectedTypeId = 0;
@@ -797,9 +800,11 @@ final class RequestService
             $this->assertVersion($version, $request);
 
             $priceTypeId = (int) ($request['price_type_id'] ?? 0);
-            $typeIds = $priceTypeId > 0
-                ? [$priceTypeId]
-                : $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']));
+            $typeIds = $this->prices->enabledForUser($user)
+                ? ($priceTypeId > 0
+                    ? [$priceTypeId]
+                    : $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']), false))
+                : [];
 
             $items = $this->prices->attachPrices($items, $typeIds);
 
@@ -952,9 +957,11 @@ final class RequestService
                 }
 
                 $priceTypeId = (int) ($request['price_type_id'] ?? 0);
-                $typeIds = $priceTypeId > 0
-                    ? [$priceTypeId]
-                    : $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']));
+                $typeIds = $this->prices->enabledForUser($user)
+                    ? ($priceTypeId > 0
+                        ? [$priceTypeId]
+                        : $this->prices->availableTypeIdsForUser($this->users->findById((int) $request['client_id']), false))
+                    : [];
 
                 $items = $this->prices->attachPrices($items, $typeIds);
 

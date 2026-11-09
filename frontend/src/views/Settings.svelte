@@ -540,24 +540,7 @@ async function saveSystem(): Promise<void> {
     contactEmail = system.contact_email;
     contactPhone = system.contact_phone;
     responsible = system.responsible;
-    appSettings.set(
-      system.sales_enabled,
-      system.email_export_enabled,
-      system.mail_configured,
-      system.stock_reserve_enabled,
-      system.stock_allow_zero,
-      system.prices_enabled,
-      system.groups_enabled,
-      system.requests_enabled,
-      system.substitutions_enabled,
-      system.manager_assign_enabled,
-      system.warehouses_enabled,
-      system.single_name,
-      system.app_title,
-      system.app_description,
-      system.photo_ratio,
-      system.photo_fit
-    );
+    await appSettings.load();
     notice = 'Настройки системы сохранены';
   } catch (cause) {
     error = cause instanceof ApiError ? cause.message : 'Не удалось сохранить настройки';
@@ -1405,8 +1388,6 @@ async function saveSettings(): Promise<void> {
   .settings-sidebar {
     position: sticky;
     top: var(--space-4);
-    max-height: calc(100vh - 32px);
-    overflow-y: auto;
     padding: 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius-md);

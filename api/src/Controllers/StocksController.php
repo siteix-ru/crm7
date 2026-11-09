@@ -238,6 +238,17 @@ final class StocksController extends ApiController
         ));
     }
 
+    public function deleteWarehouse(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        return Response::ok($this->service->deleteWarehouse(
+            $user,
+            $capabilities,
+            (int) ($params['id'] ?? 0)
+        ));
+    }
+
     public function warehouseAccess(Request $request, array $params): Response
     {
         [$user, $capabilities] = $this->context($request);
@@ -323,7 +334,7 @@ final class StocksController extends ApiController
     private function requireStockEdit(): void
     {
         if (!$this->settings->stockEditEnabled()) {
-            throw new HttpException(403, 'module_disabled', 'Управление номенклатурой отключено');
+            throw new HttpException(403, 'module_disabled', 'Номенклатура отключена');
         }
     }
 
@@ -333,7 +344,8 @@ final class StocksController extends ApiController
             !in_array('stocks.view', $capabilities, true)
             && !in_array('stocks.edit', $capabilities, true)
             && !in_array('stocks.import', $capabilities, true)
-            && !in_array('stocks.manage', $capabilities, true)
+            && !in_array('stocks.delete', $capabilities, true)
+            && !in_array('stocks.warehouses.view_all', $capabilities, true)
         ) {
             throw new HttpException(403, 'forbidden', 'Недостаточно прав для работы с номенклатурой');
         }

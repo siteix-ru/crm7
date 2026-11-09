@@ -277,6 +277,7 @@ $router->get('/stocks/photos/{id}', [$stocks, 'photo']);
 $router->get('/stocks/warehouses/{id}', [$stocks, 'warehouseCard']);
 $router->post('/stocks/warehouses', [$stocks, 'createWarehouse']);
 $router->patch('/stocks/warehouses/{id}', [$stocks, 'updateWarehouse']);
+$router->delete('/stocks/warehouses/{id}', [$stocks, 'deleteWarehouse']);
 $router->get('/stocks/warehouses/{id}/access', [$stocks, 'warehouseAccess']);
 $router->get('/stocks/warehouses/{id}/candidates', [$stocks, 'warehouseCandidates']);
 $router->post('/stocks/warehouses/{id}/access', [$stocks, 'addWarehouseUser']);

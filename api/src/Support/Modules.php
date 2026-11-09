@@ -41,7 +41,7 @@ final class Modules
                     ],
                     [
                         'code' => 'view_own',
-                        'title' => 'Просмотр своих заявок',
+                        'title' => 'Просмотр только своих заявок',
                         'description' => 'Только заявки, назначенные на сотрудника. Доступны карточки и история по своим обращениям.',
                         'capabilities' => ['requests.view.own'],
                         'access' => ['requests.view.own'],
@@ -57,7 +57,7 @@ final class Modules
                     ],
                     [
                         'code' => 'edit',
-                        'title' => 'Редактирование заявок',
+                        'title' => 'Изменение заявок',
                         'description' => 'Изменение статуса, состава, параметров и сроков заявки. Редактирование доступно в рамках выданных прав.',
                         'capabilities' => ['requests.transition'],
                         'access' => ['requests.transition'],
@@ -65,7 +65,7 @@ final class Modules
                     ],
                     [
                         'code' => 'comment',
-                        'title' => 'Комментирование',
+                        'title' => 'Комментирование заявок',
                         'description' => 'Добавление комментариев и ведение внутренней переписки. Обсуждение доступно в карточке заявки.',
                         'capabilities' => ['requests.comment'],
                         'access' => ['requests.comment'],
@@ -73,7 +73,7 @@ final class Modules
                     ],
                     [
                         'code' => 'assign',
-                        'title' => 'Назначение и настройка',
+                        'title' => 'Назначение менеджеров',
                         'description' => 'Назначение и переназначение ответственных менеджеров. Роль может передавать заявки между сотрудниками.',
                         'capabilities' => ['requests.assign'],
                         'access' => ['requests.assign'],
@@ -101,7 +101,7 @@ final class Modules
                     ],
                     [
                         'code' => 'view_own',
-                        'title' => 'Просмотр своих клиентов',
+                        'title' => 'Просмотр только своих клиентов',
                         'description' => 'Только клиенты, закреплённые за сотрудником. Доступны карточки и история по своим клиентам.',
                         'capabilities' => ['clients.view.own'],
                         'access' => ['clients.view.own'],
@@ -109,7 +109,7 @@ final class Modules
                     ],
                     [
                         'code' => 'edit',
-                        'title' => 'Редактирование клиентов',
+                        'title' => 'Изменение клиентов',
                         'description' => 'Редактирование контактов, реквизитов и данных клиентской карточки. Изменения сохраняются в общей базе клиентов.',
                         'capabilities' => ['clients.edit', 'clients.view.own'],
                         'access' => ['clients.edit'],
@@ -117,7 +117,7 @@ final class Modules
                     ],
                     [
                         'code' => 'confirm',
-                        'title' => 'Подтверждение регистрации',
+                        'title' => 'Подтверждение и блокировка клиентов',
                         'description' => 'Активация, отклонение и блокировка клиентов. Роль управляет заявками на регистрацию и статусом клиентских аккаунтов.',
                         'capabilities' => ['clients.confirm', 'clients.view.own'],
                         'access' => ['clients.confirm'],
@@ -140,7 +140,7 @@ final class Modules
                 'groups' => [
                     [
                         'code' => 'use',
-                        'title' => 'Использование чата',
+                        'title' => 'Доступ к чату',
                         'description' => 'Переписка с клиентами и сотрудниками. Доступны личные и групповые диалоги, вложения и история сообщений.',
                         'capabilities' => ['chat.use'],
                         'access' => ['chat.use'],
@@ -178,7 +178,7 @@ final class Modules
                 'groups' => [
                     [
                         'code' => 'users',
-                        'title' => 'Сотрудники и учётные записи',
+                        'title' => 'Управление сотрудниками',
                         'description' => 'Создание и блокировка сотрудников, изменение доступов и данных учётных записей. Роль управляет карточками сотрудников.',
                         'capabilities' => ['users.manage'],
                         'access' => ['users.manage'],
@@ -186,7 +186,7 @@ final class Modules
                     ],
                     [
                         'code' => 'roles',
-                        'title' => 'Роли и права',
+                        'title' => 'Управление ролями и правами',
                         'description' => 'Настройка ролей и наборов разрешений. Изменения определяют доступ сотрудников к разделам системы.',
                         'capabilities' => ['roles.manage'],
                         'access' => ['roles.manage'],
@@ -194,7 +194,7 @@ final class Modules
                     ],
                     [
                         'code' => 'prices',
-                        'title' => 'Типы цен сотрудников',
+                        'title' => 'Назначение типов цен',
                         'description' => 'Назначение доступных типов цен в карточке сотрудника. Роль управляет тем, какие цены видит сотрудник.',
                         'capabilities' => ['prices.assign'],
                         'access' => ['prices.assign'],
@@ -220,7 +220,7 @@ final class Modules
                 'groups' => [
                     [
                         'code' => 'self',
-                        'title' => 'Самостоятельная регистрация',
+                        'title' => 'Самостоятельная регистрация клиентов',
                         'description' => 'Гостям доступна форма самостоятельной регистрации клиента. Заявки на регистрацию попадают на подтверждение администратору.',
                         'capabilities' => ['registration.use'],
                         'access' => ['registration.use'],
@@ -231,16 +231,16 @@ final class Modules
             ],
             [
                 'code' => 'stock_edit',
-                'title' => 'Управление номенклатурой',
+                'title' => 'Номенклатура',
                 'description' => 'Редактирование, импорт и справочники номенклатуры',
                 'setting' => 'module.stock_edit',
-                'capabilities' => ['stocks.edit', 'stocks.import', 'stocks.manage', 'stocks.deactivate'],
-                'access' => ['stocks.edit', 'stocks.import', 'stocks.manage'],
-                'grant' => ['stocks.edit', 'stocks.import', 'stocks.manage', 'stocks.deactivate'],
+                'capabilities' => ['stocks.edit', 'stocks.import', 'stocks.delete', 'stocks.warehouses.view_all', 'stocks.deactivate', 'stocks.export'],
+                'access' => ['stocks.edit', 'stocks.import', 'stocks.delete', 'stocks.warehouses.view_all'],
+                'grant' => ['stocks.edit', 'stocks.import', 'stocks.delete', 'stocks.warehouses.view_all', 'stocks.deactivate'],
                 'groups' => [
                     [
                         'code' => 'edit',
-                        'title' => 'Редактирование номенклатуры',
+                        'title' => 'Создание и изменение номенклатуры',
                         'description' => 'Создание и изменение позиций, цен и остатков. Доступно редактирование карточек номенклатуры.',
                         'capabilities' => ['stocks.edit'],
                         'access' => ['stocks.edit'],
@@ -255,20 +255,36 @@ final class Modules
                         'grant' => ['stocks.import'],
                     ],
                     [
-                        'code' => 'manage',
-                        'title' => 'Справочники',
-                        'description' => 'Управление типами, группами и ценовыми категориями номенклатуры. Справочники используются во всех карточках товаров.',
-                        'capabilities' => ['stocks.manage'],
-                        'access' => ['stocks.manage'],
-                        'grant' => ['stocks.manage'],
+                        'code' => 'delete',
+                        'title' => 'Удаление номенклатуры',
+                        'description' => 'Удаление позиций номенклатуры.',
+                        'capabilities' => ['stocks.delete'],
+                        'access' => ['stocks.delete'],
+                        'grant' => ['stocks.delete'],
+                    ],
+                    [
+                        'code' => 'view_all',
+                        'title' => 'Просмотр остатков по всем складам',
+                        'description' => 'Видеть остатки по всем складам, а не только по доступным.',
+                        'capabilities' => ['stocks.warehouses.view_all'],
+                        'access' => ['stocks.warehouses.view_all'],
+                        'grant' => ['stocks.warehouses.view_all'],
                     ],
                     [
                         'code' => 'deactivate',
-                        'title' => 'Снятие с продажи',
-                        'description' => 'Деактивация и возврат позиций в продажу. Роль управляет доступностью складских позиций.. Роль управляет доступностью товаров в каталоге.',
+                        'title' => 'Снятие с продажи и возврат',
+                        'description' => 'Деактивация и возврат позиций в продажу. Роль управляет доступностью товаров в каталоге и остатках.',
                         'capabilities' => ['stocks.deactivate'],
                         'access' => ['stocks.deactivate'],
                         'grant' => ['stocks.deactivate'],
+                    ],
+                    [
+                        'code' => 'export',
+                        'title' => 'Экспорт номенклатуры',
+                        'description' => 'Выгрузка номенклатуры и остатков в файл или на почту.',
+                        'capabilities' => ['stocks.export'],
+                        'access' => ['stocks.export'],
+                        'grant' => ['stocks.export'],
                     ],
                 ],
                 'guards' => [
@@ -300,7 +316,7 @@ final class Modules
                     ],
                     [
                         'code' => 'send',
-                        'title' => 'Отправка писем и уведомлений',
+                        'title' => 'Отправка писем и шаблоны',
                         'description' => 'Работа с шаблонами писем, очередью отправки и расписанием отчётов. Роль может отправлять письма и уведомления.',
                         'capabilities' => ['mail.send'],
                         'access' => ['mail.send'],
@@ -308,7 +324,7 @@ final class Modules
                     ],
                     [
                         'code' => 'recovery',
-                        'title' => 'Восстановление пароля',
+                        'title' => 'Восстановление паролей',
                         'description' => 'Форма восстановления пароля для гостей и отправка доступа из карточек. Роль управляет восстановлением учётных записей.',
                         'capabilities' => ['mail.recovery'],
                         'access' => ['mail.recovery'],
@@ -350,9 +366,9 @@ final class Modules
                 'title' => 'Склады',
                 'description' => 'Управление складами, адресами и доступом к складам',
                 'setting' => 'module.warehouses',
-                'capabilities' => ['stocks.view', 'stocks.warehouses.manage'],
-                'access' => ['stocks.view', 'stocks.warehouses.manage'],
-                'grant' => ['stocks.view', 'stocks.warehouses.manage'],
+                'capabilities' => ['stocks.view', 'stocks.warehouses.create', 'stocks.warehouses.edit', 'stocks.warehouses.delete', 'stocks.warehouses.access'],
+                'access' => ['stocks.view', 'stocks.warehouses.create', 'stocks.warehouses.edit', 'stocks.warehouses.delete', 'stocks.warehouses.access'],
+                'grant' => ['stocks.view', 'stocks.warehouses.create', 'stocks.warehouses.edit', 'stocks.warehouses.delete', 'stocks.warehouses.access'],
                 'groups' => [
                     [
                         'code' => 'view',
@@ -363,12 +379,36 @@ final class Modules
                         'grant' => ['stocks.view'],
                     ],
                     [
-                        'code' => 'manage',
-                        'title' => 'Управление складами',
-                        'description' => 'Создание, редактирование, адреса, ответственные и доступ к складам.',
-                        'capabilities' => ['stocks.warehouses.manage', 'stocks.view'],
-                        'access' => ['stocks.warehouses.manage'],
-                        'grant' => ['stocks.warehouses.manage', 'stocks.view'],
+                        'code' => 'create',
+                        'title' => 'Создание складов',
+                        'description' => 'Создание новых складов.',
+                        'capabilities' => ['stocks.warehouses.create', 'stocks.view'],
+                        'access' => ['stocks.warehouses.create'],
+                        'grant' => ['stocks.warehouses.create', 'stocks.view'],
+                    ],
+                    [
+                        'code' => 'edit',
+                        'title' => 'Редактирование складов',
+                        'description' => 'Изменение карточек складов, адресов и ответственных.',
+                        'capabilities' => ['stocks.warehouses.edit', 'stocks.view'],
+                        'access' => ['stocks.warehouses.edit'],
+                        'grant' => ['stocks.warehouses.edit', 'stocks.view'],
+                    ],
+                    [
+                        'code' => 'delete',
+                        'title' => 'Удаление складов',
+                        'description' => 'Удаление пустых складов без остатков.',
+                        'capabilities' => ['stocks.warehouses.delete', 'stocks.view'],
+                        'access' => ['stocks.warehouses.delete'],
+                        'grant' => ['stocks.warehouses.delete', 'stocks.view'],
+                    ],
+                    [
+                        'code' => 'access',
+                        'title' => 'Управление доступом',
+                        'description' => 'Назначение сотрудников, у которых есть доступ к складам.',
+                        'capabilities' => ['stocks.warehouses.access', 'stocks.view'],
+                        'access' => ['stocks.warehouses.access'],
+                        'grant' => ['stocks.warehouses.access', 'stocks.view'],
                     ],
                 ],
                 'guards' => ['#^/stocks/warehouses(/|$)#', '#^/stocks/\d+$#', '#^/stocks/\d+/items$#'],
@@ -392,7 +432,7 @@ final class Modules
                     ],
                     [
                         'code' => 'view_own',
-                        'title' => 'Просмотр своих отчётов',
+                        'title' => 'Просмотр только своих отчётов',
                         'description' => 'Отчёты только по своим заявкам. Доступна персональная статистика сотрудника.',
                         'capabilities' => ['reports.view.own'],
                         'access' => ['reports.view.own'],
@@ -400,7 +440,7 @@ final class Modules
                     ],
                     [
                         'code' => 'export',
-                        'title' => 'Выгрузка отчётов',
+                        'title' => 'Экспорт отчётов',
                         'description' => 'Экспорт отчётов в файлы. Роль может выгружать данные для дальнейшей обработки.',
                         'capabilities' => ['reports.export', 'reports.view.own'],
                         'access' => ['reports.export'],

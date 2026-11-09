@@ -769,8 +769,10 @@
 
       <div class="modal-actions">
       <Button variant="ghost" onclick={resetView}>Сбросить</Button>
+    <div class="modal-buttons">
       <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
       <Button onclick={applyView}>Применить</Button>
+    </div>
     </div>
   </div>
 </Modal>
@@ -1181,6 +1183,13 @@
     gap: var(--space-2);
     margin-top: var(--space-4);
   }
+  .modal-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
+
 
   .help-text {
     color: var(--text);

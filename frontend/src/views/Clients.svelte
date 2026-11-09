@@ -573,8 +573,10 @@
 
       <div class="modal-actions">
         <Button variant="ghost" onclick={resetView}>Сбросить</Button>
+      <div class="modal-buttons">
         <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
         <Button onclick={applyView}>Применить</Button>
+      </div>
       </div>
     </div>
   </Modal>

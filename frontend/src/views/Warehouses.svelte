@@ -20,6 +20,8 @@
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { auth } from '../lib/stores/auth.svelte';
 
+  const canCreateWarehouse = $derived(auth.can('stocks.warehouses.create'));
+
   const typeTitles: Record<WarehouseType, string> = {
     main: 'Основной',
     transit: 'Транзитный',
@@ -466,6 +468,7 @@
           <Icon name="view" size={16} />
         </button>
 
+        {#if canCreateWarehouse}
         <span class="toolbar-divider" aria-hidden="true"></span>
 
         <button
@@ -484,6 +487,7 @@
         </button>
 
         <span class="toolbar-divider" aria-hidden="true"></span>
+        {/if}
 
         <button
           type="button"
@@ -530,12 +534,12 @@
           {#each paged as item (item.id)}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="level" onclick={() => router.navigate(`/stocks/warehouses/${item.id}`)}>
+            <div class="level" onclick={() => router.navigate(`/stocks/warehouses/${item.id}/edit`)}>
               <div class="name-col col-name">
                 <div class="name-line">
                   <a
                     class="name"
-                    href={`#/stocks/warehouses/${item.id}`}
+                    href={`#/stocks/warehouses/${item.id}/edit`}
                     title="Открыть склад"
                     onclick={(event) => event.stopPropagation()}
                   >
@@ -683,8 +687,10 @@
 
       <div class="modal-actions">
       <Button variant="ghost" onclick={resetView}>Сбросить</Button>
-      <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-      <Button onclick={applyView}>Применить</Button>
+      <div class="modal-buttons">
+        <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+        <Button onclick={applyView}>Применить</Button>
+      </div>
     </div>
   </div>
 </Modal>

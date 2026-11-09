@@ -91,9 +91,16 @@ final class StocksService
     {
         $all = !$this->settings->warehousesEnabled()
             || $this->canAccessAllWarehouses($capabilities);
+        $filters = self::normalizeFilters($filters);
+
+        if (!$this->groups->enabledForUser($user)) {
+            $filters['group_ids'] = [];
+            $filters['no_group'] = false;
+        }
+
         $rows = $this->stocks->warehousesForUser((int) $user['LEVEL'], (string) $user['SID'], $all);
         $sids = array_map(static fn (array $row): string => (string) $row['SID'], $rows);
-        $bySid = $this->stocks->searchCounts($sids, $this->applyActiveFilter($capabilities, self::normalizeFilters($filters)));
+        $bySid = $this->stocks->searchCounts($sids, $this->applyActiveFilter($capabilities, $filters));
 
         $counts = [];
 
@@ -138,6 +145,12 @@ final class StocksService
         $perPage = $perPage <= 0 ? 0 : max(10, min(100, $perPage));
         $filters = $this->applyActiveFilter($capabilities, self::normalizeFilters($filters));
 
+        if (!$this->groups->enabledForUser($user)) {
+            $filters['group_ids'] = [];
+            $filters['no_group'] = false;
+        }
+
+        $groupsEnabled = $this->groups->enabledForUser($user);
         $priceContext = $this->priceContext($user, $clientId, $priceTypeId);
         $typeIds = $priceContext['type_ids'];
         $assignedTypes = $priceContext['types'];
@@ -173,7 +186,7 @@ final class StocksService
                     $typePrices[$stockSid] = $this->prices->pricesForStockItemsByTypes($stockSid, $nameSids, $assignedTypeIds);
                 }
 
-                if (in_array('stocks.edit', $capabilities, true)) {
+                if ($this->prices->enabledForUser($user) && in_array('stocks.edit', $capabilities, true)) {
                     $allPrices[$stockSid] = $this->prices->pricesForStockItemsAll($stockSid, $nameSids);
                 }
             }
@@ -200,7 +213,7 @@ final class StocksService
         $photosBySid = $this->photos->forNames(array_keys($nameSids));
 
         return [
-            'items' => array_map(static function (array $row) use ($priceMap, $allPrices, $typePrices, $assignedTypes, $bySid, $photosBySid): array {
+            'items' => array_map(static function (array $row) use ($priceMap, $allPrices, $typePrices, $assignedTypes, $bySid, $photosBySid, $groupsEnabled): array {
                 $stockSid = (string) ($row['stock_sid'] ?? '');
                 $sid = (string) ($row['name_sid'] ?? '');
                 $warehouse = $bySid[$stockSid] ?? null;
@@ -223,7 +236,7 @@ final class StocksService
                         ];
                     }, $assignedTypes),
                     'group_id' => $row['group_id'] !== null ? (int) $row['group_id'] : null,
-                    'group_title' => (string) ($row['group_title'] ?? ''),
+                    'group_title' => $groupsEnabled ? (string) ($row['group_title'] ?? '') : '',
                     'warehouse_id' => $warehouse !== null ? (int) $warehouse['ID'] : 0,
                     'warehouse_name' => $warehouse !== null ? (string) $warehouse['NAME'] : (string) ($row['stock_name'] ?? ''),
                     'active' => ($row['active'] ?? 'Y') === 'Y',
@@ -242,11 +255,11 @@ final class StocksService
             'can_edit' => in_array('stocks.edit', $capabilities, true),
             'can_deactivate' => $this->canDeactivate($capabilities),
             'prices' => [
-                'enabled' => $this->prices->enabled(),
+                'enabled' => $this->prices->enabledForUser($user),
                 'type' => null,
             ],
             'groups' => [
-                'enabled' => $this->groups->enabled(),
+                'enabled' => $this->groups->enabledForUser($user),
             ],
             'warehouse' => [
                 'id' => (int) $warehouses[0]['ID'],
@@ -382,7 +395,7 @@ final class StocksService
                 'price_list' => $priceList,
                 'prices' => $canEdit ? $this->prices->pricesForStockItem($stockSid, $nameSid) : [],
                 'group_id' => $groupId,
-                'group_title' => $this->groupTitle($groupId),
+                'group_title' => $this->groups->enabledForUser($user) ? $this->groupTitle($groupId) : '',
                 'warehouse_id' => (int) $warehouse['ID'],
                 'warehouse_name' => (string) $warehouse['NAME'],
                 'levels' => $levels,
@@ -396,11 +409,11 @@ final class StocksService
             'can_edit' => $canEdit,
             'can_manage_photos' => $canEdit || in_array('stocks.import', $capabilities, true),
             'can_deactivate' => $this->canDeactivate($capabilities),
-            'can_delete' => in_array('stocks.manage', $capabilities, true),
+            'can_delete' => in_array('stocks.delete', $capabilities, true),
             'deactivate_blocked' => $deactivateBlocked,
             'delete_blocked' => $deleteBlocked,
-            'prices_enabled' => $this->prices->enabled(),
-            'groups_enabled' => $this->groups->enabled(),
+            'prices_enabled' => $this->prices->enabledForUser($user),
+            'groups_enabled' => $this->groups->enabledForUser($user),
             'item_types' => $this->itemTypes->enabledList(),
         ];
     }
@@ -450,7 +463,7 @@ final class StocksService
 
     public function deleteItem(array $user, array $capabilities, int $itemId): array
     {
-        if (!in_array('stocks.manage', $capabilities, true)) {
+        if (!in_array('stocks.delete', $capabilities, true)) {
             throw new HttpException(403, 'forbidden', 'Недостаточно прав для удаления номенклатуры');
         }
 
@@ -544,7 +557,8 @@ final class StocksService
         return in_array('stocks.view', $capabilities, true)
             || in_array('stocks.edit', $capabilities, true)
             || in_array('stocks.import', $capabilities, true)
-            || in_array('stocks.manage', $capabilities, true);
+            || in_array('stocks.delete', $capabilities, true)
+            || in_array('stocks.warehouses.view_all', $capabilities, true);
     }
 
     private function requireView(array $capabilities): void
@@ -553,7 +567,8 @@ final class StocksService
             !in_array('stocks.view', $capabilities, true)
             && !in_array('stocks.edit', $capabilities, true)
             && !in_array('stocks.import', $capabilities, true)
-            && !in_array('stocks.manage', $capabilities, true)
+            && !in_array('stocks.delete', $capabilities, true)
+            && !in_array('stocks.warehouses.view_all', $capabilities, true)
         ) {
             throw new HttpException(403, 'forbidden', 'Недостаточно прав для просмотра номенклатуры');
         }
@@ -728,11 +743,11 @@ final class StocksService
             }
         }
 
-        if (!$this->prices->enabled()) {
+        if (!$this->prices->enabledForUser($user)) {
             return ['user' => $target, 'type_ids' => [], 'types' => []];
         }
 
-        $availableIds = $this->prices->availableTypeIdsForUser($target);
+        $availableIds = $this->prices->availableTypeIdsForUser($target, false);
         $typeIds = $priceTypeId > 0 && in_array($priceTypeId, $availableIds, true)
             ? [$priceTypeId]
             : $availableIds;
@@ -851,7 +866,16 @@ final class StocksService
     public function export(array $user, array $capabilities, array $warehouseIds, array $filters, string $format): array
     {
         $this->requireView($capabilities);
+
+        if (!in_array('stocks.export', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для экспорта номенклатуры');
+        }
         $filters = $this->applyActiveFilter($capabilities, self::normalizeFilters($filters));
+
+        if (!$this->groups->enabledForUser($user)) {
+            $filters['group_ids'] = [];
+            $filters['no_group'] = false;
+        }
         $format = TableExport::normalizeFormat($format);
 
         $warehouseIds = array_values(array_unique(array_filter(
@@ -878,8 +902,8 @@ final class StocksService
         $rows = $this->stocks->levelsAllMulti($sids, $filters, $exportPrices['type_ids']);
         $total = count($rows);
 
-        $showPrices = $this->prices->enabled();
-        $showGroups = $this->groups->enabled();
+        $showPrices = $this->prices->enabledForUser($user);
+        $showGroups = $this->groups->enabledForUser($user);
 
         $headers = ['Склад', 'Товар', 'Ед.', 'Остаток на складе'];
 
@@ -1012,7 +1036,9 @@ final class StocksService
         $warehouse = $this->requireWarehouse($user, $capabilities, $warehouseId);
 
         [$name, $unit, $quantity, $description] = $this->normalizeItemInput($input);
-        $groupId = $this->normalizeGroupId($input['group_id'] ?? null);
+        $groupId = $this->groups->enabledForUser($user)
+            ? $this->normalizeGroupId($input['group_id'] ?? null)
+            : null;
 
         $item = $this->stocks->upsertNomenclature($name, $unit, $description);
 
@@ -1051,7 +1077,7 @@ final class StocksService
             'quantity' => $quantity,
         ]);
 
-        $this->savePrices($warehouse, $item, $input);
+        $this->savePrices($user, $warehouse, $item, $input);
 
         $this->audit->log($user, 'stocks.item.create', 'stocks', $warehouseId, [
             'name' => $name,
@@ -1098,9 +1124,11 @@ final class StocksService
             'description' => array_key_exists('description', $input) ? $input['description'] : ($level['description'] ?? ''),
             'quantity' => array_key_exists('quantity', $input) ? $input['quantity'] : (float) $level['quantity'],
         ]);
-        $groupId = array_key_exists('group_id', $input)
-            ? $this->normalizeGroupId($input['group_id'])
-            : ($level['group_id'] !== null ? (int) $level['group_id'] : null);
+        $groupId = !$this->groups->enabledForUser($user)
+            ? null
+            : (array_key_exists('group_id', $input)
+                ? $this->normalizeGroupId($input['group_id'])
+                : ($level['group_id'] !== null ? (int) $level['group_id'] : null));
 
         $nameSid = (string) $level['name_sid'];
 
@@ -1143,7 +1171,7 @@ final class StocksService
         }
 
         $item = ['SID' => $nameSid, 'NAME' => $name];
-        $this->savePrices($warehouse, $item, $input);
+        $this->savePrices($user, $warehouse, $item, $input);
 
         if (isset($input['warehouse_prices']) && is_array($input['warehouse_prices'])) {
             $this->saveWarehousePrices($user, $capabilities, $nameSid, $input['warehouse_prices']);
@@ -1164,16 +1192,16 @@ final class StocksService
                 'description' => $description ?? '',
                 'actual_date' => date('Y-m-d'),
                 'prices' => $this->prices->pricesForStockItem((string) $warehouse['SID'], (string) $item['SID']),
-                'warehouse_prices' => $this->warehousePricesForItem($nameSid),
+                'warehouse_prices' => $this->warehousePricesForItem($user, $nameSid),
                 'group_id' => $groupId,
                 'group_title' => $this->groupTitle($groupId),
             ],
         ];
     }
 
-    private function savePrices(array $warehouse, array $item, array $input): void
+    private function savePrices(array $user, array $warehouse, array $item, array $input): void
     {
-        if (!$this->prices->enabled() || !isset($input['prices']) || !is_array($input['prices'])) {
+        if (!$this->prices->enabledForUser($user) || !isset($input['prices']) || !is_array($input['prices'])) {
             return;
         }
 
@@ -1189,8 +1217,12 @@ final class StocksService
      *
      * @return array<string, array<int, float>>
      */
-    private function warehousePricesForItem(string $nameSid): array
+    private function warehousePricesForItem(array $user, string $nameSid): array
     {
+        if (!$this->prices->enabledForUser($user)) {
+            return [];
+        }
+
         $map = [];
 
         foreach ($this->stocks->levelsForName($nameSid) as $row) {
@@ -1208,6 +1240,10 @@ final class StocksService
      */
     private function saveWarehousePrices(array $user, array $capabilities, string $nameSid, array $matrix): void
     {
+        if (!$this->prices->enabledForUser($user)) {
+            return;
+        }
+
         foreach ($matrix as $stockSid => $prices) {
             $stockSid = (string) $stockSid;
 
@@ -1450,7 +1486,7 @@ final class StocksService
 
     public function renameWarehouse(array $user, array $capabilities, int $warehouseId, array $input): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseEdit($capabilities);
 
         $warehouse = $this->stocks->findWarehouseById($warehouseId);
 
@@ -1486,26 +1522,78 @@ final class StocksService
         return ['warehouse' => ['id' => $warehouseId, 'name' => $name]];
     }
 
-    private function canManageWarehouses(array $capabilities): bool
+    private function canCreateWarehouse(array $capabilities): bool
     {
-        return in_array('stocks.warehouses.manage', $capabilities, true);
+        return in_array('stocks.warehouses.create', $capabilities, true);
+    }
+
+    private function canEditWarehouse(array $capabilities): bool
+    {
+        return in_array('stocks.warehouses.edit', $capabilities, true);
+    }
+
+    private function canDeleteWarehouse(array $capabilities): bool
+    {
+        return in_array('stocks.warehouses.delete', $capabilities, true);
+    }
+
+    private function canManageWarehouseAccess(array $capabilities): bool
+    {
+        return in_array('stocks.warehouses.access', $capabilities, true);
+    }
+
+    private function canViewWarehouseAdmin(array $capabilities): bool
+    {
+        return $this->canCreateWarehouse($capabilities)
+            || $this->canEditWarehouse($capabilities)
+            || $this->canDeleteWarehouse($capabilities)
+            || $this->canManageWarehouseAccess($capabilities);
     }
 
     private function canAccessAllWarehouses(array $capabilities): bool
     {
-        return in_array('stocks.manage', $capabilities, true) || $this->canManageWarehouses($capabilities);
+        return in_array('stocks.warehouses.view_all', $capabilities, true)
+            || $this->canViewWarehouseAdmin($capabilities);
     }
 
-    private function requireWarehouseAdmin(array $capabilities): void
+    private function requireWarehouseCreate(array $capabilities): void
     {
-        if (!$this->canManageWarehouses($capabilities)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав для управления складами');
+        if (!$this->canCreateWarehouse($capabilities)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для создания складов');
+        }
+    }
+
+    private function requireWarehouseEdit(array $capabilities): void
+    {
+        if (!$this->canEditWarehouse($capabilities)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для редактирования складов');
+        }
+    }
+
+    private function requireWarehouseDelete(array $capabilities): void
+    {
+        if (!$this->canDeleteWarehouse($capabilities)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для удаления складов');
+        }
+    }
+
+    private function requireWarehouseAccess(array $capabilities): void
+    {
+        if (!$this->canManageWarehouseAccess($capabilities)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для управления доступом к складам');
+        }
+    }
+
+    private function requireWarehouseView(array $capabilities): void
+    {
+        if (!$this->canViewWarehouseAdmin($capabilities)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав для просмотра складов');
         }
     }
 
     public function warehouseDirectory(array $user, array $capabilities): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseView($capabilities);
 
         return [
             'items' => array_map(static fn (array $row): array => [
@@ -1529,7 +1617,7 @@ final class StocksService
 
     public function warehouseCard(array $user, array $capabilities, int $id): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseView($capabilities);
 
         $warehouse = $this->stocks->findWarehouseById($id);
 
@@ -1542,7 +1630,7 @@ final class StocksService
 
     public function updateWarehouse(array $user, array $capabilities, int $id, array $input): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseEdit($capabilities);
 
         $warehouse = $this->stocks->findWarehouseById($id);
 
@@ -1581,7 +1669,7 @@ final class StocksService
 
     public function createWarehouse(array $user, array $capabilities, array $input): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseCreate($capabilities);
 
         $fields = $this->warehouseFields($input, null);
 
@@ -1613,6 +1701,37 @@ final class StocksService
      *
      * @return array<string, mixed>
      */
+    public function deleteWarehouse(array $user, array $capabilities, int $id): array
+    {
+        $this->requireWarehouseDelete($capabilities);
+
+        $warehouse = $this->stocks->findWarehouseById($id);
+
+        if ($warehouse === null) {
+            throw new HttpException(404, 'not_found', 'Склад не найден');
+        }
+
+        if ($this->stocks->warehouseCount() <= 1) {
+            throw new HttpException(422, 'last_warehouse', 'Нельзя удалить последний склад');
+        }
+
+        if ($this->stocks->warehouseLevelCount((string) $warehouse['SID']) > 0) {
+            throw new HttpException(422, 'warehouse_not_empty', 'Склад содержит остатки. Сначала освободите его');
+        }
+
+        if ($this->stocks->warehouseReservationCount((string) $warehouse['SID']) > 0) {
+            throw new HttpException(422, 'warehouse_has_reservations', 'Склад используется в активных бронях');
+        }
+
+        $this->stocks->deleteWarehouse((string) $warehouse['SID']);
+
+        $this->audit->log($user, 'stocks.warehouse.delete', 'stocks', $id, [
+            'name' => (string) $warehouse['NAME'],
+        ], null);
+
+        return ['deleted' => true];
+    }
+
     private function warehouseFields(array $input, ?array $existing): array
     {
         $name = trim((string) ($input['name'] ?? ''));
@@ -1708,7 +1827,7 @@ final class StocksService
 
     public function exportWarehouses(array $user, array $capabilities, string $format): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseEdit($capabilities);
 
         $format = TableExport::normalizeFormat($format);
         $rows = $this->stocks->warehousesAdmin();
@@ -1742,7 +1861,7 @@ final class StocksService
 
     public function warehouseCandidates(array $user, array $capabilities, int $id, array $query): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseAccess($capabilities);
 
         $warehouse = $this->stocks->findWarehouseById($id);
 
@@ -1774,7 +1893,7 @@ final class StocksService
 
     public function warehouseAccess(array $user, array $capabilities, int $id): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseAccess($capabilities);
 
         $warehouse = $this->stocks->findWarehouseById($id);
 
@@ -1796,7 +1915,7 @@ final class StocksService
 
     public function addWarehouseUser(array $user, array $capabilities, int $id, array $input): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseAccess($capabilities);
 
         $warehouse = $this->stocks->findWarehouseById($id);
 
@@ -1830,7 +1949,7 @@ final class StocksService
 
     public function removeWarehouseUser(array $user, array $capabilities, int $id, string $userSid): array
     {
-        $this->requireWarehouseAdmin($capabilities);
+        $this->requireWarehouseAccess($capabilities);
 
         $warehouse = $this->stocks->findWarehouseById($id);
 
@@ -2081,7 +2200,7 @@ final class StocksService
             }
         }
 
-        $pricesEnabled = $this->prices->enabled();
+        $pricesEnabled = $this->prices->enabledForUser($user);
         $resolvedPrices = [];
 
         if ($pricesEnabled && $priceColumns !== []) {

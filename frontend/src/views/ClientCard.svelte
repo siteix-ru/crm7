@@ -2294,8 +2294,10 @@
 
         <div class="modal-actions">
           <Button variant="ghost" onclick={resetRequestsFilters}>Сбросить</Button>
+        <div class="modal-buttons">
           <Button variant="ghost" onclick={() => (requestsFiltersOpen = false)}>Отмена</Button>
           <Button onclick={applyRequestsFilters}>Применить</Button>
+        </div>
         </div>
       </div>
     </Modal>
@@ -2408,8 +2410,10 @@
 
       <div class="modal-actions">
         <Button variant="ghost" onclick={resetInterestsFilters}>Сбросить</Button>
+      <div class="modal-buttons">
         <Button variant="ghost" onclick={() => (interestsFiltersOpen = false)}>Отмена</Button>
         <Button onclick={applyInterestsFilters}>Применить</Button>
+      </div>
       </div>
     </Modal>
 
@@ -2911,6 +2915,13 @@
     gap: var(--space-2);
     margin-top: var(--space-4);
   }
+  .modal-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
+
 
   h1 {
     margin: 0;

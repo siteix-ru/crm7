@@ -115,8 +115,13 @@
 
   const warehousesEnabled = $derived(appSettings.warehousesEnabled);
   const canManageWarehouses = $derived(
-    warehousesEnabled && auth.can('stocks.warehouses.manage')
+    warehousesEnabled &&
+      (auth.can('stocks.warehouses.create') ||
+        auth.can('stocks.warehouses.edit') ||
+        auth.can('stocks.warehouses.delete') ||
+        auth.can('stocks.warehouses.access'))
   );
+  const canExport = $derived(auth.can('stocks.export'));
   const sortFields = $derived.by(() => {
     const fields = [{ field: 'name', label: 'Номенклатура' }];
 
@@ -1364,7 +1369,9 @@
           </button>
         {/if}
 
-        <span class="toolbar-divider" aria-hidden="true"></span>
+        {#if canImport || canExport}
+          <span class="toolbar-divider" aria-hidden="true"></span>
+        {/if}
 
         {#if canImport}
           <button
@@ -1378,6 +1385,7 @@
           </button>
         {/if}
 
+        {#if canExport}
         <button
           type="button"
           class="sort-button"
@@ -1388,6 +1396,7 @@
         >
           <Icon name="export" size={16} />
         </button>
+        {/if}
 
         <span class="toolbar-divider" aria-hidden="true"></span>
 
@@ -1770,8 +1779,10 @@
         </div>
         <div class="modal-actions">
           <Button variant="ghost" onclick={resetView}>Сбросить</Button>
-          <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-          <Button onclick={applyView}>Применить</Button>
+          <div class="modal-buttons">
+            <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
+            <Button onclick={applyView}>Применить</Button>
+          </div>
         </div>
       </div>
     </Modal>

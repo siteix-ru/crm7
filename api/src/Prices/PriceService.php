@@ -29,6 +29,11 @@ final class PriceService
         return $this->settings->pricesEnabled();
     }
 
+    public function enabledForUser(?array $user): bool
+    {
+        return $user !== null && $this->settings->pricesEnabledForLevel((int) ($user['LEVEL'] ?? 0));
+    }
+
     public function types(): array
     {
         return $this->prices->types();
@@ -139,9 +144,9 @@ final class PriceService
      *
      * @return int[]
      */
-    public function availableTypeIdsForUser(?array $user): array
+    public function availableTypeIdsForUser(?array $user, bool $requireEnabled = true): array
     {
-        if (!$this->enabled()) {
+        if ($requireEnabled && !$this->enabledForUser($user)) {
             return [];
         }
 
@@ -170,9 +175,9 @@ final class PriceService
      *
      * @return array<int, array{id:int,title:string}>
      */
-    public function availableTypesForUser(?array $user): array
+    public function availableTypesForUser(?array $user, bool $requireEnabled = true): array
     {
-        $ids = $this->availableTypeIdsForUser($user);
+        $ids = $this->availableTypeIdsForUser($user, $requireEnabled);
 
         if ($ids === []) {
             return [];
@@ -387,9 +392,9 @@ final class PriceService
      * @param array<int, array<string, mixed>> $items
      * @return array{items: array<int, array<string, mixed>>, prices: array<string, mixed>}
      */
-    public function decorateItems(array $items): array
+    public function decorateItems(array $items, ?array $user = null): array
     {
-        if (!$this->enabled()) {
+        if ($user === null ? !$this->enabled() : !$this->enabledForUser($user)) {
             $items = array_map(static function (array $item): array {
                 $item['price'] = null;
                 $item['price_type_id'] = null;

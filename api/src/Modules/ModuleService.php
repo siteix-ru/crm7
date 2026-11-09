@@ -34,8 +34,8 @@ final class ModuleService
             'stock.allow_zero' => ['type' => 'bool'],
         ],
         'stock_edit' => [
-            'prices.enabled' => ['type' => 'bool'],
-            'groups.enabled' => ['type' => 'bool'],
+            'prices.levels' => ['type' => 'levels'],
+            'groups.levels' => ['type' => 'levels'],
             'stocks.photo_ratio' => ['type' => 'enum', 'values' => ['dynamic', 'square', 'landscape', 'portrait'], 'default' => 'square'],
             'stocks.photo_fit' => ['type' => 'enum', 'values' => ['contain', 'cover'], 'default' => 'contain'],
             'stocks.photo_size_preview' => ['type' => 'int', 'min' => 80, 'max' => 4000, 'default' => 160],
@@ -100,6 +100,31 @@ final class ModuleService
 
             $legacyLevels = (array) ($row['levels'] ?? []);
             $groupRows = is_array($row['groups'] ?? null) ? $row['groups'] : null;
+            $groupOrder = is_array($row['group_order'] ?? null) ? $row['group_order'] : null;
+
+            if ($groupOrder !== null) {
+                $validCodes = array_map(
+                    static fn (array $group): string => (string) $group['code'],
+                    Modules::accessGroups($module)
+                );
+                $ordered = [];
+
+                foreach ($groupOrder as $groupCode) {
+                    $groupCode = (string) $groupCode;
+
+                    if (in_array($groupCode, $validCodes, true) && !in_array($groupCode, $ordered, true)) {
+                        $ordered[] = $groupCode;
+                    }
+                }
+
+                foreach ($validCodes as $groupCode) {
+                    if (!in_array($groupCode, $ordered, true)) {
+                        $ordered[] = $groupCode;
+                    }
+                }
+
+                $settings['module.' . $code . '.groups_order'] = implode(',', $ordered);
+            }
 
             foreach (Modules::accessGroups($module) as $group) {
                 $groupCode = (string) $group['code'];
@@ -223,6 +248,28 @@ final class ModuleService
     /**
      * @return array<string, mixed>
      */
+    /**
+     * @return int[]
+     */
+    private function normalizeLevels(mixed $value): array
+    {
+        $raw = is_array($value) ? $value : explode(',', (string) $value);
+        $levels = [];
+
+        foreach ($raw as $item) {
+            $level = (int) $item;
+
+            if (in_array($level, self::LEVELS, true)) {
+                $levels[$level] = true;
+            }
+        }
+
+        $result = array_keys($levels);
+        sort($result);
+
+        return $result;
+    }
+
     private function moduleSettingsPayload(string $code): array
     {
         $result = [];
@@ -236,6 +283,8 @@ final class ModuleService
             } elseif ($type === 'int') {
                 $value = $raw === null ? (int) $definition['default'] : (int) $raw;
                 $result[$key] = max((int) $definition['min'], min((int) $definition['max'], $value));
+            } elseif ($type === 'levels') {
+                $result[$key] = $this->normalizeLevels($raw);
             } else {
                 $value = (string) ($raw ?? $definition['default']);
                 $result[$key] = in_array($value, $definition['values'], true)
@@ -268,6 +317,8 @@ final class ModuleService
             } elseif ($type === 'int') {
                 $number = (int) $value;
                 $result[$key] = (string) max((int) $definition['min'], min((int) $definition['max'], $number));
+            } elseif ($type === 'levels') {
+                $result[$key] = implode(',', $this->normalizeLevels($value));
             } else {
                 $result[$key] = in_array($value, $definition['values'], true)
                     ? (string) $value
@@ -308,6 +359,17 @@ final class ModuleService
             }
 
             sort($levels);
+
+            $order = array_values(array_filter(explode(',', (string) $this->settings->get(
+                'module.' . (string) $module['code'] . '.groups_order'
+            ))));
+
+            if ($order !== []) {
+                $positions = array_flip($order);
+                usort($groups, static fn (array $left, array $right): int =>
+                    ($positions[$left['code']] ?? PHP_INT_MAX) <=> ($positions[$right['code']] ?? PHP_INT_MAX)
+                );
+            }
 
             $items[] = [
                 'code' => (string) $module['code'],

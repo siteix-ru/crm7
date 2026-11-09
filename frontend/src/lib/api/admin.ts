@@ -227,7 +227,7 @@ export interface ModuleItem {
   levels: number[];
   capabilities: string[];
   groups: ModuleAccessGroup[];
-  settings: Record<string, string | number | boolean>;
+  settings: Record<string, string | number | boolean | number[]>;
 }
 
 export interface ModuleRole {
@@ -258,6 +258,7 @@ export function saveModules(modules: ModuleItem[]): Promise<ModulesResponse> {
             groups: Object.fromEntries(
               module.groups.map((group) => [group.code, group.levels])
             ),
+            group_order: module.groups.map((group) => group.code),
             settings: module.settings
           }
         ])

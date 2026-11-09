@@ -295,6 +295,13 @@ export function createWarehouse(data: WarehousePayload): Promise<{ warehouse: Wa
   });
 }
 
+export function deleteWarehouse(id: number): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(`/stocks/warehouses/${id}`, {
+    method: 'DELETE',
+    auth: true
+  });
+}
+
 export function exportWarehouses(format: string): Promise<void> {
   return downloadFromApi(
     `/stocks/warehouses?export=${encodeURIComponent(format)}`,

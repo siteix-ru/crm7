@@ -21,6 +21,11 @@ final class ItemGroupService
         return $this->settings->groupsEnabled();
     }
 
+    public function enabledForUser(?array $user): bool
+    {
+        return $user !== null && $this->settings->groupsEnabledForLevel((int) ($user['LEVEL'] ?? 0));
+    }
+
     public function list(bool $onlyEnabled = false): array
     {
         return $this->groups->all($onlyEnabled);

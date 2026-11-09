@@ -87,14 +87,62 @@ final class SettingsRepository
         return $this->get('stock.reserve_enabled') === '1';
     }
 
+    public function pricesLevels(): array
+    {
+        return $this->levels('prices.levels');
+    }
+
+    public function groupsLevels(): array
+    {
+        return $this->levels('groups.levels');
+    }
+
     public function pricesEnabled(): bool
     {
-        return $this->get('prices.enabled') === '1';
+        return $this->pricesLevels() !== [];
     }
 
     public function groupsEnabled(): bool
     {
-        return $this->get('groups.enabled') === '1';
+        return $this->groupsLevels() !== [];
+    }
+
+    public function pricesEnabledForLevel(int $level): bool
+    {
+        return in_array($level, $this->pricesLevels(), true);
+    }
+
+    public function groupsEnabledForLevel(int $level): bool
+    {
+        return in_array($level, $this->groupsLevels(), true);
+    }
+
+    /**
+     * @return int[]
+     */
+    private function levels(string $key): array
+    {
+        $raw = $this->get($key);
+
+        if ($raw === null || trim($raw) === '') {
+            return [];
+        }
+
+        $allowed = [90, 50, 10, 5, 1];
+        $levels = [];
+
+        foreach (explode(',', $raw) as $value) {
+            $level = (int) trim($value);
+
+            if (in_array($level, $allowed, true)) {
+                $levels[$level] = true;
+            }
+        }
+
+        $result = array_keys($levels);
+        sort($result);
+
+        return $result;
     }
 
     public function allowZeroStock(): bool

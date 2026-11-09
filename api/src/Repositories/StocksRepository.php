@@ -397,6 +397,51 @@ final class StocksRepository
         )->fetchAll() ?: [];
     }
 
+    public function warehouseLevelCount(string $sid): int
+    {
+        $stmt = Database::pdo()->prepare('SELECT COUNT(*) FROM stock_levels WHERE STOCK_SID = ?');
+        $stmt->execute([$sid]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function warehouseReservationCount(string $sid): int
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT COUNT(*) FROM stock_reservations r
+             INNER JOIN stock_levels l ON l.ID = r.stock_level_id
+             WHERE l.STOCK_SID = ?'
+        );
+        $stmt->execute([$sid]);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    public function warehouseCount(): int
+    {
+        return (int) Database::pdo()->query('SELECT COUNT(*) FROM stocks')->fetchColumn();
+    }
+
+    public function deleteWarehouse(string $sid): void
+    {
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+
+        try {
+            $pdo->prepare('UPDATE users SET WAREHOUSE_ID = NULL WHERE WAREHOUSE_ID = (SELECT ID FROM stocks WHERE SID = ? LIMIT 1)')
+                ->execute([$sid]);
+            $pdo->prepare('DELETE FROM stock_price_types WHERE stock_sid = ?')->execute([$sid]);
+            $pdo->prepare('DELETE FROM nomenclature_prices WHERE stock_sid = ?')->execute([$sid]);
+            $pdo->prepare('DELETE FROM user_level_stock WHERE STOCK_SID = ?')->execute([$sid]);
+            $pdo->prepare('DELETE FROM stock_levels WHERE STOCK_SID = ?')->execute([$sid]);
+            $pdo->prepare('DELETE FROM stocks WHERE SID = ?')->execute([$sid]);
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            throw $e;
+        }
+    }
+
     public function updateWarehouse(string $sid, array $fields): void
     {
         $pdo = Database::pdo();

@@ -27,6 +27,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
+  import Icon from '../lib/components/ui/Icon.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import PriceTypesPicker from '../lib/components/ui/PriceTypesPicker.svelte';
@@ -154,7 +155,7 @@ let usersPerPage = $state(20);
 
   const canManageUsers = $derived(auth.can('users.manage'));
   const canManageRoles = $derived(auth.can('roles.manage'));
-  const pricesEnabled = $derived(appSettings.pricesEnabled);
+  const pricesEnabled = $derived(appSettings.pricesConfigured);
 
   onMount(() => {
     if (section !== null) {
@@ -428,7 +429,7 @@ let usersPerPage = $state(20);
     return true;
   }
 
-  function setModuleSetting(code: string, key: string, value: string | number | boolean): void {
+  function setModuleSetting(code: string, key: string, value: string | number | boolean | number[]): void {
     modules = modules.map((module) =>
       module.code === code
         ? { ...module, settings: { ...module.settings, [key]: value } }
@@ -466,6 +467,31 @@ let usersPerPage = $state(20);
       const allLevels = [...new Set(groups.flatMap((group) => group.levels))].sort((a, b) => a - b);
 
       return { ...module, groups, levels: allLevels };
+    });
+    modulesNotice = '';
+    modulesSaved = false;
+  }
+
+  function moveModuleGroup(code: string, index: number, direction: -1 | 1): void {
+    if (!canManageRoles) {
+      return;
+    }
+
+    modules = modules.map((module) => {
+      if (module.code !== code) {
+        return module;
+      }
+
+      const target = index + direction;
+
+      if (target < 0 || target >= module.groups.length) {
+        return module;
+      }
+
+      const groups = [...module.groups];
+      [groups[index], groups[target]] = [groups[target], groups[index]];
+
+      return { ...module, groups };
     });
     modulesNotice = '';
     modulesSaved = false;
@@ -821,36 +847,6 @@ let usersPerPage = $state(20);
                     <span>Разрешать нулевой и отрицательный остаток</span>
                   </label>
                 {:else if module.code === 'stock_edit'}
-                  <label class="module-check">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(moduleSettings['prices.enabled'])}
-                      disabled={!canManageRoles || !module.enabled}
-                      onchange={(event) =>
-                        setModuleSetting(
-                          module.code,
-                          'prices.enabled',
-                          event.currentTarget.checked
-                        )}
-                    />
-                    <span>Использовать цены для номенклатуры</span>
-                  </label>
-
-                  <label class="module-check">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(moduleSettings['groups.enabled'])}
-                      disabled={!canManageRoles || !module.enabled}
-                      onchange={(event) =>
-                        setModuleSetting(
-                          module.code,
-                          'groups.enabled',
-                          event.currentTarget.checked
-                        )}
-                    />
-                    <span>Использовать группы номенклатуры</span>
-                  </label>
-
                   <div class="module-settings-grid">
                     <label class="module-setting-field">
                       <span>Формат фото</span>
@@ -984,7 +980,61 @@ let usersPerPage = $state(20);
                   class="module-groups"
                   class:off={!module.enabled}
                 >
-                  {#each module.groups as group (group.code)}
+                  {#if module.code === 'stock_edit'}
+                    <div class="module-group">
+                      <div class="module-group-head">
+                        <div class="module-group-heading">
+                          <span class="module-group-title">Доступ к ценам</span>
+                          <p class="module-group-desc">
+                            Роли, которым показываются цены и доступны операции с ними.
+                          </p>
+                        </div>
+                      </div>
+                      <MultiSelect
+                        label="Доступ к ценам"
+                        options={moduleRoleOptions}
+                        values={(Array.isArray(moduleSettings['prices.levels'])
+                          ? moduleSettings['prices.levels']
+                          : []
+                        ).map(String)}
+                        onchange={(values) =>
+                          setModuleSetting(module.code, 'prices.levels', values.map(Number))}
+                        allLabel="Все роли"
+                        emptyLabel="Никому"
+                        emptyValuesLabel="Никому"
+                        maxHeight="240px"
+                        disabled={!canManageRoles || !module.enabled}
+                      />
+                    </div>
+
+                    <div class="module-group">
+                      <div class="module-group-head">
+                        <div class="module-group-heading">
+                          <span class="module-group-title">Доступ к группам</span>
+                          <p class="module-group-desc">
+                            Роли, которым показываются группы и доступна фильтрация по ним.
+                          </p>
+                        </div>
+                      </div>
+                      <MultiSelect
+                        label="Доступ к группам"
+                        options={moduleRoleOptions}
+                        values={(Array.isArray(moduleSettings['groups.levels'])
+                          ? moduleSettings['groups.levels']
+                          : []
+                        ).map(String)}
+                        onchange={(values) =>
+                          setModuleSetting(module.code, 'groups.levels', values.map(Number))}
+                        allLabel="Все роли"
+                        emptyLabel="Никому"
+                        emptyValuesLabel="Никому"
+                        maxHeight="240px"
+                        disabled={!canManageRoles || !module.enabled}
+                      />
+                    </div>
+                  {/if}
+
+                  {#each module.groups as group, index (group.code)}
                     <div class="module-group">
                       <div class="module-group-head">
                         <div class="module-group-heading">
@@ -992,6 +1042,28 @@ let usersPerPage = $state(20);
                           {#if group.description}
                             <p class="module-group-desc">{group.description}</p>
                           {/if}
+                        </div>
+                        <div class="module-group-order">
+                          <button
+                            type="button"
+                            class="module-order-btn"
+                            title="Выше"
+                            aria-label="Выше"
+                            disabled={!canManageRoles || index === 0}
+                            onclick={() => moveModuleGroup(module.code, index, -1)}
+                          >
+                            <Icon name="arrow-up" size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            class="module-order-btn"
+                            title="Ниже"
+                            aria-label="Ниже"
+                            disabled={!canManageRoles || index === module.groups.length - 1}
+                            onclick={() => moveModuleGroup(module.code, index, 1)}
+                          >
+                            <Icon name="arrow-down" size={14} />
+                          </button>
                         </div>
                       </div>
 
@@ -1657,6 +1729,36 @@ let usersPerPage = $state(20);
     color: var(--text-description);
     font-size: 13px;
     line-height: 1.5;
+  }
+
+  .module-group-order {
+    display: flex;
+    flex: 0 0 auto;
+    gap: 2px;
+  }
+
+  .module-order-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text-description);
+    cursor: pointer;
+  }
+
+  .module-order-btn:hover:not(:disabled) {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  .module-order-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   .module-footer {

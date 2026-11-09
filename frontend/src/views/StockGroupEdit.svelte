@@ -20,7 +20,7 @@
   let { id }: { id: number } = $props();
 
   const isNew = $derived(id <= 0);
-  const groupsEnabled = $derived(appSettings.groupsEnabled);
+  const groupsEnabled = $derived(appSettings.groupsConfigured);
   const TYPE_TITLES: Record<string, string> = { product: 'Товар', service: 'Услуга', set: 'Набор' };
 
   let group = $state<ItemGroup | null>(null);

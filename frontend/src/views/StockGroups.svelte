@@ -13,7 +13,7 @@
   let loading = $state(true);
   let error = $state('');
 
-  const groupsEnabled = $derived(appSettings.groupsEnabled);
+  const groupsEnabled = $derived(appSettings.groupsConfigured);
 
   onMount(() => {
     void load();

@@ -199,7 +199,9 @@
       <PriceTypeEdit id={0} />
     {:else if priceTypeEditMatch}
       <PriceTypeEdit id={Number(priceTypeEditMatch.id)} />
-    {:else if (route === '/stocks/warehouses' || route === '/stocks/warehouses/new' || warehouseEditMatch || warehouseMatch) && (!appSettings.warehousesEnabled || !(auth.can('stocks.import') || auth.can('stocks.edit') || auth.can('stocks.manage')))}
+    {:else if route === '/stocks/warehouses/new' && (!appSettings.warehousesEnabled || !auth.can('stocks.warehouses.create'))}
+      <NotFound />
+    {:else if (route === '/stocks/warehouses' || warehouseEditMatch || warehouseMatch) && (!appSettings.warehousesEnabled || !(auth.can('stocks.warehouses.create') || auth.can('stocks.warehouses.edit') || auth.can('stocks.warehouses.delete') || auth.can('stocks.warehouses.access')))}
       <NotFound />
     {:else if route === '/stocks/warehouses'}
       <Warehouses />

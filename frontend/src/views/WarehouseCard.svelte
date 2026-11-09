@@ -4,6 +4,7 @@
   import {
     addWarehouseUser,
     createWarehouse,
+    deleteWarehouse,
     getWarehouse,
     listWarehouseCandidates,
     listWarehouseUsers,
@@ -18,6 +19,7 @@
   import { listPriceTypes } from '../lib/api/prices';
   import type { ManagerItem, PriceType } from '../lib/api/types';
   import { appSettings } from '../lib/stores/app-settings.svelte';
+  import { auth } from '../lib/stores/auth.svelte';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
@@ -58,8 +60,21 @@
   let busy = $state(false);
   let error = $state('');
   let notice = $state('');
+  let baseline = $state('');
 
-  let tab = $state<'main' | 'contacts' | 'prices' | 'access'>('main');
+  let tab = $state<'main' | 'contacts' | 'prices' | 'access'>(
+    auth.can('stocks.warehouses.edit')
+      ? 'main'
+      : auth.can('stocks.warehouses.access')
+        ? 'access'
+        : 'main'
+  );
+  const canCreateWarehouse = $derived(auth.can('stocks.warehouses.create'));
+  const canEditWarehouse = $derived(
+    auth.can('stocks.warehouses.edit') || (isNew && canCreateWarehouse)
+  );
+  const canDeleteWarehouse = $derived(auth.can('stocks.warehouses.delete'));
+  const canManageAccess = $derived(auth.can('stocks.warehouses.access'));
   let priceTypes = $state<PriceType[]>([]);
   let priceTypeIds = $state<number[]>([]);
 
@@ -94,6 +109,9 @@
           `${manager.name} ${manager.login}`.toLowerCase().includes(respQuery.trim().toLowerCase())
         )
   );
+
+  const dirty = $derived(formSnapshot() !== baseline);
+  const canSave = $derived(isNew || dirty);
 
   let addOpen = $state(false);
   let candidates = $state<WarehouseCandidate[]>([]);
@@ -145,6 +163,10 @@
           priceTypeIds = priceTypes.map((type) => type.id);
         }
       }
+
+      if (isNew) {
+        baseline = formSnapshot();
+      }
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить склад';
     } finally {
@@ -171,6 +193,47 @@
     levels = [...data.levels];
     active = data.active;
     priceTypeIds = [...(data.price_type_ids ?? [])];
+    baseline = formSnapshot();
+  }
+
+  function formSnapshot(): string {
+    return JSON.stringify({
+      name,
+      name1c,
+      address,
+      contactName,
+      phone,
+      email,
+      note,
+      type,
+      stockNum,
+      sort,
+      isDefault,
+      allowOrders,
+      inReports,
+      responsibleSid,
+      levels: [...levels].sort((a, b) => a - b),
+      active,
+      priceTypeIds: appSettings.pricesEnabled ? [...priceTypeIds].sort((a, b) => a - b) : []
+    });
+  }
+
+  async function removeWarehouse(): Promise<void> {
+    if (!warehouse || !confirm(`??????? ????? <${warehouse.name}>?`)) {
+      return;
+    }
+
+    busy = true;
+    error = '';
+
+    try {
+      await deleteWarehouse(id);
+      router.navigate('/stocks/warehouses');
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : '?? ??????? ??????? ?????';
+    } finally {
+      busy = false;
+    }
   }
 
   async function save(): Promise<void> {
@@ -201,7 +264,7 @@
 
       if (isNew) {
         const created = await createWarehouse(payload);
-        router.navigate(`/stocks/warehouses/${created.warehouse.id}`);
+        router.navigate(`/stocks/warehouses/${created.warehouse.id}/edit`);
         return;
       }
 
@@ -218,6 +281,10 @@
 
   function toggleLevel(level: number): void {
     levels = levels.includes(level) ? levels.filter((item) => item !== level) : [...levels, level];
+  }
+
+  function toggleAllPriceTypes(checked: boolean): void {
+    priceTypeIds = checked ? priceTypes.map((priceType) => priceType.id) : [];
   }
 
   function togglePriceType(id: number): void {
@@ -354,25 +421,89 @@
     <div class="head">
       <a
         class="back"
-        href={isNew ? '#/stocks/warehouses' : `#/stocks/warehouses/${id}`}
-        title={isNew ? 'К списку складов' : 'К карточке склада'}
+        href="#/stocks/warehouses"
+        title="К списку складов"
       >
         <Icon name="arrow-left" size={16} />
       </a>
-      <div>
+      <div class="head-title">
         <h1>{isNew ? 'Новый склад' : (warehouse?.name ?? 'Склад')}</h1>
         <p class="sub">
           {#if isNew}
             Заполните данные склада
           {:else if warehouse}
-            {warehouse.active ? 'Активен' : 'Скрыт от пользователей'}
+            {typeTitle(warehouse.type)}{#if warehouse.is_default} · По умолчанию{/if}
           {:else}
             Загрузка…
           {/if}
         </p>
       </div>
+      <div class="head-actions">
+        <span class="status-badge" class:off={!isNew && warehouse !== null && !warehouse.active}>
+          {#if isNew}
+            Новый
+          {:else if warehouse}
+            {warehouse.active ? 'Активен' : 'Отключён'}
+          {:else}
+            Загрузка…
+          {/if}
+        </span>
+        <div class="tab-icons" role="tablist" aria-label="Разделы склада">
+          {#if canEditWarehouse}
+          <button
+            type="button"
+            class:active={tab === 'main'}
+            role="tab"
+            aria-selected={tab === 'main'}
+            title="Основное"
+            aria-label="Основное"
+            onclick={() => (tab = 'main')}
+          >
+            <Icon name="overview" size={18} />
+          </button>
+          <button
+            type="button"
+            class:active={tab === 'contacts'}
+            role="tab"
+            aria-selected={tab === 'contacts'}
+            title="Контакты"
+            aria-label="Контакты"
+            onclick={() => (tab = 'contacts')}
+          >
+            <Icon name="user" size={18} />
+          </button>
+          {#if appSettings.pricesEnabled}
+            <button
+              type="button"
+              class:active={tab === 'prices'}
+              role="tab"
+              aria-selected={tab === 'prices'}
+              title="Цены"
+              aria-label="Цены"
+              onclick={() => (tab = 'prices')}
+            >
+              <Icon name="price" size={18} />
+            </button>
+          {/if}
+          {/if}
+          {#if canManageAccess}
+          <button
+            type="button"
+            class:active={tab === 'access'}
+            role="tab"
+            aria-selected={tab === 'access'}
+            title="Доступ"
+            aria-label="Доступ"
+            onclick={() => (tab = 'access')}
+          >
+            <Icon name="key" size={18} />
+          </button>
+          {/if}
+        </div>
+      </div>
     </div>
   </div>
+
 
   {#if loading}
     <div class="center"><Spinner /></div>
@@ -395,35 +526,12 @@
       </div>
     {/if}
 
-    <div class="tabs">
-      <button type="button" class:active={tab === 'main'} onclick={() => (tab = 'main')}>
-        Основное
-      </button>
-      <button type="button" class:active={tab === 'contacts'} onclick={() => (tab = 'contacts')}>
-        Контакты
-      </button>
-      {#if appSettings.pricesEnabled}
-        <button type="button" class:active={tab === 'prices'} onclick={() => (tab = 'prices')}>
-          Цены
-        </button>
-      {/if}
-      <button type="button" class:active={tab === 'access'} onclick={() => (tab = 'access')}>
-        Доступ{users.length > 0 ? ` (${users.length})` : ''}
-      </button>
-    </div>
-
-    {#if tab === 'main'}
+        {#if tab === 'main' && canEditWarehouse}
       <div class="card">
-        <h2>Реквизиты</h2>
+        <h2>Основное</h2>
         <div class="grid">
           <Input label="Название" bind:value={name} />
-          <Input label="Название в 1С" bind:value={name1c} placeholder="Как в выгрузке 1С" />
-          <Input label="Номер склада" type="number" bind:value={stockNum} />
-          <Input label="Порядок" type="number" bind:value={sort} />
-        </div>
-
-        <h2>Тип и назначение</h2>
-        <div class="grid">
+          <Input label="Название в 1С" bind:value={name1c} placeholder="Если отличается от названия в 1С" />
           <label class="field">
             <span class="field-label">Тип склада</span>
             <select bind:value={type}>
@@ -433,7 +541,7 @@
             </select>
           </label>
           <div class="field">
-            <span class="field-label">Ответственный (сотрудник)</span>
+            <span class="field-label">Ответственный</span>
             <button type="button" class="picker" onclick={openResponsible}>
               <span class="picker-value" class:picker-empty={responsibleSid === ''}>
                 {responsibleLabel()}
@@ -441,40 +549,44 @@
               <span class="picker-icon"><Icon name="arrow-down" size={14} /></span>
             </button>
             <span class="field-hint">
-              Сотрудник системы, ответственный за склад. Контактные данные — на вкладке «Контакты».
+              Контактное лицо склада. Контакты подставляются в заказ, если не заполнены вручную.
             </span>
           </div>
         </div>
 
+        <details class="advanced">
+          <summary>Дополнительно</summary>
+          <div class="grid">
+            <Input label="Номер склада" type="number" bind:value={stockNum} />
+            <Input label="Порядок в списке" type="number" bind:value={sort} />
+          </div>
+        </details>
+
+        <h2>Статус и видимость</h2>
         <div class="flags">
           {#if appSettings.requestsEnabled}
             <label class="checkbox">
               <input type="checkbox" bind:checked={allowOrders} />
-              Доступен для заявок и самовывоза
+              Принимать заказы
             </label>
           {/if}
           {#if appSettings.reportsEnabled}
             <label class="checkbox">
               <input type="checkbox" bind:checked={inReports} />
-              Учитывать в отчётах
+              Показывать в отчётах
             </label>
           {/if}
           <label class="checkbox">
             <input type="checkbox" bind:checked={active} />
-            Активен (показывать номенклатуру на этом складе)
+            Активен
           </label>
         </div>
 
         <p class="hint">
-          Если склад неактивен, его номенклатура не показывается пользователям, но импорт из 1С на него
-          продолжается и остатки обновляются.
+          Отключённый склад не отображается в остатках. Заказы и отчёты можно отключить отдельно.
         </p>
-
-        <div class="actions">
-          <Button loading={busy} onclick={() => void save()}>{isNew ? 'Создать' : 'Сохранить'}</Button>
-        </div>
       </div>
-    {:else if tab === 'contacts'}
+    {:else if tab === 'contacts' && canEditWarehouse}
       <div class="card">
         <h2>Размещение</h2>
         <div class="grid">
@@ -483,8 +595,7 @@
 
         <h2>Контакты</h2>
         <p class="hint contacts-hint">
-          К кому и как обращаться по складу. Может совпадать с ответственным сотрудником или быть
-          отдельным лицом (например, кладовщик). Подставляется из профиля ответственного, если пусто.
+          Контакты подставляются в заказ. Пустые поля можно заполнить вручную.
         </p>
         <div class="grid">
           <Input label="Контактное лицо (для связи)" bind:value={contactName} />
@@ -501,23 +612,21 @@
             placeholder="Внутренняя заметка о складе"
           ></textarea>
         </label>
-
-        <div class="actions">
-          <Button loading={busy} onclick={() => void save()}>{isNew ? 'Создать' : 'Сохранить'}</Button>
-        </div>
       </div>
-    {:else if tab === 'prices'}
+    {:else if tab === 'prices' && canEditWarehouse}
       <div class="card">
-        <h2>Типы цен склада</h2>
-        <p class="hint">
-          Отметьте типы цен, которые ведёт склад. В карточке номенклатуры цены этого склада
-          редактируются только по отмеченным типам; для остальных будет прочерк.
-        </p>
-
+        <h2>Цены склада</h2>
         {#if priceTypes.length === 0}
-          <p class="hint">Типы цен не заданы. Добавьте их в «Настройках» → «Типы цен».</p>
+          <p class="hint">Типы цен ещё не настроены. Добавьте их в справочнике типов цен.</p>
         {:else}
-          <div class="flags">
+          <div class="price-toolbar">
+            <p class="hint">Выберите типы цен, доступные на складе.</p>
+            <div class="inline-actions">
+              <button type="button" class="link-btn" onclick={() => toggleAllPriceTypes(true)}>Выбрать все</button>
+              <button type="button" class="link-btn" onclick={() => toggleAllPriceTypes(false)}>Снять все</button>
+            </div>
+          </div>
+          <div class="price-options">
             {#each priceTypes as priceType (priceType.id)}
               <label class="checkbox">
                 <input
@@ -530,17 +639,12 @@
             {/each}
           </div>
         {/if}
-
-        <div class="actions">
-          <Button loading={busy} onclick={() => void save()}>{isNew ? 'Создать' : 'Сохранить'}</Button>
-        </div>
       </div>
-    {:else}
+    {:else if tab === 'access' && canManageAccess}
       <div class="card">
-        <h2>Доступ по ролям</h2>
+        <h2>Роли с доступом</h2>
         <p class="hint">
-          Роли, которым склад доступен. Если снять все — склад увидят только пользователи с
-          персональным доступом.
+          Роли, которые видят склад и могут работать с его остатками.
         </p>
         <div class="flags">
           {#each levelOptions as role (role.level)}
@@ -555,18 +659,17 @@
           {/each}
         </div>
 
-        <div class="actions">
-          <Button loading={busy} onclick={() => void save()}>{isNew ? 'Создать' : 'Сохранить'}</Button>
-        </div>
-
         {#if !isNew}
-          <div class="row-head">
-            <h2>Пользователи с доступом</h2>
+          <div class="row-head users-head">
+            <div>
+              <h2>Сотрудники с доступом</h2>
+              <p class="hint">Добавление и удаление применяются сразу.</p>
+            </div>
             <Button onclick={openAdd}>Добавить</Button>
           </div>
 
           {#if users.length === 0}
-            <div class="empty">Персональный доступ никому не выдан</div>
+            <div class="empty">У склада пока нет сотрудников с доступом</div>
           {:else}
             <div class="users">
               {#each users as user (user.id)}
@@ -574,7 +677,7 @@
                   <div class="who">
                     <strong>{user.full_name || user.login}</strong>
                     <span class="login">{user.login}</span>
-                    {#if !user.active}<span class="tag">неактивен</span>{/if}
+                    {#if !user.active}<span class="tag">Отключён</span>{/if}
                   </div>
                   <button
                     type="button"
@@ -591,6 +694,34 @@
           {/if}
         {/if}
       </div>
+    {:else}
+      <div class="card">
+        <p class="hint">??? ???? ?? ???????? ??? ?????????????? ??????.</p>
+      </div>
+    {/if}
+
+    {#if canEditWarehouse || canDeleteWarehouse}
+    <div class="edit-actions">
+      {#if canDeleteWarehouse && !isNew}
+        <Button variant="danger" loading={busy} onclick={() => void removeWarehouse()}>
+          ???????
+        </Button>
+      {/if}
+      {#if canEditWarehouse}
+        <span class="save-state" class:dirty={dirty}>
+          {#if isNew}
+            ????????? ?????? ??????
+          {:else if dirty}
+            ???? ????????????? ?????????
+          {:else}
+            ??? ????????? ?????????
+          {/if}
+        </span>
+        <Button loading={busy} disabled={!canSave} onclick={() => void save()}>
+          {isNew ? '??????? ?????' : '?????????'}
+        </Button>
+      {/if}
+    </div>
     {/if}
   {/if}
 </section>
@@ -752,6 +883,76 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+
+  .head-title {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .head-title h1 {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .head-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-left: auto;
+  }
+
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 24px;
+    padding: 0 8px;
+    border: 1px solid var(--success-border);
+    border-radius: 999px;
+    background: var(--success-bg);
+    color: var(--success-text);
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .status-badge.off {
+    border-color: var(--border);
+    background: var(--fill-tertiary);
+    color: var(--text-description);
+  }
+
+  .tab-icons {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .tab-icons button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: none;
+    color: var(--text-description);
+    cursor: pointer;
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .tab-icons button:hover {
+    background: var(--fill-tertiary);
+    color: var(--text);
+  }
+
+  .tab-icons button.active {
+    background: none;
+    color: var(--primary);
   }
 
   .back {
@@ -793,30 +994,12 @@
     color: var(--text-description);
   }
 
-  .tabs {
-    display: flex;
-    gap: var(--space-6);
-    border-bottom: 1px solid var(--border-secondary);
-  }
-
-  .tabs button {
-    padding: 12px 0;
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: none;
-    color: var(--text);
-    font-size: 14px;
-    cursor: pointer;
-    transition: color 0.2s ease;
-  }
-
-  .tabs button:hover {
-    color: var(--primary);
-  }
-
-  .tabs button.active {
-    color: var(--primary);
-    border-bottom-color: var(--primary);
+  @media (max-width: 640px) {
+    .head-actions {
+      width: 100%;
+      margin-left: 0;
+      justify-content: space-between;
+    }
   }
 
   .card {
@@ -949,9 +1132,90 @@
     gap: var(--space-2);
   }
 
-  .actions {
+  .advanced {
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-secondary);
+  }
+
+  .advanced summary {
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .advanced[open] summary {
+    margin-bottom: var(--space-3);
+  }
+
+  .edit-actions {
+    position: sticky;
+    bottom: 0;
+    z-index: 5;
     display: flex;
-    gap: var(--space-2);
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--border-secondary);
+    background: var(--bg);
+  }
+
+  .edit-actions :global(button.danger) {
+    margin-right: auto;
+  }
+
+  .save-state {
+    margin-right: auto;
+    font-size: 13px;
+    color: var(--text-description);
+  }
+
+  .save-state.dirty {
+    color: var(--warning-text);
+  }
+
+  .price-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .price-options {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-2) var(--space-4);
+  }
+
+  .inline-actions {
+    display: flex;
+    gap: var(--space-3);
+  }
+
+  .link-btn {
+    padding: 0;
+    border: none;
+    background: none;
+    color: var(--primary);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  .link-btn:hover {
+    color: var(--primary-hover);
+  }
+
+  .users-head {
+    align-items: flex-start;
+    margin-top: var(--space-2);
+  }
+
+  .users-head .hint {
+    margin-top: 2px;
   }
 
   .row-head {

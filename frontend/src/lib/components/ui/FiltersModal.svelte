@@ -58,8 +58,10 @@
     {#if onreset}
       <Button variant="ghost" onclick={() => onreset?.()}>Сбросить</Button>
     {/if}
+  <div class="modal-buttons">
     <Button variant="ghost" onclick={() => (open = false)}>Отмена</Button>
     <Button onclick={apply}>Применить</Button>
+  </div>
   </div>
 </Modal>
 
@@ -125,8 +127,17 @@
 
   .modal-actions {
     display: flex;
+    flex-wrap: wrap;
+    align-items: center;
     justify-content: flex-end;
     gap: var(--space-2);
     margin-top: var(--space-4);
   }
+  .modal-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-left: auto;
+  }
+
 </style>

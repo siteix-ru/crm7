@@ -10,6 +10,8 @@ interface AppSettingsResponse {
   stock_allow_zero: boolean;
   prices_enabled: boolean;
   groups_enabled: boolean;
+  prices_configured: boolean;
+  groups_configured: boolean;
   requests_enabled: boolean;
   clients_enabled: boolean;
   chat_enabled: boolean;
@@ -46,6 +48,10 @@ class AppSettingsStore {
   pricesEnabled = $state(false);
 
   groupsEnabled = $state(false);
+
+  pricesConfigured = $state(false);
+
+  groupsConfigured = $state(false);
 
   requestsEnabled = $state(true);
 
@@ -130,6 +136,8 @@ class AppSettingsStore {
       this.allowZeroStock = data.stock_allow_zero === true;
       this.pricesEnabled = data.prices_enabled === true;
       this.groupsEnabled = data.groups_enabled === true;
+      this.pricesConfigured = data.prices_configured === true;
+      this.groupsConfigured = data.groups_configured === true;
       this.requestsEnabled = data.requests_enabled !== false;
       this.clientsEnabled = data.clients_enabled !== false;
       this.chatEnabled = data.chat_enabled !== false;
@@ -206,6 +214,8 @@ class AppSettingsStore {
     this.allowZeroStock = false;
     this.pricesEnabled = false;
     this.groupsEnabled = false;
+    this.pricesConfigured = false;
+    this.groupsConfigured = false;
     this.requestsEnabled = true;
     this.clientsEnabled = true;
     this.chatEnabled = true;

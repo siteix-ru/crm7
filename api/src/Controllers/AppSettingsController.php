@@ -26,7 +26,8 @@ final class AppSettingsController extends ApiController
 
     public function index(Request $request): Response
     {
-        $this->context($request);
+        [$user] = $this->context($request);
+        $level = (int) ($user['LEVEL'] ?? 0);
 
         return Response::ok([
             'sales_enabled' => $this->settings->salesEnabled(),
@@ -34,8 +35,10 @@ final class AppSettingsController extends ApiController
             'mail_configured' => $this->settings->mailConfigured(),
             'stock_reserve_enabled' => $this->settings->stockReserveEnabled(),
             'stock_allow_zero' => $this->settings->allowZeroStock(),
-            'prices_enabled' => $this->settings->pricesEnabled(),
-            'groups_enabled' => $this->settings->groupsEnabled(),
+            'prices_enabled' => $this->settings->pricesEnabledForLevel($level),
+            'groups_enabled' => $this->settings->groupsEnabledForLevel($level),
+            'prices_configured' => $this->settings->pricesEnabled(),
+            'groups_configured' => $this->settings->groupsEnabled(),
             'requests_enabled' => $this->settings->requestsEnabled(),
             'clients_enabled' => $this->settings->clientsEnabled(),
             'chat_enabled' => $this->settings->chatEnabled(),
