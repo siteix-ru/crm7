@@ -123,6 +123,11 @@ Runner `crm7-server` живёт на сервере и обслуживает `d
   версия runner `2.338.2`;
 - сервис `actions.runner.crm7.service` (`systemctl status|restart|stop`),
   логи — `journalctl -u actions.runner.crm7.service`;
+- `KillMode=control-group` обязателен: при `KillMode=process` старый
+  `Runner.Listener` остаётся жить после рестарта, и новый получает
+  `Session Conflict` (в логах «A session for this runner already exists»).
+  Лечится так: `systemctl stop`, `pkill -u ghrunner -f Runner.Listener`,
+  затем старт (после правки юнита — просто `systemctl restart`);
 - метки: `self-hosted`, `Linux`, `X64`, `crm7`;
 - перерегистрация: `./register.sh` под `ghrunner` (скрипт сам выбирает
   `--pat` для `ghp_`/`github_pat_` и `--token` для registration token);
