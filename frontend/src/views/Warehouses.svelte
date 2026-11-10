@@ -1108,6 +1108,10 @@
   }
 
   @media (max-width: 719.98px) {
+    .toolbar-divider {
+      display: none;
+    }
+
     .levels:not(.tiles) .level {
       flex-wrap: wrap;
       row-gap: var(--space-2);

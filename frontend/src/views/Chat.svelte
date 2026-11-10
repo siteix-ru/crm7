@@ -852,13 +852,14 @@
 
   .author-link {
     color: var(--muted);
-    text-decoration: none;
-    border-bottom: 1px dashed var(--border);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--muted) 35%, transparent);
+    text-underline-offset: 2px;
   }
 
   .author-link:hover {
     color: var(--primary);
-    border-bottom-color: var(--primary);
+    text-decoration-color: var(--primary);
   }
 
   .bubble {
@@ -1064,10 +1065,12 @@
   }
 
   @media (max-width: 720px) {
+    /* Чат занимает ровно видимую область: шапка 64 + отступы main 16/84 + демо-баннер. */
     .page {
       grid-template-columns: 1fr;
-      height: auto;
-      min-height: calc(100vh - 200px);
+      height: calc(100vh - 164px - var(--demo-banner-height, 0px));
+      height: calc(100dvh - 164px - var(--demo-banner-height, 0px));
+      min-height: 0;
     }
 
     .list-pane.hidden,
@@ -1076,7 +1079,11 @@
     }
 
     .chat-pane {
-      min-height: 60vh;
+      min-height: 0;
+    }
+
+    .messages {
+      min-height: 0;
     }
 
     .back {

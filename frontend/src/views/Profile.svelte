@@ -11,7 +11,6 @@
   import { auth } from '../lib/stores/auth.svelte';
   import { avatars } from '../lib/stores/avatar.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
-  import { staffLevelTitle } from '../lib/api/staff';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import { tablist } from '../lib/a11y/tablist';
@@ -64,7 +63,17 @@
   const avatarSeed = $derived(avatarName(auth.user?.name, auth.user?.login ?? 'guest'));
   const letter = $derived(avatarLetter(avatarSeed));
   const avatarBg = $derived(avatarColor(avatarSeed));
-  const roleTitle = $derived(staffLevelTitle(auth.level));
+  const roleTitle = $derived(
+    auth.level >= 90
+      ? 'Технический администратор'
+      : auth.level >= 50
+        ? 'Администратор'
+        : auth.level >= 10
+          ? 'Менеджер'
+          : auth.level >= 5
+            ? 'Клиент'
+            : 'Гость'
+  );
   function notificationAvailable(event: string): boolean {
     if (!appSettings.notificationsEnabled) {
       return false;

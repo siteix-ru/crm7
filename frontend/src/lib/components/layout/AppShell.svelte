@@ -119,7 +119,7 @@
 
 </script>
 
-<div class="shell">
+<div class="shell" class:demo={appSettings.demoMode}>
   <a class="skip-link" href="#main-content">К содержимому</a>
   <header>
     <div class="left">
@@ -385,9 +385,14 @@
 
 <style>
   .shell {
+    --demo-banner-height: 0px;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+  }
+
+  .shell.demo {
+    --demo-banner-height: 37px;
   }
 
   .demo-banner {
@@ -613,6 +618,17 @@
   @media (max-width: 720px) {
     header {
       padding: 0 var(--space-4);
+    }
+
+    .bell-badge {
+      top: 0;
+      right: 0;
+      min-width: 18px;
+      height: 18px;
+      padding: 0 5px;
+      border-radius: 9px;
+      font-size: 11px;
+      line-height: 18px;
     }
 
     nav.desktop-nav {

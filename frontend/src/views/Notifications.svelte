@@ -7,6 +7,8 @@
   import Pager from '../lib/components/ui/Pager.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+  import EmptyState from '../lib/components/ui/EmptyState.svelte';
+  import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import { formatDateTime, formatRelative } from '../lib/format';
 
   const typeIcons: Record<string, string> = {
@@ -162,17 +164,13 @@
   {/if}
 
   {#if loading}
-    <div class="center"><Spinner size={26} /></div>
+    <ListSkeleton rows={5} />
   {:else if items.length === 0}
-    <div class="empty">
-      <p class="empty-title">
-        {filter === 'unread' ? 'Непрочитанных нет' : 'Уведомлений пока нет'}
-      </p>
-      <p class="empty-hint">
-        Здесь появятся события по вашим заявкам: смена статуса, комментарии менеджера,
-        назначение исполнителя и сообщения в чате.
-      </p>
-    </div>
+    <EmptyState
+      icon="bell"
+      title={filter === 'unread' ? 'Непрочитанных нет' : 'Уведомлений пока нет'}
+      description="Здесь появятся события по вашим заявкам: смена статуса, комментарии менеджера, назначение исполнителя и сообщения в чате."
+    />
   {:else}
     <div class="list">
       {#each items as item (item.id)}
@@ -339,30 +337,5 @@
     font-size: 13px;
   }
 
-  .empty {
-    padding: var(--space-6);
-    text-align: center;
-    color: var(--muted);
-    background: var(--surface);
-    border: 1px dashed var(--border);
-    border-radius: var(--radius-md);
-  }
 
-  .empty-title {
-    margin: 0;
-    font-weight: 500;
-    color: var(--text);
-  }
-
-  .empty-hint {
-    max-width: 460px;
-    margin: var(--space-2) auto 0;
-    font-size: 13px;
-  }
-
-  .center {
-    display: grid;
-    place-items: center;
-    padding: var(--space-6);
-  }
 </style>

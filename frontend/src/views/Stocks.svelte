@@ -3662,13 +3662,19 @@
 
   .levels.tiles {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-4);
     padding: 0;
     background: transparent;
     border: none;
     border-radius: 0;
     overflow: visible;
+  }
+
+  @media (min-width: 480px) {
+    .levels.tiles {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
   }
 
   @media (min-width: 560px) {
@@ -3678,6 +3684,10 @@
   }
 
   @media (max-width: 719.98px) {
+    .toolbar-divider {
+      display: none;
+    }
+
     .levels:not(.tiles) .level {
       flex-wrap: wrap;
       row-gap: var(--space-2);
@@ -3689,7 +3699,11 @@
 
     .levels:not(.tiles) .level-bottom {
       flex: 1 1 100%;
-      justify-content: flex-start;
+      justify-content: space-between;
+    }
+
+    .levels:not(.tiles) .cart-stat {
+      margin-left: auto;
     }
   }
 

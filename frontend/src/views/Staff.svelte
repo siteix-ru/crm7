@@ -1187,6 +1187,10 @@
   }
 
   @media (max-width: 720px) {
+    .toolbar-divider {
+      display: none;
+    }
+
     .list {
       border: none;
       background: transparent;

@@ -26,6 +26,7 @@
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
+  import EmptyState from '../lib/components/ui/EmptyState.svelte';
   import { loadFilters, saveFilters } from '../lib/filters';
   import { formatDate, formatDateTime } from '../lib/format';
   import { clampPeriod, defaultPeriod, todayIso } from '../lib/period';
@@ -902,7 +903,15 @@
         <Button variant="ghost" onclick={resetFiltersAndSearch}>Очистить поиск</Button>
       </div>
     {:else}
-      <div class="empty">Заявок пока нет</div>
+      <EmptyState
+        icon="requests"
+        title="Заявок пока нет"
+        description="Создайте первую заявку — кнопкой ниже или из корзины на складе."
+      >
+        {#snippet action()}
+          <Button onclick={() => router.navigate('/requests/new')}>Новая заявка</Button>
+        {/snippet}
+      </EmptyState>
     {/if}
   {:else}
     <div class="levels-wrap">
@@ -2011,6 +2020,10 @@
   }
 
   @media (max-width: 1023.98px) {
+    .toolbar-divider {
+      display: none;
+    }
+
     .levels:not(.tiles) .cell-label {
       display: inline;
     }

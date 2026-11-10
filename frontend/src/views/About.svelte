@@ -194,6 +194,13 @@
     gap: var(--space-4);
   }
 
+  @media (max-width: 640px) {
+    .intro {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
   .app-name {
     font-size: 17px;
     font-weight: 600;
