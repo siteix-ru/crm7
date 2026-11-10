@@ -62,26 +62,26 @@ ssh crm7-server "cd /srv/projects/crm7-test && docker compose logs --tail=100 ph
 | crm7 | `siteix-ru/crm7` (`master`) | `C:\AI_Proects\crm7` |
 | GlowCRM | `siteix-ru/glowcrm` | `C:\AI_Proects\GlowCRM` |
 
-## Версии стендов crm7 (на 9 ноября 2026)
+## Версии стендов crm7 (на 10 ноября 2026)
 
 | Стенд | `CRM7_VERSION` в `.env` | Образ в контейнерах |
 | --- | --- | --- |
-| `crm7-k` | `1.4.4` | `crm7-app/web:1.4.4` (`sha256:8b23db…` / `sha256:393ab7…`) |
-| `crm7-test` | `1.4.4` | `crm7-app/web:1.4.4` (те же digest) |
-| `crm7-demo` | `1.4.4` | `crm7-app/web:1.4.4` (те же digest) |
+| `crm7-k` | `1.5.0` | `crm7-app/web:1.5.0` (= `sha-798348b`) |
+| `crm7-test` | `1.5.0` | `crm7-app/web:1.5.0` (те же digest) |
+| `crm7-demo` | `1.5.0` | `crm7-app/web:1.5.0` (те же digest) |
 
-Образ `1.4.4` собран со старой машины и запушен в GHCR; он соответствует
-коммиту `add9ab6` (это и есть `master`, за вычетом документации и скриптов
-окружения — они в образы не попадают). Разница между ним и CI-образом
-`sha-add9ab6` — только окружение сборки: CRLF в исходниках и
-`VITE_API_BASE`, заданный при сборке (в собранном JS это даёт
-`?? "./back/index.php" ?? "./back/index.php"` вместо `?? void 0`).
-Файлы `api/` в образе побайтово совпадают с рабочим деревом `master`.
+Образ `1.5.0` собран `deploy/build_images.py --push` с машины разработчика
+(фронтенд собирается локально, Docker — на сервере) и соответствует коммиту
+`798348b` (`master` на момент релиза). Теги: `1.5.0` и `sha-798348b`.
+На всех стендах применена миграция `079_status_colors_contrast.sql`
+(`migrate.php`: applied 80, pending 0), health `ok`/`database ok` локально
+и по публичным адресам.
 
 Фид обновлений (`update.crm7.ru/v1/releases.json`) пока содержит максимум
 `1.4.2` (сгенерирован 2026-11-07), поэтому таймеры пишут «Обновлений нет» —
-переезд на `1.4.4` произошёл вручную. Публикация `1.4.4` в фиде безопасна:
-она не вызывает никаких перезапусков, а лишь фиксирует текущую версию.
+переезды на `1.4.4` и `1.5.0` произошли вручную. Для публикации `1.5.0` в
+фид сначала нужно добавить записи `1.4.3` и `1.4.4` (цепочка `min_from`
+без разрывов), затем `1.5.0`.
 
 Демо-стенд обновляет себя сам: в `crm7-demo-php` смонтирован
 `/var/lib/crm7-updater/demo` и задан `CRM7_UPDATE_DIR`. Таймеры:
@@ -102,8 +102,8 @@ python deploy\build_images.py --skip-build
 python deploy\build_images.py --skip-build --push
 
 # выкатить тег на стенд (test | k | demo | all)
-python deploy\release_crm7.py --env test --tag sha-add9ab6
-python deploy\release_crm7.py --env demo --tag 1.4.4
+python deploy\release_crm7.py --env test --tag sha-798348b
+python deploy\release_crm7.py --env demo --tag 1.5.0
 ```
 
 `release_crm7.py` меняет `CRM7_VERSION` в `.env`, делает `compose pull`,
