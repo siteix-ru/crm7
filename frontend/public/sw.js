@@ -1,4 +1,4 @@
-const CACHE = 'crm-shell-v1:' + self.location.pathname.replace(/\/[^/]*$/, '');
+const CACHE = 'crm-shell-v2:' + self.location.pathname.replace(/\/[^/]*$/, '');
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
@@ -34,7 +34,11 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(
-      fetch(request).catch(() => caches.match('./index.html').then((cached) => cached || caches.match('./')))
+      fetch(request).catch(() =>
+        caches
+          .match('./index.html', { ignoreSearch: true })
+          .then((cached) => cached || caches.match('./', { ignoreSearch: true }))
+      )
     );
     return;
   }

@@ -10,44 +10,13 @@
   import PageBadge from './lib/components/dev/PageBadge.svelte';
   import MaintenanceOverlay from './lib/components/MaintenanceOverlay.svelte';
   import { badgeForRoute } from './lib/dev/page-badges';
+  import LazyView from './lib/components/LazyView.svelte';
+  import { views } from './lib/views-loaders';
   import Login from './views/Login.svelte';
   import Register from './views/Register.svelte';
   import ForgotPassword from './views/ForgotPassword.svelte';
   import ResetPassword from './views/ResetPassword.svelte';
-  import Requests from './views/Requests.svelte';
-  import RequestCard from './views/RequestCard.svelte';
-  import RequestNew from './views/RequestNew.svelte';
-  import Cart from './views/Cart.svelte';
-  import Clients from './views/Clients.svelte';
-  import ClientNew from './views/ClientNew.svelte';
-  import ClientCard from './views/ClientCard.svelte';
-  import Staff from './views/Staff.svelte';
-  import StaffNew from './views/StaffNew.svelte';
-  import StaffCard from './views/StaffCard.svelte';
-  import SubstitutionNew from './views/SubstitutionNew.svelte';
-  import SubstitutionEdit from './views/SubstitutionEdit.svelte';
-  import Chat from './views/Chat.svelte';
-  import Stocks from './views/Stocks.svelte';
-  import StockGroups from './views/StockGroups.svelte';
-  import StockGroupEdit from './views/StockGroupEdit.svelte';
-  import StockTypes from './views/StockTypes.svelte';
-  import StockTypeEdit from './views/StockTypeEdit.svelte';
-  import PriceTypes from './views/PriceTypes.svelte';
-  import PriceTypeEdit from './views/PriceTypeEdit.svelte';
-  import Warehouses from './views/Warehouses.svelte';
-  import WarehouseCard from './views/WarehouseCard.svelte';
-  import WarehouseView from './views/WarehouseView.svelte';
-  import ItemEdit from './views/ItemEdit.svelte';
-  import ItemCard from './views/ItemCard.svelte';
-  import AdminAudit from './views/AdminAudit.svelte';
   import Legal from './views/Legal.svelte';
-  import ManagerProfile from './views/ManagerProfile.svelte';
-  import Notifications from './views/Notifications.svelte';
-  import Reports from './views/Reports.svelte';
-  import Settings from './views/Settings.svelte';
-  import Profile from './views/Profile.svelte';
-  import MyReports from './views/MyReports.svelte';
-  import About from './views/About.svelte';
   import NotFound from './views/NotFound.svelte';
 
   onMount(() => {
@@ -120,139 +89,139 @@
 {:else}
   <AppShell>
     {#if route === '/' || route === '/requests'}
-      <Requests />
+      <LazyView load={views.requests} />
     {:else if route === '/requests/new'}
-      <RequestNew />
+      <LazyView load={views.requestNew} />
     {:else if route === '/cart'}
-      <Cart />
+      <LazyView load={views.cart} />
     {:else if requestMatch}
       {#key requestMatch.id}
-        <RequestCard id={Number(requestMatch.id)} />
+        <LazyView load={views.requestCard} props={{ id: Number(requestMatch.id) }} />
       {/key}
     {:else if (route === '/clients' || route === '/clients/new' || clientMatch) && (!appSettings.clientsEnabled || auth.level < 10 || !(auth.can('clients.view.all') || auth.can('clients.view.own')))}
       <NotFound />
     {:else if route === '/clients'}
-      <Clients />
+      <LazyView load={views.clients} />
     {:else if route === '/clients/new'}
       {#if auth.level >= 10}
-        <ClientNew />
+        <LazyView load={views.clientNew} />
       {:else}
         <NotFound />
       {/if}
     {:else if clientMatch}
       {#key clientMatch.id}
-        <ClientCard id={Number(clientMatch.id)} />
+        <LazyView load={views.clientCard} props={{ id: Number(clientMatch.id) }} />
       {/key}
     {:else if route === '/staff/substitutions/new'}
       {#if auth.can('requests.view.all') && appSettings.substitutionsEnabled}
-        <SubstitutionNew />
+        <LazyView load={views.substitutionNew} />
       {:else}
         <NotFound />
       {/if}
     {:else if substitutionEditMatch}
       {#if auth.can('requests.view.all') && appSettings.substitutionsEnabled}
-        <SubstitutionEdit id={Number(substitutionEditMatch.id)} />
+        <LazyView load={views.substitutionEdit} props={{ id: Number(substitutionEditMatch.id) }} />
       {:else}
         <NotFound />
       {/if}
     {:else if (route === '/staff' || route === '/staff/new' || staffMatch) && (!appSettings.staffEnabled || !auth.can('users.manage'))}
       <NotFound />
     {:else if route === '/staff'}
-      {#key route}<Staff initialTab="staff" />{/key}
+      {#key route}<LazyView load={views.staff} props={{ initialTab: 'staff' }} />{/key}
     {:else if route === '/staff/new'}
       {#if auth.can('users.manage') && !appSettings.demoMode}
-        <StaffNew />
+        <LazyView load={views.staffNew} />
       {:else}
         <NotFound />
       {/if}
     {:else if staffMatch}
       {#key staffMatch.id}
-        <StaffCard id={Number(staffMatch.id)} />
+        <LazyView load={views.staffCard} props={{ id: Number(staffMatch.id) }} />
       {/key}
     {:else if route === '/chat' && (!appSettings.chatEnabled || !auth.can('chat.use'))}
       <NotFound />
     {:else if route === '/chat'}
-      <Chat />
+      <LazyView load={views.chat} />
     {:else if route === '/stocks'}
-      <Stocks />
+      <LazyView load={views.stocks} />
     {:else if (route === '/stocks/groups' || route === '/stocks/groups/new' || groupEditMatch) && (!auth.can('settings.manage') || !appSettings.stockEditEnabled)}
       <NotFound />
     {:else if route === '/stocks/groups'}
-      <StockGroups />
+      <LazyView load={views.stockGroups} />
     {:else if route === '/stocks/groups/new'}
-      <StockGroupEdit id={0} />
+      <LazyView load={views.stockGroupEdit} props={{ id: 0 }} />
     {:else if groupEditMatch}
-      <StockGroupEdit id={Number(groupEditMatch.id)} />
+      <LazyView load={views.stockGroupEdit} props={{ id: Number(groupEditMatch.id) }} />
     {:else if (route === '/stocks/types' || route === '/stocks/types/new' || typeEditMatch) && (!auth.can('settings.manage') || !appSettings.stockEditEnabled)}
       <NotFound />
     {:else if route === '/stocks/types'}
-      <StockTypes />
+      <LazyView load={views.stockTypes} />
     {:else if route === '/stocks/types/new'}
-      <StockTypeEdit id={0} />
+      <LazyView load={views.stockTypeEdit} props={{ id: 0 }} />
     {:else if typeEditMatch}
-      <StockTypeEdit id={Number(typeEditMatch.id)} />
+      <LazyView load={views.stockTypeEdit} props={{ id: Number(typeEditMatch.id) }} />
     {:else if (route === '/stocks/price-types' || route === '/stocks/price-types/new' || priceTypeEditMatch) && (!auth.can('settings.manage') || !appSettings.stockEditEnabled)}
       <NotFound />
     {:else if route === '/stocks/price-types'}
-      <PriceTypes />
+      <LazyView load={views.priceTypes} />
     {:else if route === '/stocks/price-types/new'}
-      <PriceTypeEdit id={0} />
+      <LazyView load={views.priceTypeEdit} props={{ id: 0 }} />
     {:else if priceTypeEditMatch}
-      <PriceTypeEdit id={Number(priceTypeEditMatch.id)} />
+      <LazyView load={views.priceTypeEdit} props={{ id: Number(priceTypeEditMatch.id) }} />
     {:else if route === '/stocks/warehouses/new' && (!appSettings.warehousesEnabled || !auth.can('stocks.warehouses.create'))}
       <NotFound />
     {:else if (route === '/stocks/warehouses' || warehouseEditMatch || warehouseMatch) && (!appSettings.warehousesEnabled || !(auth.can('stocks.warehouses.create') || auth.can('stocks.warehouses.edit') || auth.can('stocks.warehouses.delete') || auth.can('stocks.warehouses.access')))}
       <NotFound />
     {:else if route === '/stocks/warehouses'}
-      <Warehouses />
+      <LazyView load={views.warehouses} />
     {:else if route === '/stocks/warehouses/new'}
-      <WarehouseCard id={0} />
+      <LazyView load={views.warehouseCard} props={{ id: 0 }} />
     {:else if warehouseEditMatch}
-      <WarehouseCard id={Number(warehouseEditMatch.id)} />
+      <LazyView load={views.warehouseCard} props={{ id: Number(warehouseEditMatch.id) }} />
     {:else if warehouseMatch}
-      <WarehouseView id={Number(warehouseMatch.id)} />
+      <LazyView load={views.warehouseView} props={{ id: Number(warehouseMatch.id) }} />
     {:else if (itemNewMatch || itemEditMatch) && !appSettings.stockEditEnabled}
       <NotFound />
     {:else if itemNewMatch}
       {#key 'new'}
-        <ItemEdit id={0} />
+        <LazyView load={views.itemEdit} props={{ id: 0 }} />
       {/key}
     {:else if itemEditMatch}
       {#key itemEditMatch.id}
-        <ItemEdit id={Number(itemEditMatch.id)} />
+        <LazyView load={views.itemEdit} props={{ id: Number(itemEditMatch.id) }} />
       {/key}
     {:else if itemCardMatch}
       {#key itemCardMatch.id}
-        <ItemCard id={Number(itemCardMatch.id)} />
+        <LazyView load={views.itemCard} props={{ id: Number(itemCardMatch.id) }} />
       {/key}
     {:else if route === '/reports'}
-      <Reports />
+      <LazyView load={views.reports} />
     {:else if route === '/substitutions'}
-      {#key route}<Staff initialTab="substitutions" />{/key}
+      {#key route}<LazyView load={views.staff} props={{ initialTab: 'substitutions' }} />{/key}
     {:else if route === '/notifications' && (!appSettings.notificationsEnabled || !auth.can('notifications.use'))}
       <NotFound />
     {:else if route === '/notifications'}
-      <Notifications />
+      <LazyView load={views.notifications} />
     {:else if isSettingsRoute && !auth.can('settings.manage') && !auth.can('mail.manage') && !auth.can('mail.send')}
       <NotFound />
     {:else if isSettingsRoute}
-      <Settings />
+      <LazyView load={views.settings} />
     {:else if userMatch}
-      <ManagerProfile id={Number(userMatch.id)} />
+      <LazyView load={views.managerProfile} props={{ id: Number(userMatch.id) }} />
     {:else if legalMatch}
       <Legal code={legalMatch.code} />
     {:else if route === '/admin/audit'}
       {#if auth.level >= 90}
-        <AdminAudit />
+        <LazyView load={views.audit} />
       {:else}
         <NotFound />
       {/if}
     {:else if route === '/my-reports'}
-      <MyReports />
+      <LazyView load={views.myReports} />
     {:else if route === '/profile'}
-      <Profile />
+      <LazyView load={views.profile} />
     {:else if route === '/about'}
-      <About />
+      <LazyView load={views.about} />
     {:else}
       <NotFound />
     {/if}

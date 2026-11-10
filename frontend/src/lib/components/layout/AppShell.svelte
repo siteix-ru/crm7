@@ -389,6 +389,7 @@
     min-height: 100vh;
     display: flex;
     flex-direction: column;
+    padding-top: env(safe-area-inset-top);
   }
 
   .shell.demo {
@@ -641,7 +642,7 @@
 
     main {
       padding: var(--space-4);
-      padding-bottom: 84px;
+      padding-bottom: calc(84px + env(safe-area-inset-bottom));
     }
 
     .mobile-nav {

@@ -256,4 +256,53 @@
     min-height: 0;
     overflow: auto;
   }
+
+  /* Мобильный паттерн: шторка снизу на всю ширину. */
+  @media (max-width: 720px) {
+    .overlay {
+      place-items: end stretch;
+      padding: 0;
+    }
+
+    .dialog,
+    .dialog.wide {
+      width: 100%;
+      max-height: 92dvh;
+      padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
+      border-radius: 16px 16px 0 0;
+      animation: sheet-up 0.22s ease-out;
+    }
+
+    .dialog::before {
+      content: '';
+      flex: 0 0 auto;
+      width: 36px;
+      height: 4px;
+      margin: 0 auto 10px;
+      border-radius: 2px;
+      background: var(--border);
+    }
+
+    .dialog-head {
+      margin-bottom: var(--space-1);
+    }
+  }
+
+  @keyframes sheet-up {
+    from {
+      transform: translateY(24px);
+      opacity: 0;
+    }
+
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .dialog {
+      animation: none;
+    }
+  }
 </style>
