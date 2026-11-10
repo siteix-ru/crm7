@@ -65,6 +65,7 @@
     aria-controls={showHistory ? listId : undefined}
     aria-activedescendant={activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
     aria-label={placeholder || 'Поиск'}
+    enterkeyhint="search"
     onfocus={openHistory}
     oninput={() => {
       showHistory = false;

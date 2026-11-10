@@ -109,6 +109,16 @@ textarea {
   font-size: inherit;
 }
 
+/* iOS Safari автоматически зумит страницу при фокусе на полях с шрифтом < 16px.
+   !important нужен, чтобы перебить локальные `font: inherit` в компонентах. */
+@media (max-width: 720px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
 a {
   color: var(--primary);
 }
