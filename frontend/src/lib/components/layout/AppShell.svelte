@@ -10,6 +10,7 @@
   import { avatars } from '../../stores/avatar.svelte';
   import { appSettings } from '../../stores/app-settings.svelte';
   import { network } from '../../stores/network.svelte';
+  import { swipeBack } from '../../a11y/swipe';
   import { cart } from '../../stores/cart.svelte';
   import { router } from '../../router.svelte';
   import Logo from '../ui/Logo.svelte';
@@ -126,7 +127,7 @@
 
 </script>
 
-<div class="shell" class:demo={appSettings.demoMode}>
+<div class="shell" class:demo={appSettings.demoMode} use:swipeBack>
   <a class="skip-link" href="#main-content">К содержимому</a>
   <header>
     <div class="left">

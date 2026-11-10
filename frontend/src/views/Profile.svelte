@@ -15,6 +15,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import { tablist } from '../lib/a11y/tablist';
+  import { swipeTabs } from '../lib/a11y/swipe';
   import Input from '../lib/components/ui/Input.svelte';
 
   const tabs = [
@@ -110,6 +111,23 @@
   const visibleTabs = $derived(
     tabs.filter((item) => item.id !== 'notifications' || showNotifications)
   );
+
+  const profileSwipe = {
+    prev: () => {
+      const index = visibleTabs.findIndex((item) => item.id === tab);
+
+      if (index > 0) {
+        tab = visibleTabs[index - 1].id;
+      }
+    },
+    next: () => {
+      const index = visibleTabs.findIndex((item) => item.id === tab);
+
+      if (index >= 0 && index < visibleTabs.length - 1) {
+        tab = visibleTabs[index + 1].id;
+      }
+    }
+  };
 
   $effect(() => {
     if (tab === 'notifications' && !showNotifications) {
@@ -314,7 +332,7 @@
   }
 </script>
 
-<section class="page">
+<section class="page" use:swipeTabs={profileSwipe}>
   <div class="page-hero">
     <div class="hero-row">
       <div class="identity">

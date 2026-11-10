@@ -45,6 +45,7 @@
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import { tablist } from '../lib/a11y/tablist';
+  import { swipeTabs } from '../lib/a11y/swipe';
   import Modal from '../lib/components/ui/Modal.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
@@ -352,6 +353,19 @@
         || (pricesEnabled && auth.can('prices.assign')))
     )
   );
+  const cardSwipe = {
+    prev: () => {
+      if (tab === 'account') {
+        showTab('requests');
+      }
+    },
+    next: () => {
+      if (tab === 'requests' && canOpenAccount) {
+        showTab('account');
+      }
+    }
+  };
+
   const canEditContacts = $derived(
     card
       ? card.client.reg_state === 'pending'
@@ -1583,7 +1597,7 @@
     {/snippet}
 
     {#if tab === 'requests'}
-      <div class="requests-layout">
+      <div class="requests-layout" use:swipeTabs={cardSwipe}>
         <div class="requests-main">
           <div class="card">
             <div class="card-head">
@@ -1744,7 +1758,7 @@
     {/if}
 
     {#if tab === 'account' && canOpenAccount}
-      <div class="account">
+      <div class="account" use:swipeTabs={cardSwipe}>
         <div class="account-main">
         <div class="card">
           <div class="card-head">
