@@ -1824,7 +1824,7 @@
     display: none;
   }
 
-  @media (min-width: 1280px) {
+  @media (min-width: 1024px) {
     .levels-head {
       position: sticky;
       top: 0;
@@ -1982,7 +1982,34 @@
     }
   }
 
-  @media (max-width: 1279.98px) {
+  /* Ноутбуки 1024–1280 px: оставляем таблицу, убираем второстепенную колонку. */
+  @media (max-width: 1279.98px) and (min-width: 1024px) {
+    .levels-head {
+      grid-template-columns: 132px minmax(0, 1.8fr) minmax(0, 1fr) 124px 170px 116px 132px;
+    }
+
+    .levels-head.compact {
+      grid-template-columns: 132px minmax(0, 1.8fr) 124px 170px 116px 132px;
+    }
+
+    .levels-head .col-count {
+      display: none;
+    }
+
+    .levels:not(.tiles) .card {
+      grid-template-columns: 132px minmax(0, 1.8fr) minmax(0, 1fr) 124px 170px 116px 132px;
+    }
+
+    .levels:not(.tiles).compact .card {
+      grid-template-columns: 132px minmax(0, 1.8fr) 124px 170px 116px 132px;
+    }
+
+    .levels:not(.tiles) .col-count {
+      display: none;
+    }
+  }
+
+  @media (max-width: 1023.98px) {
     .levels:not(.tiles) .cell-label {
       display: inline;
     }

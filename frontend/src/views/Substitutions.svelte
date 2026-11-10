@@ -4,6 +4,7 @@
   import { listSubstitutions } from '../lib/api/substitutions';
   import type { Substitution } from '../lib/api/types';
   import { router } from '../lib/router.svelte';
+  import { formatDate } from '../lib/format';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
@@ -175,7 +176,7 @@
             </div>
           </div>
 
-          <div class="tile-row"><span>Период</span><strong>{item.date_from} - {item.date_to}</strong></div>
+          <div class="tile-row"><span>Период</span><strong>{formatDate(item.date_from)} — {formatDate(item.date_to)}</strong></div>
           <div class="tile-row"><span>Заявки</span><strong>{item.requests_count}</strong></div>
           {#if item.reason}
             <div class="tile-row"><span>Причина</span><strong>{item.reason}</strong></div>
@@ -224,7 +225,7 @@
               <span class="login">замещает: {item.substitute.name}</span>
             </span>
           </span>
-          <span class="period">{item.date_from} - {item.date_to}</span>
+          <span class="period">{formatDate(item.date_from)} — {formatDate(item.date_to)}</span>
           <span class="requests">{item.requests_count}</span>
           <span class="reason">{item.reason || '—'}</span>
           <span>

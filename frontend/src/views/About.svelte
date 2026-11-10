@@ -181,6 +181,13 @@
     box-shadow: var(--shadow-sm);
   }
 
+  /* Читаемая длина строки — не шире ~76 символов. */
+  .card p,
+  .card ul,
+  .card .docs {
+    max-width: 76ch;
+  }
+
   .intro {
     display: flex;
     align-items: center;

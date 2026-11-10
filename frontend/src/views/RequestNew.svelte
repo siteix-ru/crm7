@@ -1040,7 +1040,7 @@
                   </div>
 
                   {#if clientRequired}
-                    <span class="req">Выберите клиента из списка</span>
+                    <span class="hint">Выберите клиента из списка</span>
                   {/if}
                 {/if}
               </div>
@@ -1503,6 +1503,11 @@
 
   .req {
     color: var(--danger);
+    font-size: 12px;
+  }
+
+  .hint {
+    color: var(--text-description);
     font-size: 12px;
   }
 

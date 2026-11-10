@@ -369,6 +369,17 @@
         <span class="nav-label">Сотрудники</span>
       </a>
     {/if}
+    {#if showSettings}
+      <a
+        href="#/settings"
+        class:active={path === '/settings'}
+        aria-current={path === '/settings' ? 'page' : undefined}
+        title="Настройки"
+      >
+        <Icon name="settings" size={20} />
+        <span class="nav-label">Настройки</span>
+      </a>
+    {/if}
   </nav>
 </div>
 
@@ -446,14 +457,41 @@
     padding: 0 var(--space-4);
   }
 
-  @media (max-width: 1150px) {
-    .desktop-nav .nav-label {
+  /* Компактная навигация: подписи разделов сохраняются как можно дольше. */
+  @media (max-width: 1520px) {
+    .desktop-nav.many a {
+      gap: 6px;
+      padding: 0 var(--space-2);
+      font-size: 13px;
+    }
+  }
+
+  @media (max-width: 1400px) {
+    .desktop-nav a {
+      padding: 0 var(--space-3);
+    }
+  }
+
+  @media (max-width: 1240px) {
+    .name {
       display: none;
     }
   }
 
-  @media (max-width: 1520px) {
-    .desktop-nav.many .nav-label {
+  @media (max-width: 1180px) {
+    .brand > span:last-child {
+      display: none;
+    }
+
+    .desktop-nav a {
+      gap: 6px;
+      padding: 0 var(--space-2);
+      font-size: 13px;
+    }
+  }
+
+  @media (max-width: 980px) {
+    .desktop-nav .nav-label {
       display: none;
     }
   }

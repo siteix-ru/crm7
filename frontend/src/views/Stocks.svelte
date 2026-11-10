@@ -3119,7 +3119,7 @@
 
   .columns-table th,
   .columns-table td {
-    padding: 8px 12px;
+    padding: 6px 12px;
     border-bottom: 1px solid var(--border-secondary);
     text-align: left;
     vertical-align: top;
@@ -3252,7 +3252,7 @@
   .column-main {
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
     width: 100%;
     padding: 0;
     border: 0;
@@ -3309,7 +3309,7 @@
 
   .column-main .price-line {
     font-size: 12px;
-    line-height: 1.25;
+    line-height: 1.2;
   }
 
   .column-cart {
