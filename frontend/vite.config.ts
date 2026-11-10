@@ -16,6 +16,14 @@ export default defineConfig(({ mode }) => {
         }
       }
     },
+    preview: {
+      proxy: {
+        '/api': {
+          target: env.CRM_API_TARGET ?? 'http://127.0.0.1:8080',
+          changeOrigin: false
+        }
+      }
+    },
     build: {
       outDir: 'dist',
       sourcemap: true

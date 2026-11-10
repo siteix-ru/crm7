@@ -33,12 +33,28 @@ php -l api/src/Stocks/StocksService.php
 
 `.github/workflows/ci.yml`:
 
-- `api:lint` — `php -l` по `api/src`, `api/public`, `api/bin`.
-- `frontend:check` — `npm ci && npm run check && npm test`.
-- `frontend:build` — `npm run build` (артефакт `frontend/dist`).
-- `frontend:e2e` — **вручную** (`when: manual`), требует запущенного стенда.
+- `frontend` — `npm ci && npm run check && npm test && npm run build`.
+- `php` — `php -l` по всем файлам `api`.
+- `lighthouse` — сборка и мобильный замер (Fast 3G) с бюджетами: падает при
+  performance < 80, LCP > 2.5 с, CLS > 0.1, TBT > 300 мс.
+- `images` (только `master`) — сборка и пуш `sha-<sha>` в GHCR.
 
 Отдельный workflow `deploy-test.yml` раскатывает `test` через self-hosted runner (см. [`images.md`](images.md)).
+
+## Lighthouse (мобильный 3G)
+
+```powershell
+cd frontend
+npm run build
+npm run lighthouse                          # поднимет vite preview :4173 и снимет отчёт
+npm run lighthouse -- https://test.crm7.ru/ # замер внешнего стенда
+```
+
+Профиль: mobile 390×844, simulate-троттлинг **Fast 3G** (1.6 Мбит/с, RTT 150 мс,
+CPU ×4). Отчёты — `frontend/artifacts/lighthouse/*.json`. Бюджеты: performance ≥ 80,
+LCP ≤ 2500 мс, CLS ≤ 0.1, TBT ≤ 300 мс. SEO не бюджетируем: CRM закрыт от индексации
+(`robots.txt: Disallow: /`), поэтому SEO-оценка намеренно ниже 100.
+Базовый замер 10.11.2026 (test.crm7.ru): performance 90, LCP 1.15 с, TBT 0, CLS 0.
 
 ## E2E
 
