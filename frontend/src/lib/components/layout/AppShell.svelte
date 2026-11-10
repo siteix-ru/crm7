@@ -120,41 +120,63 @@
 </script>
 
 <div class="shell">
+  <a class="skip-link" href="#main-content">К содержимому</a>
   <header>
     <div class="left">
       <a class="brand" href="#/requests" title={brandHint}>
         <span title={brandHint}><Logo size={26} /></span>
         <span title={brandHint}>{appSettings.appTitle}</span>
       </a>
-      <nav class="desktop-nav" class:many={navCount > 6}>
+      <nav class="desktop-nav" class:many={navCount > 6} aria-label="Основная навигация">
         <a
           href="#/stocks"
           class:active={path === '/stocks' || path.startsWith('/stocks/')}
+          aria-current={path === '/stocks' || path.startsWith('/stocks/') ? 'page' : undefined}
           title="Номенклатура"
         >
           <Icon name="stocks" size={20} />
           <span class="nav-label">Номенклатура</span>
         </a>
         {#if appSettings.requestsEnabled}
-          <a href="#/requests" class:active={path.startsWith('/requests')} title="Заявки">
+          <a
+            href="#/requests"
+            class:active={path.startsWith('/requests')}
+            aria-current={path.startsWith('/requests') ? 'page' : undefined}
+            title="Заявки"
+          >
             <Icon name="requests" size={20} />
             <span class="nav-label">Заявки</span>
           </a>
         {/if}
         {#if showReports}
-          <a href="#/reports" class:active={path === '/reports'} title="Отчёты">
+          <a
+            href="#/reports"
+            class:active={path === '/reports'}
+            aria-current={path === '/reports' ? 'page' : undefined}
+            title="Отчёты"
+          >
             <Icon name="reports" size={20} />
             <span class="nav-label">Отчёты</span>
           </a>
         {/if}
         {#if showMyReports}
-          <a href="#/my-reports" class:active={path === '/my-reports'} title="Мои отчёты">
+          <a
+            href="#/my-reports"
+            class:active={path === '/my-reports'}
+            aria-current={path === '/my-reports' ? 'page' : undefined}
+            title="Мои отчёты"
+          >
             <Icon name="my-reports" size={20} />
             <span class="nav-label">Мои отчёты</span>
           </a>
         {/if}
         {#if showClients}
-          <a href="#/clients" class:active={path.startsWith('/clients')} title="Клиенты">
+          <a
+            href="#/clients"
+            class:active={path.startsWith('/clients')}
+            aria-current={path.startsWith('/clients') ? 'page' : undefined}
+            title="Клиенты"
+          >
             <Icon name="clients" size={20} />
             <span class="nav-label">Клиенты</span>
           </a>
@@ -163,6 +185,7 @@
           <a
             href="#/staff"
             class:active={path.startsWith('/staff') || path === '/substitutions'}
+            aria-current={path.startsWith('/staff') || path === '/substitutions' ? 'page' : undefined}
             title="Сотрудники"
           >
             <Icon name="staff" size={20} />
@@ -170,7 +193,12 @@
           </a>
         {/if}
         {#if showSettings}
-          <a href="#/settings" class:active={path === '/settings'} title="Настройки">
+          <a
+            href="#/settings"
+            class:active={path === '/settings'}
+            aria-current={path === '/settings' ? 'page' : undefined}
+            title="Настройки"
+          >
             <Icon name="settings" size={20} />
             <span class="nav-label">Настройки</span>
           </a>
@@ -274,37 +302,58 @@
     </div>
   {/if}
 
-<main>
+<main id="main-content">
   {@render children?.()}
 </main>
 
-  <nav class="mobile-nav">
+  <nav class="mobile-nav" aria-label="Основная навигация">
     <a
       href="#/stocks"
       class:active={path === '/stocks' || path.startsWith('/stocks/')}
+      aria-current={path === '/stocks' || path.startsWith('/stocks/') ? 'page' : undefined}
       title="Номенклатура"
     >
       <Icon name="stocks" size={20} />
       <span class="nav-label">Номенклатура</span>
     </a>
-    <a href="#/requests" class:active={path.startsWith('/requests')} title="Заявки">
+    <a
+      href="#/requests"
+      class:active={path.startsWith('/requests')}
+      aria-current={path.startsWith('/requests') ? 'page' : undefined}
+      title="Заявки"
+    >
       <Icon name="requests" size={20} />
       <span class="nav-label">Заявки</span>
     </a>
     {#if showReports}
-      <a href="#/reports" class:active={path === '/reports'} title="Отчёты">
+      <a
+        href="#/reports"
+        class:active={path === '/reports'}
+        aria-current={path === '/reports' ? 'page' : undefined}
+        title="Отчёты"
+      >
         <Icon name="reports" size={20} />
         <span class="nav-label">Отчёты</span>
       </a>
     {/if}
     {#if showMyReports}
-      <a href="#/my-reports" class:active={path === '/my-reports'} title="Мои отчёты">
+      <a
+        href="#/my-reports"
+        class:active={path === '/my-reports'}
+        aria-current={path === '/my-reports' ? 'page' : undefined}
+        title="Мои отчёты"
+      >
         <Icon name="my-reports" size={20} />
-        <span class="nav-label">Отчёты</span>
+        <span class="nav-label">Мои отчёты</span>
       </a>
     {/if}
     {#if showClients}
-      <a href="#/clients" class:active={path.startsWith('/clients')} title="Клиенты">
+      <a
+        href="#/clients"
+        class:active={path.startsWith('/clients')}
+        aria-current={path.startsWith('/clients') ? 'page' : undefined}
+        title="Клиенты"
+      >
         <Icon name="clients" size={20} />
         <span class="nav-label">Клиенты</span>
       </a>
@@ -313,6 +362,7 @@
       <a
         href="#/staff"
         class:active={path.startsWith('/staff') || path === '/substitutions'}
+        aria-current={path.startsWith('/staff') || path === '/substitutions' ? 'page' : undefined}
         title="Сотрудники"
       >
         <Icon name="staff" size={20} />
