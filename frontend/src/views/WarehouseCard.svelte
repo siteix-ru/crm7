@@ -23,6 +23,7 @@
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import { tablist } from '../lib/a11y/tablist';
   import Input from '../lib/components/ui/Input.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
@@ -448,7 +449,7 @@
             Загрузка…
           {/if}
         </span>
-        <div class="tab-icons" role="tablist" aria-label="Разделы склада">
+        <div class="tab-icons" role="tablist" use:tablist aria-label="Разделы склада">
           {#if canEditWarehouse}
           <button
             type="button"

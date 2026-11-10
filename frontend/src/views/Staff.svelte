@@ -22,7 +22,8 @@
   import Pager from '../lib/components/ui/Pager.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import SortDialog from '../lib/components/ui/SortDialog.svelte';
-  import Spinner from '../lib/components/ui/Spinner.svelte';
+  import EmptyState from '../lib/components/ui/EmptyState.svelte';
+  import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import Substitutions from './Substitutions.svelte';
 
   let { initialTab = 'staff' }: { initialTab?: 'staff' | 'substitutions' } = $props();
@@ -520,13 +521,17 @@
   {/if}
 
   {#if loading}
-    <div class="center"><Spinner size={26} /></div>
+    <ListSkeleton rows={6} />
   {:else if items.length === 0}
-    <div class="empty">
-      <h2>Сотрудники не найдены</h2>
-      <p>Измените поиск или сбросьте фильтры.</p>
-      <Button variant="ghost" onclick={resetFilters}>Сбросить поиск и фильтры</Button>
-    </div>
+    <EmptyState
+      icon="staff"
+      title="Сотрудники не найдены"
+      description="Измените поиск или сбросьте фильтры."
+    >
+      {#snippet action()}
+        <Button variant="ghost" onclick={resetFilters}>Сбросить поиск и фильтры</Button>
+      {/snippet}
+    </EmptyState>
   {:else if viewMode === 'tiles'}
     <div class="tiles-grid">
       {#each items as staff (staff.id)}
@@ -952,8 +957,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     margin: -2px -4px -2px 0;
     padding: 0;
     border: none;
@@ -965,30 +970,6 @@
 
   .notify-close:hover {
     color: var(--text);
-  }
-
-  .center {
-    display: flex;
-    justify-content: center;
-    padding: var(--space-6);
-  }
-
-  .empty {
-    padding: var(--space-6);
-    text-align: center;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-  }
-
-  .empty h2 {
-    margin: 0 0 var(--space-2);
-    font-size: 16px;
-  }
-
-  .empty p {
-    margin: 0 0 var(--space-4);
-    color: var(--muted);
   }
 
   .list {

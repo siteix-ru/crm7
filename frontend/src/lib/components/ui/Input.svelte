@@ -44,6 +44,10 @@
     onblur,
     inline = false
   }: Props = $props();
+
+  const errorId = `input-error-${Math.random().toString(36).slice(2, 9)}`;
+  const describedBy = $derived(error !== '' ? errorId : ariaDescribedby);
+  const invalid = $derived(error !== '' || ariaInvalid === true);
 </script>
 
 <label class="field" class:inline>
@@ -64,13 +68,13 @@
     {maxlength}
     {id}
     aria-label={ariaLabel}
-    aria-invalid={ariaInvalid ? 'true' : undefined}
-    aria-describedby={ariaDescribedby}
+    aria-invalid={invalid ? 'true' : undefined}
+    aria-describedby={describedBy}
     class:invalid={Boolean(error)}
     {onblur}
   />
   {#if error}
-    <span class="error">{error}</span>
+    <span class="error" id={errorId}>{error}</span>
   {/if}
 </label>
 

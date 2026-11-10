@@ -31,6 +31,7 @@
   } from '../lib/api/types';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import { tablist } from '../lib/a11y/tablist';
   import Input from '../lib/components/ui/Input.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Select from '../lib/components/ui/Select.svelte';
@@ -986,7 +987,7 @@
           }
         }}
       >
-        <div class="tabs" role="tablist" aria-label="Разделы номенклатуры">
+        <div class="tabs" role="tablist" use:tablist aria-label="Разделы номенклатуры">
           {#each tabs as item (item.id)}
             <button
               type="button"
@@ -1493,10 +1494,10 @@
 
   .photo-remove {
     position: absolute;
-    top: 3px;
-    right: 3px;
-    width: 20px;
-    height: 20px;
+    top: 2px;
+    right: 2px;
+    width: 24px;
+    height: 24px;
     padding: 0;
     border: none;
     border-radius: 50%;

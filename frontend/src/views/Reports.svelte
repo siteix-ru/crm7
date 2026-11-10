@@ -686,6 +686,38 @@
         {#if summary.dynamics.length === 0}
           <p class="hint">Нет данных за период</p>
         {:else}
+          {@const pagePoints = slice(summary.dynamics, dynamicsPage, dynamicsPerPage)}
+          {@const dynMax = Math.max(1, ...pagePoints.map((p) => Math.max(p.created, p.closed)))}
+          <figure class="chart-figure">
+            <div class="chart-legend">
+              <span class="legend-item"><span class="dot created"></span>создано</span>
+              <span class="legend-item"><span class="dot closed"></span>закрыто</span>
+            </div>
+            <div
+              class="chart"
+              role="img"
+              aria-label={`Динамика заявок: ${pagePoints.length} точек периода, максимум ${dynMax} в день`}
+            >
+              {#each pagePoints as point, index (point.date)}
+                <div
+                  class="bar-group"
+                  title={`${point.date}: создано ${point.created}, закрыто ${point.closed}`}
+                >
+                  <span
+                    class="bar created"
+                    style:height={`${Math.max(2, Math.round((point.created / dynMax) * 100))}%`}
+                  ></span>
+                  <span
+                    class="bar closed"
+                    style:height={`${Math.max(2, Math.round((point.closed / dynMax) * 100))}%`}
+                  ></span>
+                  {#if index % 3 === 0}
+                    <span class="bar-date">{point.date.slice(5)}</span>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          </figure>
           <div class="dynamics">
             {#each slice(summary.dynamics, dynamicsPage, dynamicsPerPage) as point (point.date)}
               <div class="dyn-row">
@@ -1039,6 +1071,82 @@
   .overdue {
     color: var(--danger);
     font-weight: 600;
+  }
+
+  .chart-figure {
+    margin: 0 0 var(--space-4);
+  }
+
+  .chart-legend {
+    display: flex;
+    gap: var(--space-4);
+    margin-bottom: var(--space-2);
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .dot.created {
+    background: var(--primary);
+  }
+
+  .dot.closed {
+    background: var(--success);
+  }
+
+  .chart {
+    display: flex;
+    align-items: flex-end;
+    gap: var(--space-2);
+    height: 140px;
+    padding: var(--space-2) var(--space-1) 0;
+    border-bottom: 1px solid var(--border-secondary);
+    overflow-x: auto;
+  }
+
+  .bar-group {
+    position: relative;
+    display: flex;
+    flex: 0 0 auto;
+    align-items: flex-end;
+    gap: 2px;
+    height: 100%;
+    padding-bottom: 20px;
+  }
+
+  .bar {
+    width: 10px;
+    min-height: 2px;
+    border-radius: 2px 2px 0 0;
+  }
+
+  .bar.created {
+    background: var(--primary);
+  }
+
+  .bar.closed {
+    background: var(--success);
+  }
+
+  .bar-date {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    color: var(--text-description);
+    font-size: 10px;
+    white-space: nowrap;
+    transform: translateX(-50%);
   }
 
   .dynamics {

@@ -509,8 +509,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     margin: -2px -4px -2px 0;
     padding: 0;
     border: none;

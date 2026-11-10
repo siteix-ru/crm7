@@ -25,6 +25,7 @@
   import Modal from '../lib/components/ui/Modal.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+  import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import { loadFilters, saveFilters } from '../lib/filters';
   import { formatDate, formatDateTime } from '../lib/format';
   import { clampPeriod, defaultPeriod, todayIso } from '../lib/period';
@@ -883,7 +884,7 @@
   {/if}
 
   {#if loading && items.length === 0}
-    <div class="center"><Spinner size={26} /></div>
+    <ListSkeleton rows={6} />
   {:else if items.length === 0}
     {#if activeFilterCount > 0}
       <div class="empty">

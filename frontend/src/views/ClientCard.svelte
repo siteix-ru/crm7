@@ -44,6 +44,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import { tablist } from '../lib/a11y/tablist';
   import Modal from '../lib/components/ui/Modal.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
@@ -1432,7 +1433,7 @@
             </button>
           {/if}
 
-          <div class="hero-tabs" role="tablist" aria-label="Разделы клиента">
+          <div class="hero-tabs" role="tablist" use:tablist aria-label="Разделы клиента">
             <button
               type="button"
               class="hero-tab"
@@ -2642,8 +2643,8 @@
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     margin: -2px -4px -2px 0;
     padding: 0;
     border: none;
@@ -3110,13 +3111,13 @@
 
   .avatar-remove {
     position: absolute;
-    top: -4px;
-    right: -4px;
+    top: -6px;
+    right: -6px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    width: 24px;
+    height: 24px;
     padding: 0;
     border: 1px solid var(--border);
     border-radius: 50%;

@@ -29,6 +29,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import { tablist } from '../lib/a11y/tablist';
   import Input from '../lib/components/ui/Input.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Select from '../lib/components/ui/Select.svelte';
@@ -496,7 +497,7 @@
         <span class="state" class:on={staff.active}>{staffStateTitle(staff.active)}</span>
       {/if}
       <div class="head-actions">
-        <div class="bookmarks" role="tablist" aria-label="Разделы сотрудника">
+        <div class="bookmarks" role="tablist" use:tablist aria-label="Разделы сотрудника">
           <button
             type="button"
             class="bookmark"
@@ -1125,8 +1126,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     margin: -2px -4px -2px 0;
     padding: 0;
     border: none;

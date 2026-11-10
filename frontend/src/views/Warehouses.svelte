@@ -16,7 +16,8 @@
   import Pager from '../lib/components/ui/Pager.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
-  import Spinner from '../lib/components/ui/Spinner.svelte';
+  import EmptyState from '../lib/components/ui/EmptyState.svelte';
+  import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { auth } from '../lib/stores/auth.svelte';
 
@@ -498,10 +499,10 @@
   </div>
 
   {#if loading}
-    <div class="center"><Spinner size={26} /></div>
+    <ListSkeleton rows={5} />
   {:else}
     {#if sorted.length === 0}
-      <div class="empty">Склады не найдены</div>
+      <EmptyState icon="warehouse" title="Склады не найдены" description="Измените поиск." />
     {:else}
       <div class="levels-wrap">
         {#if viewMode === 'list'}

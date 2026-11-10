@@ -25,11 +25,13 @@
   import Button from '../lib/components/ui/Button.svelte';
   import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import { tablist } from '../lib/a11y/tablist';
   import Modal from '../lib/components/ui/Modal.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
-  import Spinner from '../lib/components/ui/Spinner.svelte';
+  import EmptyState from '../lib/components/ui/EmptyState.svelte';
+  import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import PhotoGallery from '../lib/components/stocks/PhotoGallery.svelte';
   import { cart } from '../lib/stores/cart.svelte';
   import { auth } from '../lib/stores/auth.svelte';
@@ -1412,9 +1414,13 @@
   </div>
 
   {#if loading}
-    <div class="center"><Spinner size={26} /></div>
+    <ListSkeleton rows={7} />
   {:else if warehouses.length === 0}
-    <div class="empty">Нет доступных складов</div>
+    <EmptyState
+      icon="warehouse"
+      title="Нет доступных складов"
+      description="Обратитесь к администратору, чтобы получить доступ к складу."
+    />
   {:else}
     <Modal
       open={importOpen}
@@ -1422,7 +1428,7 @@
       bodyMinHeight={372}
       onclose={() => (importOpen = false)}
     >
-      <div class="tabs" role="tablist">
+      <div class="tabs" role="tablist" use:tablist aria-label="Разделы импорта">
         <button
           type="button"
           role="tab"
@@ -1910,16 +1916,25 @@
     </Modal>
 
     {#if loadingLevels}
-      <div class="center"><Spinner size={26} /></div>
+      <ListSkeleton rows={6} />
     {:else if selectedIds.length === 0}
-      <div class="empty">Нет выбранных складов — нет номенклатуры</div>
+      <EmptyState
+        icon="warehouse"
+        title="Нет выбранных складов"
+        description="Выберите хотя бы один склад в фильтре «Склад», чтобы увидеть номенклатуру."
+      />
     {:else if levels.length === 0}
-      <div class="empty">
-        <span>Ничего не найдено</span>
-        {#if hasFilters || groupFilterEmpty}
-          <Button variant="ghost" onclick={resetFilters}>Сбросить фильтры</Button>
-        {/if}
-      </div>
+      <EmptyState
+        icon="stocks"
+        title="Ничего не найдено"
+        description="Измените поиск или сбросьте фильтры."
+      >
+        {#snippet action()}
+          {#if hasFilters || groupFilterEmpty}
+            <Button variant="ghost" onclick={resetFilters}>Сбросить фильтры</Button>
+          {/if}
+        {/snippet}
+      </EmptyState>
     {:else}
       <div class="levels-wrap">
       {#if viewMode === 'columns'}
@@ -4099,9 +4114,4 @@
     border-radius: var(--radius-md);
   }
 
-  .center {
-    display: grid;
-    place-items: center;
-    padding: var(--space-6);
-  }
 </style>

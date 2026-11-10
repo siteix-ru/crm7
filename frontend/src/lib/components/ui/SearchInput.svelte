@@ -23,6 +23,7 @@
   let history = $state<string[]>([]);
   let showHistory = $state(false);
   let activeIndex = $state(-1);
+  const listId = `search-history-${Math.random().toString(36).slice(2, 9)}`;
 
   function openHistory(): void {
     if (historyKey === '') {
@@ -58,6 +59,12 @@
     type="search"
     bind:value
     {placeholder}
+    role="combobox"
+    aria-autocomplete="list"
+    aria-expanded={showHistory}
+    aria-controls={showHistory ? listId : undefined}
+    aria-activedescendant={activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
+    aria-label={placeholder || 'Поиск'}
     onfocus={openHistory}
     oninput={() => {
       showHistory = false;
@@ -107,12 +114,16 @@
   {/if}
 
   {#if showHistory}
-    <div class="history">
+    <div class="history" id={listId} role="listbox" aria-label="История поиска">
       {#each history as item, index (item)}
         <button
           type="button"
+          id={`${listId}-${index}`}
           class="history-item"
           class:active={index === activeIndex}
+          role="option"
+          aria-selected={index === activeIndex}
+          tabindex="-1"
           title={item}
           onmousedown={(event) => {
             event.preventDefault();
@@ -177,8 +188,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     padding: 0;
     border: none;
     border-radius: 50%;

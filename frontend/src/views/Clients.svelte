@@ -11,7 +11,8 @@
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import SearchInput from '../lib/components/ui/SearchInput.svelte';
-  import Spinner from '../lib/components/ui/Spinner.svelte';
+  import EmptyState from '../lib/components/ui/EmptyState.svelte';
+  import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import { countActive, loadFilters, saveFilters } from '../lib/filters';
   import { formatDate } from '../lib/format';
   import { addHistory } from '../lib/search-history';
@@ -635,9 +636,13 @@
   {/if}
 
   {#if loading}
-    <div class="center"><Spinner size={26} /></div>
+    <ListSkeleton rows={6} />
   {:else if clients.length === 0}
-    <div class="empty">Клиенты не найдены</div>
+    <EmptyState
+      icon="clients"
+      title="Клиенты не найдены"
+      description="Измените поиск или сбросьте фильтры в «Вид и фильтры»."
+    />
   {:else}
     {#if viewMode === 'list'}
       <div class="client-table">
@@ -1531,18 +1536,4 @@
     font-size: 13px;
   }
 
-  .empty {
-    padding: var(--space-6);
-    text-align: center;
-    color: var(--muted);
-    background: var(--surface);
-    border: 1px dashed var(--border);
-    border-radius: var(--radius-md);
-  }
-
-  .center {
-    display: grid;
-    place-items: center;
-    padding: var(--space-6);
-  }
 </style>

@@ -34,6 +34,16 @@
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let containerEl = $state<HTMLDivElement | null>(null);
   let menuStyle = $state('');
+  const menuId = `multiselect-menu-${Math.random().toString(36).slice(2, 9)}`;
+
+  function closeMenu(): void {
+    if (!open) {
+      return;
+    }
+
+    open = false;
+    triggerEl?.focus();
+  }
 
   const summary = $derived.by(() => {
     if (values.length === 0) {
@@ -69,16 +79,24 @@
 
       open = false;
     };
+    const handleKeydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.stopPropagation();
+        closeMenu();
+      }
+    };
 
     updatePosition();
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleScroll);
     document.addEventListener('pointerdown', handlePointerDown, true);
+    document.addEventListener('keydown', handleKeydown);
 
     return () => {
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', handleScroll);
       document.removeEventListener('pointerdown', handlePointerDown, true);
+      document.removeEventListener('keydown', handleKeydown);
     };
   });
 
@@ -131,8 +149,8 @@
     class="trigger"
     bind:this={triggerEl}
     aria-label={label || summary}
-    aria-haspopup="listbox"
     aria-expanded={open}
+    aria-controls={open ? menuId : undefined}
     disabled={options.length === 0 || disabled}
     onclick={toggleMenu}
   >
@@ -141,7 +159,7 @@
   </button>
 
   {#if open}
-    <div class="menu" role="listbox" aria-label={label} style={menuStyle}>
+    <div class="menu" id={menuId} role="group" aria-label={label} style={menuStyle}>
       {#each options as option (option.value)}
         <label class="option">
           <input

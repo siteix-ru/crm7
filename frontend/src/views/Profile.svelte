@@ -14,6 +14,7 @@
   import { staffLevelTitle } from '../lib/api/staff';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import { tablist } from '../lib/a11y/tablist';
   import Input from '../lib/components/ui/Input.svelte';
 
   const tabs = [
@@ -314,7 +315,7 @@
         </div>
       </div>
 
-      <div class="tabs tab-scroll" role="tablist" aria-label="Разделы профиля">
+      <div class="tabs tab-scroll" role="tablist" use:tablist aria-label="Разделы профиля">
         {#each visibleTabs as item (item.id)}
           <button
             type="button"

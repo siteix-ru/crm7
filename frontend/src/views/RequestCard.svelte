@@ -2844,8 +2844,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 22px;
-    height: 22px;
+    width: 24px;
+    height: 24px;
     margin-left: auto;
     padding: 0;
     border: none;
