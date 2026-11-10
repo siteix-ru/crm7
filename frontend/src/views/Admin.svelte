@@ -1572,6 +1572,64 @@ let usersPerPage = $state(20);
     flex: 0 0 auto;
   }
 
+  .switch {
+    position: relative;
+    flex: 0 0 40px;
+    width: 40px;
+    height: 22px;
+  }
+
+  .switch input {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    margin: 0;
+    opacity: 0;
+    cursor: pointer;
+  }
+
+  .switch-track {
+    position: absolute;
+    inset: 0;
+    border-radius: 999px;
+    background: var(--border);
+    transition: background 0.15s ease;
+  }
+
+  .switch-track::after {
+    content: '';
+    position: absolute;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    transition: transform 0.15s ease;
+  }
+
+  .switch input:checked + .switch-track {
+    background: var(--primary);
+  }
+
+  .switch input:checked + .switch-track::after {
+    transform: translateX(18px);
+  }
+
+  .switch input:focus-visible + .switch-track {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+
+  .switch input:disabled {
+    cursor: not-allowed;
+  }
+
+  .switch input:disabled + .switch-track {
+    opacity: 0.55;
+  }
+
   .module-desc {
     margin: 0;
     font-size: 13px;
