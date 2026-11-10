@@ -3,6 +3,7 @@
   import { ApiError, apiRequest } from '../lib/api/client';
   import { deleteAvatar, updateProfile, uploadAvatar } from '../lib/api/profile';
   import { avatarColor, avatarLetter, avatarName } from '../lib/avatar';
+  import { compressImage } from '../lib/images/compress';
   import {
     getNotificationSettings,
     saveNotificationSettings,
@@ -190,7 +191,7 @@
     profileNotice = '';
 
     try {
-      await uploadAvatar(file);
+      await uploadAvatar(await compressImage(file, { maxSize: 800 }));
       await avatars.refresh(auth.user.id);
       profileNotice = 'Фото обновлено';
     } catch (cause) {
@@ -375,7 +376,7 @@
               Удалить фото
             </Button>
           {/if}
-          <p class="hint">jpg, png или webp, до 5 МБ</p>
+          <p class="hint">jpg, png или webp — сжимается автоматически</p>
         </div>
       </div>
 

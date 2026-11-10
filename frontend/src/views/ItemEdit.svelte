@@ -32,6 +32,7 @@
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import { tablist } from '../lib/a11y/tablist';
+  import { compressImage } from '../lib/images/compress';
   import Input from '../lib/components/ui/Input.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Select from '../lib/components/ui/Select.svelte';
@@ -492,12 +493,14 @@
       return;
     }
 
+    const prepared = await compressImage(file, { maxSize: 1600 });
+
     if (isNew) {
       if (photos.length + pendingPhotos.length >= MAX_PHOTOS) {
         return;
       }
 
-      pendingPhotos = [...pendingPhotos, { file, url: URL.createObjectURL(file) }];
+      pendingPhotos = [...pendingPhotos, { file: prepared, url: URL.createObjectURL(prepared) }];
       return;
     }
 
@@ -509,7 +512,7 @@
     photoError = '';
 
     try {
-      const result = await uploadItemPhoto(id, file);
+      const result = await uploadItemPhoto(id, prepared);
       photos = result.photos;
       await loadPhotoUrls();
     } catch (cause) {

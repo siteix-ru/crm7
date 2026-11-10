@@ -14,6 +14,7 @@
   import { downloadFromApi } from '../lib/api/client';
   import type { ChatMessage, ChatThread, ClientItem, ManagerItem } from '../lib/api/types';
   import { router } from '../lib/router.svelte';
+  import { compressImage } from '../lib/images/compress';
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import Button from '../lib/components/ui/Button.svelte';
@@ -230,12 +231,16 @@
     }
   }
 
-  function onFilesChange(event: Event): void {
+  async function onFilesChange(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
+    const files = input.files ? Array.from(input.files) : [];
 
-    if (input.files) {
-      pendingFiles = [...pendingFiles, ...Array.from(input.files)];
+    if (files.length === 0) {
+      return;
     }
+
+    const prepared = await Promise.all(files.map((file) => compressImage(file, { maxSize: 1600 })));
+    pendingFiles = [...pendingFiles, ...prepared];
   }
 
   function removePending(index: number): void {
