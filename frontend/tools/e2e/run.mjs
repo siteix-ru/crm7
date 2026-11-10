@@ -11,6 +11,7 @@
  *   CRM_PASSWORD         общий пароль
  *   CRM_BROWSER_CHANNEL  канал Playwright (по умолчанию msedge; «bundled» — встроенный chromium)
  *   CRM_HEADED=1         показать окно браузера
+ *   CRM_E2E_MOBILE=1     только мобильные сценарии (viewport 390×844, touch, без msedge)
  *   CRM_E2E_ONLY         список сценариев через запятую (фильтр по подстроке имени)
  */
 
@@ -22,6 +23,7 @@ const BASE = (process.env.CRM_BASE_URL ?? 'http://localhost:5174').replace(/\/$/
 const API = (process.env.CRM_API_URL ?? 'http://127.0.0.1:8080/api/v2').replace(/\/$/, '');
 const CHANNEL = process.env.CRM_BROWSER_CHANNEL ?? 'msedge';
 const HEADED = process.env.CRM_HEADED === '1';
+const MOBILE = process.env.CRM_E2E_MOBILE === '1';
 const launchOptions = {
   ...(CHANNEL && CHANNEL !== 'bundled' ? { channel: CHANNEL } : {}),
   headless: !HEADED,
@@ -1698,13 +1700,139 @@ const scenarios = [
       });
       assert(photo.status === 403, `клиент не должен получать фото номенклатуры (получено ${photo.status})`);
     }
+  },
+  {
+    name: 'Мобильный клиент: список заявок и карточка',
+    role: 'client',
+    mobile: true,
+    async run(page, ctx) {
+      await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.locator('nav.mobile-nav'), 'на мобильном нет нижней навигации');
+      assert(
+        !(await page.locator('nav.desktop-nav').isVisible()),
+        'на мобильном видна десктопная навигация'
+      );
+
+      if ((await page.locator('main a.card[href*="/requests/"]').count()) === 0) {
+        const created = await fetch(`${API}/requests`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${ctx.session.token}`,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            subject: `e2e-mobile ${Date.now()}`,
+            description: 'Проверка мобильного списка заявок'
+          })
+        });
+        assert(created.ok, `не удалось создать заявку для проверки (HTTP ${created.status})`);
+        await page.reload({ waitUntil: 'domcontentloaded' });
+      }
+
+      const tile = page.locator('main a.card[href*="/requests/"]').first();
+      await expectVisible(tile, 'у клиента нет заявок в списке');
+      await tile.click();
+
+      const hash = await page.evaluate(() => location.hash);
+      assert(/^#\/requests\/\d+/.test(hash), `не открылась карточка заявки (${hash})`);
+      await expectVisible(page.locator('h1').first(), 'в карточке нет заголовка');
+
+      await page.goBack();
+      await page.waitForTimeout(700);
+      await expectVisible(page.locator('main a.card[href*="/requests/"]').first(), 'возврат из карточки не вернул к списку');
+      assert(
+        (await page.evaluate(() => location.hash)) === '#/requests',
+        'после возврата не список заявок'
+      );
+    }
+  },
+  {
+    name: 'Мобильный клиент: свайп вкладок профиля',
+    role: 'client',
+    mobile: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/profile`, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1500);
+
+      const current = () =>
+        page.evaluate(
+          () =>
+            document
+              .querySelector('[role="tab"][aria-selected="true"]')
+              ?.getAttribute('aria-label') ?? ''
+        );
+
+      const before = await current();
+      assert(before === 'Профиль', `профиль открыт не на первой вкладке («${before}»)`);
+
+      await swipeOnPage(page, 320, 120);
+      const afterLeft = await current();
+      assert(afterLeft !== before, 'свайп влево не переключил вкладку');
+
+      await swipeOnPage(page, 120, 320);
+      const afterRight = await current();
+      assert(afterRight === before, `свайп вправо не вернул вкладку «${before}» (сейчас «${afterRight}»)`);
+    }
+  },
+  {
+    name: 'Мобильный клиент: корзина',
+    role: 'client',
+    mobile: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/stocks`, { waitUntil: 'domcontentloaded' });
+
+      const add = page.locator('button[aria-label^="Добавить в корзину"]').first();
+      await expectVisible(add, 'нет кнопок «Добавить в корзину» (склад или корзина выключены?)');
+      await add.click();
+
+      const cart = page.locator('header button[aria-label^="Корзина"]').first();
+      await expectVisible(cart, 'нет кнопки корзины в шапке');
+      await cart.click();
+
+      await page.waitForTimeout(600);
+      const hash = await page.evaluate(() => location.hash);
+      assert(hash === '#/cart', `корзина не открылась (${hash})`);
+      assert(
+        !(await page.locator('.page').first().isHidden()),
+        'страница корзины пустая'
+      );
+    }
   }
 ];
+
+async function swipeOnPage(page, fromX, toX, y = 420) {
+  await page.evaluate(
+    ([x1, x2, py]) => {
+      const target = document.querySelector('section.page') ?? document.body;
+      const touch = (x) => new Touch({ identifier: 1, target, clientX: x, clientY: py });
+      target.dispatchEvent(
+        new TouchEvent('touchstart', {
+          touches: [touch(x1)],
+          changedTouches: [touch(x1)],
+          bubbles: true,
+          cancelable: true
+        })
+      );
+      target.dispatchEvent(
+        new TouchEvent('touchend', {
+          touches: [],
+          changedTouches: [touch(x2)],
+          bubbles: true,
+          cancelable: true
+        })
+      );
+    },
+    [fromX, toX, y]
+  );
+  await page.waitForTimeout(500);
+}
 
 async function main() {
   const passwords = await loadPasswords();
   const selected = scenarios.filter(
-    (scenario) => ONLY.length === 0 || ONLY.some((needle) => scenario.name.includes(needle))
+    (scenario) =>
+      Boolean(scenario.mobile) === MOBILE
+      && (ONLY.length === 0 || ONLY.some((needle) => scenario.name.includes(needle)))
   );
 
   await mkdir(OUT, { recursive: true });
@@ -1726,7 +1854,8 @@ async function main() {
     }
 
     const context = await browser.newContext({
-      viewport: { width: 1440, height: 900 },
+      viewport: MOBILE ? { width: 390, height: 844 } : { width: 1440, height: 900 },
+      ...(MOBILE ? { isMobile: true, hasTouch: true, deviceScaleFactor: 2 } : {}),
       locale: 'ru-RU',
       timezoneId: 'Europe/Moscow'
     });

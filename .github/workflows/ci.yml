@@ -83,3 +83,84 @@ jobs:
           docker build -f deploy/Dockerfile.web -t "ghcr.io/$OWNER/crm7-web:sha-$SHA" .
           docker push "ghcr.io/$OWNER/crm7-app:sha-$SHA"
           docker push "ghcr.io/$OWNER/crm7-web:sha-$SHA"
+
+  e2e-mobile:
+    needs: [frontend, php]
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: crm_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, gd
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Configure API
+        run: |
+          cp api/config/.env.example api/config/.env
+          sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' api/config/.env
+          sed -i 's/^DB_NAME=.*/DB_NAME=crm_ci/' api/config/.env
+          sed -i 's/^DB_USER=.*/DB_USER=root/' api/config/.env
+          sed -i 's/^DB_PASS=.*/DB_PASS=root/' api/config/.env
+          sed -i "s/^APP_KEY=.*/APP_KEY=$(openssl rand -hex 32)/" api/config/.env
+      - name: Migrate and seed
+        run: |
+          php api/bin/migrate.php
+          php api/bin/seed-dev.php --password=Secret123
+          php api/bin/seed-demo.php --force
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+        working-directory: frontend
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+      - name: Mobile e2e
+        env:
+          CRM_BASE_URL: http://localhost:4173
+          CRM_API_URL: http://127.0.0.1:8080/api/v2
+          CRM_BROWSER_CHANNEL: bundled
+          CRM_E2E_MOBILE: '1'
+          CRM_PASSWORD: Secret123
+        run: |
+          php -S 127.0.0.1:8080 -t api/public api/public/router.php > /tmp/api.log 2>&1 &
+          (cd frontend && npx vite preview --port 4173 --strictPort > /tmp/preview.log 2>&1 &)
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8080/api/v2/health > /dev/null 2>&1 \
+              && curl -fsS http://localhost:4173 > /dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          set +e
+          (cd frontend && node tools/e2e/run.mjs)
+          status=$?
+          set -e
+          tail -n 20 /tmp/api.log || true
+          tail -n 20 /tmp/preview.log || true
+          exit "$status"
+      - name: Upload e2e artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-mobile-artifacts
+          path: frontend/artifacts/e2e
+          if-no-files-found: ignore

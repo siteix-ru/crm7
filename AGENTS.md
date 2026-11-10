@@ -79,7 +79,8 @@ php -l api/src/.../File.php     # по изменённым PHP-файлам
 python -m py_compile deploy/crm7_updater.py deploy/publish_update_feed.py deploy/publish_update_site.py deploy/publish_setup_site.py
 ```
 
-CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build`; e2e — вручную.
+CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build`, Lighthouse (Fast 3G)
+и мобильный e2e (`e2e-mobile`: MariaDB + API + preview, `CRM_E2E_MOBILE=1`); полный e2e — вручную.
 
 ## Конвенции
 
