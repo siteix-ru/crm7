@@ -401,27 +401,6 @@
         {/if}
       </button>
 
-      <span class="toolbar-divider" aria-hidden="true"></span>
-
-      {#if canCreateClient}
-        <button
-          type="button"
-          class="sort-button"
-          title="Создать клиента"
-          aria-label="Создать клиента"
-          onclick={() => router.navigate('/clients/new')}
-        >
-          <span class="create-client-icon">
-            <Icon name="user" size={16} />
-            <span class="create-client-plus" aria-hidden="true">
-              <Icon name="plus" size={10} />
-            </span>
-          </span>
-        </button>
-
-        <span class="toolbar-divider" aria-hidden="true"></span>
-      {/if}
-
       <button
         type="button"
         class="sort-button"
@@ -431,6 +410,21 @@
       >
         <Icon name="help" size={16} />
       </button>
+
+      {#if canCreateClient}
+        <span class="toolbar-divider" aria-hidden="true"></span>
+
+        <button
+          type="button"
+          class="create-button"
+          title="Новый клиент"
+          aria-label="Новый клиент"
+          onclick={() => router.navigate('/clients/new')}
+        >
+          <Icon name="plus" size={14} />
+          Новый клиент
+        </button>
+      {/if}
     </div>
   </div>
   </div>
@@ -996,26 +990,34 @@
     background: var(--primary);
   }
 
-  .create-client-icon {
-    position: relative;
+  .create-button {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    gap: var(--space-2);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s ease;
   }
 
-  .create-client-plus {
-    position: absolute;
-    right: -6px;
-    bottom: -5px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
+  .create-button:hover {
+    background: var(--primary-hover);
+  }
+
+  .create-button:active {
+    background: var(--primary-active);
+  }
+
+  .create-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   .sort-hint {

@@ -10,9 +10,20 @@
     onopen?: () => void;
     flush?: boolean;
     index?: number;
+    label?: string;
   }
 
-  let { photos, variant = 'list', onopen, flush = false, index = $bindable(0) }: Props = $props();
+  let { photos, variant = 'list', onopen, flush = false, index = $bindable(0), label = '' }: Props =
+    $props();
+
+  const initial = $derived(
+    label
+      .split(/\s+/)
+      .map((part) => part.replace(/^\d+/, ''))
+      .find((part) => part !== '')
+      ?.charAt(0)
+      .toUpperCase() ?? ''
+  );
 
   const photoSize = $derived<'preview' | 'card'>(variant === 'tile' ? 'card' : 'preview');
 
@@ -119,6 +130,7 @@
   class="gallery"
   class:tile={variant === 'tile'}
   class:flush
+  class:empty={photos.length === 0}
   class:clickable={onopen !== undefined}
   role={onopen !== undefined ? 'button' : 'group'}
   tabindex={onopen !== undefined ? 0 : undefined}
@@ -131,6 +143,8 @@
 >
   {#if currentUrl}
     <img src={currentUrl} alt="" loading="lazy" />
+  {:else if photos.length === 0}
+    <div class="placeholder initial" aria-hidden="true">{initial}</div>
   {:else}
     <div class="placeholder" aria-hidden="true">
       <Icon name="picture" size={variant === 'tile' ? 28 : 18} />
@@ -194,6 +208,11 @@
     object-fit: var(--photo-fit, contain);
   }
 
+  .gallery.empty {
+    border: none;
+    background: transparent;
+  }
+
   .placeholder {
     display: flex;
     align-items: center;
@@ -202,6 +221,13 @@
     height: 100%;
     background: var(--fill-tertiary);
     color: var(--text-description);
+  }
+
+  .placeholder.initial {
+    border-radius: var(--radius-sm);
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--muted);
   }
 
   .nav {

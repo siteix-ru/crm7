@@ -468,27 +468,6 @@
           <Icon name="view" size={16} />
         </button>
 
-        {#if canCreateWarehouse}
-        <span class="toolbar-divider" aria-hidden="true"></span>
-
-        <button
-          type="button"
-          class="sort-button"
-          title="Добавить склад"
-          aria-label="Добавить склад"
-          onclick={() => router.navigate('/stocks/warehouses/new')}
-        >
-          <span class="create-warehouse-icon">
-            <Icon name="warehouse" size={16} />
-            <span class="create-warehouse-plus" aria-hidden="true">
-              <Icon name="plus" size={10} />
-            </span>
-          </span>
-        </button>
-
-        <span class="toolbar-divider" aria-hidden="true"></span>
-        {/if}
-
         <button
           type="button"
           class="sort-button"
@@ -498,6 +477,21 @@
         >
           <Icon name="help" size={16} />
         </button>
+
+        {#if canCreateWarehouse}
+          <span class="toolbar-divider" aria-hidden="true"></span>
+
+          <button
+            type="button"
+            class="create-button"
+            title="Новый склад"
+            aria-label="Новый склад"
+            onclick={() => router.navigate('/stocks/warehouses/new')}
+          >
+            <Icon name="plus" size={14} />
+            Новый склад
+          </button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -807,26 +801,34 @@
     margin-left: auto;
   }
 
-  .create-warehouse-icon {
-    position: relative;
+  .create-button {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    gap: var(--space-2);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s ease;
   }
 
-  .create-warehouse-plus {
-    position: absolute;
-    right: -6px;
-    bottom: -5px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
+  .create-button:hover {
+    background: var(--primary-hover);
+  }
+
+  .create-button:active {
+    background: var(--primary-active);
+  }
+
+  .create-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   .sort-button {

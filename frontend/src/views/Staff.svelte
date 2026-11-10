@@ -453,35 +453,6 @@
 
       <span class="toolbar-divider" aria-hidden="true"></span>
 
-      {#if tab === 'staff' ? canCreate : canAddSubstitution}
-        <button
-          type="button"
-          class="sort-button"
-          title={tab === 'staff' ? 'Добавить сотрудника' : 'Добавить замещение'}
-          aria-label={tab === 'staff' ? 'Добавить сотрудника' : 'Добавить замещение'}
-          onclick={() =>
-            router.navigate(tab === 'staff' ? '/staff/new' : '/staff/substitutions/new')}
-        >
-          {#if tab === 'staff'}
-            <span class="create-staff-icon">
-              <Icon name="staff" size={16} />
-              <span class="create-staff-plus" aria-hidden="true">
-                <Icon name="plus" size={10} />
-              </span>
-            </span>
-          {:else}
-            <span class="create-staff-icon">
-              <Icon name="substitutions" size={16} />
-              <span class="create-staff-plus" aria-hidden="true">
-                <Icon name="plus" size={10} />
-              </span>
-            </span>
-          {/if}
-        </button>
-
-        <span class="toolbar-divider" aria-hidden="true"></span>
-      {/if}
-
       {#if showSubstitutionsTab && tab === 'staff'}
         <button
           type="button"
@@ -505,6 +476,22 @@
       >
         <Icon name="help" size={16} />
       </button>
+
+      {#if tab === 'staff' ? canCreate : canAddSubstitution}
+        <span class="toolbar-divider" aria-hidden="true"></span>
+
+        <button
+          type="button"
+          class="create-button"
+          title={tab === 'staff' ? 'Новый сотрудник' : 'Новое замещение'}
+          aria-label={tab === 'staff' ? 'Новый сотрудник' : 'Новое замещение'}
+          onclick={() =>
+            router.navigate(tab === 'staff' ? '/staff/new' : '/staff/substitutions/new')}
+        >
+          <Icon name="plus" size={14} />
+          {tab === 'staff' ? 'Новый сотрудник' : 'Новое замещение'}
+        </button>
+      {/if}
     </div>
   </div>
   </div>
@@ -908,26 +895,34 @@
     background: var(--primary);
   }
 
-  .create-staff-icon {
-    position: relative;
+  .create-button {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    gap: var(--space-2);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s ease;
   }
 
-  .create-staff-plus {
-    position: absolute;
-    right: -6px;
-    bottom: -5px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
+  .create-button:hover {
+    background: var(--primary-hover);
+  }
+
+  .create-button:active {
+    background: var(--primary-active);
+  }
+
+  .create-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   .alert {

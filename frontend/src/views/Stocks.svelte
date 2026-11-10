@@ -1351,24 +1351,6 @@
 
         {/if}
 
-        {#if canEdit}
-          <span class="toolbar-divider" aria-hidden="true"></span>
-          <button
-            type="button"
-            class="sort-button"
-            title="Добавить номенклатуру"
-            aria-label="Добавить номенклатуру"
-            onclick={() => router.navigate('/stocks/items/new')}
-          >
-            <span class="create-stock-icon">
-              <Icon name="stocks" size={16} />
-              <span class="create-stock-plus" aria-hidden="true">
-                <Icon name="plus" size={10} />
-              </span>
-            </span>
-          </button>
-        {/if}
-
         {#if canImport || canExport}
           <span class="toolbar-divider" aria-hidden="true"></span>
         {/if}
@@ -1409,6 +1391,21 @@
         >
           <Icon name="help" size={16} />
         </button>
+
+        {#if canEdit}
+          <span class="toolbar-divider" aria-hidden="true"></span>
+
+          <button
+            type="button"
+            class="create-button"
+            title="Новая номенклатура"
+            aria-label="Новая номенклатура"
+            onclick={() => router.navigate('/stocks/items/new')}
+          >
+            <Icon name="plus" size={14} />
+            Новая номенклатура
+          </button>
+        {/if}
       </div>
     {/if}
     </div>
@@ -2024,6 +2021,7 @@
                           <PhotoGallery
                             photos={first?.photos ?? []}
                             variant="list"
+                            label={row.name}
                             onopen={() => first && openItem(first)}
                           />
                         </div>
@@ -2207,6 +2205,7 @@
                   photos={level.photos ?? []}
                   variant={viewMode === 'tiles' ? 'tile' : 'list'}
                   flush={viewMode === 'tiles'}
+                  label={level.name}
                   onopen={() => openItem(level)}
                 />
               </div>
@@ -2534,26 +2533,34 @@
     margin-left: auto;
   }
 
-  .create-stock-icon {
-    position: relative;
+  .create-button {
     display: inline-flex;
     align-items: center;
-    justify-content: center;
+    gap: var(--space-2);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: var(--primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s ease;
   }
 
-  .create-stock-plus {
-    position: absolute;
-    right: -6px;
-    bottom: -5px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 1px solid var(--border);
-    background: var(--surface);
-    color: var(--text);
+  .create-button:hover {
+    background: var(--primary-hover);
+  }
+
+  .create-button:active {
+    background: var(--primary-active);
+  }
+
+  .create-button:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
   }
 
   .sort-button {
