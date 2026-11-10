@@ -9,6 +9,7 @@
   import { auth } from '../../stores/auth.svelte';
   import { avatars } from '../../stores/avatar.svelte';
   import { appSettings } from '../../stores/app-settings.svelte';
+  import { network } from '../../stores/network.svelte';
   import { cart } from '../../stores/cart.svelte';
   import { router } from '../../router.svelte';
   import Logo from '../ui/Logo.svelte';
@@ -23,6 +24,12 @@
   let chatUnreadCount = $state(0);
 
   const avatarUrl = $derived(avatars.url(auth.user?.id));
+  let avatarFailed = $state(false);
+
+  $effect(() => {
+    void avatarUrl;
+    avatarFailed = false;
+  });
 
   const avatarSeed = $derived(avatarName(auth.user?.name, auth.user?.login ?? 'guest'));
   const letter = $derived(avatarLetter(avatarSeed));
@@ -283,9 +290,9 @@
         aria-label="Профиль"
         onclick={() => router.navigate('/profile')}
       >
-        {#if avatarUrl}
-          <img src={avatarUrl} alt="" />
-        {:else}
+          {#if avatarUrl && !avatarFailed}
+            <img src={avatarUrl} alt="" onerror={() => (avatarFailed = true)} />
+          {:else}
           <span style:background={avatarBg}>{letter}</span>
         {/if}
       </button>
@@ -294,6 +301,18 @@
       </button>
     </div>
   </header>
+
+  {#if !network.online}
+    <div class="network-strip offline" role="status">
+      <span class="strip-icon"><Icon name="close-circle" size={16} /></span>
+      <span>Нет подключения. Проверьте интернет — данные обновятся, когда связь вернётся.</span>
+    </div>
+  {:else if network.restored}
+    <div class="network-strip restored" role="status">
+      <span class="strip-icon"><Icon name="check-circle" size={16} /></span>
+      <span>Подключение восстановлено.</span>
+    </div>
+  {/if}
 
   {#if appSettings.demoMode}
     <div class="demo-banner">
@@ -394,6 +413,33 @@
 
   .shell.demo {
     --demo-banner-height: 37px;
+  }
+
+  .network-strip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-2) var(--space-5);
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    line-height: 1.4;
+    text-align: center;
+  }
+
+  .network-strip.offline {
+    background: var(--danger-bg);
+    color: var(--error-text);
+  }
+
+  .network-strip.restored {
+    background: var(--success-bg);
+    color: var(--success-text);
+  }
+
+  .strip-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
   }
 
   .demo-banner {

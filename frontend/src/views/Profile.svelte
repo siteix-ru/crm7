@@ -46,6 +46,12 @@
   let profileError = $state('');
 
   const avatarUrl = $derived(avatars.url(auth.user?.id));
+  let avatarFailed = $state(false);
+
+  $effect(() => {
+    void avatarUrl;
+    avatarFailed = false;
+  });
   let avatarBusy = $state(false);
   let avatarInput: HTMLInputElement | null = $state(null);
 
@@ -312,12 +318,12 @@
   <div class="page-hero">
     <div class="hero-row">
       <div class="identity">
-        <div class="avatar-hero">
-          {#if avatarUrl}
-            <img src={avatarUrl} alt="" />
-          {:else}
-            <span style:background={avatarBg}>{letter}</span>
-          {/if}
+          <div class="avatar-hero">
+            {#if avatarUrl && !avatarFailed}
+              <img src={avatarUrl} alt="" onerror={() => (avatarFailed = true)} />
+            {:else}
+              <span style:background={avatarBg}>{letter}</span>
+            {/if}
         </div>
         <div class="head-text">
           <h1>{auth.name}</h1>
@@ -351,12 +357,12 @@
       <div class="card avatar-card">
         <h2>Фото профиля</h2>
 
-        <div class="avatar-big">
-          {#if avatarUrl}
-            <img src={avatarUrl} alt="" />
-          {:else}
-            <span style:background={avatarBg}>{letter}</span>
-          {/if}
+          <div class="avatar-big">
+            {#if avatarUrl && !avatarFailed}
+              <img src={avatarUrl} alt="" onerror={() => (avatarFailed = true)} />
+            {:else}
+              <span style:background={avatarBg}>{letter}</span>
+            {/if}
         </div>
 
         <div class="avatar-actions">
