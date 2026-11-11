@@ -1,0 +1,16 @@
+﻿import { chromium } from 'playwright-core';
+import { readFile } from 'node:fs/promises';
+const pw = JSON.parse((await readFile(process.env.TEMP.replace(/\\/g, '/') + '/opencode/seed_passwords.json', 'utf8')).replace(/^\uFEFF/, ''));
+const auth = await (await fetch('http://127.0.0.1:8080/api/v2/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: 'manager', password: pw.manager }) })).json();
+const b = await chromium.launch({ channel: 'msedge' });
+const ctx = await b.newContext({ viewport: { width: 1440, height: 1000 } });
+await ctx.addInitScript(([t, u]) => { localStorage.setItem('crm_token', t); localStorage.setItem('crm_user', u); }, [auth.data.token, JSON.stringify(auth.data.user)]);
+const p = await ctx.newPage();
+await p.goto('http://localhost:4173/#/requests/246', { waitUntil: 'domcontentloaded' });
+await p.waitForTimeout(2000);
+await p.getByLabel(/История/).first().click();
+await p.waitForTimeout(800);
+const times = await p.locator('.event-list-card .discussion-item .di-time').allInnerTexts();
+console.log(JSON.stringify(times));
+await p.screenshot({ path: 'artifacts/history-order.png' });
+await b.close();

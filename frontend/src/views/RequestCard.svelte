@@ -127,7 +127,7 @@
       }))
     ];
 
-    return items.sort((a, b) => (a.at === b.at ? b.id - a.id : a.at < b.at ? 1 : -1));
+    return items.sort((a, b) => (a.at === b.at ? a.id - b.id : a.at < b.at ? -1 : 1));
   });
 
   const historyCount = $derived(historyFeed.length);
