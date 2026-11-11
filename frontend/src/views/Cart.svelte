@@ -181,8 +181,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-    max-width: 860px;
-    margin: 0 auto;
   }
 
   .head {
