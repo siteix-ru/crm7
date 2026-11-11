@@ -404,12 +404,10 @@
       </div>
 
       <div class="picker-status" aria-live="polite">
-        <span>
-          Найдено: <strong>{total}</strong>
-          {#if activeWarehouse}
-            · склад: <strong>{activeWarehouse.name}</strong>
-          {/if}
-        </span>
+        <span class="ps-found">Найдено: <strong>{total}</strong></span>
+        {#if activeWarehouse}
+          <span class="ps-wh">· склад: <strong>{activeWarehouse.name}</strong></span>
+        {/if}
         <span class:limit={limitReached}>
           Выбрано: <strong>{draft.length}</strong> из {MAX_ITEMS}
           {#if pickedTotal > 0}· всего единиц: {pickedTotal.toLocaleString('ru-RU')}{/if}
@@ -889,30 +887,74 @@
     margin-left: auto;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .picker-row-filters {
       align-items: stretch;
     }
 
-    .picker-field-wh,
-    .picker-field-wh select,
-    .picker-field-group,
-    .picker-field-group select,
     .picker-search {
+      order: -1;
       flex: 1 1 100%;
       max-width: none;
       min-width: 0;
     }
 
-    .picker-head,
-    .picker-row {
-      grid-template-columns: minmax(0, 1fr) 80px 76px 108px;
-      gap: var(--space-2);
+    .picker-field-wh,
+    .picker-field-group {
+      flex: 1 1 0;
+      max-width: none;
+      min-width: 0;
     }
 
-    .picker-table.no-price .picker-head,
+    .picker-field-wh select,
+    .picker-field-group select {
+      width: 100%;
+      min-width: 0;
+      max-width: none;
+    }
+
+    .ps-wh {
+      display: none;
+    }
+
+    .picker-head {
+      display: none;
+    }
+
+    .picker-row,
     .picker-table.no-price .picker-row {
-      grid-template-columns: minmax(0, 1fr) 80px 108px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      column-gap: var(--space-2);
+      row-gap: 2px;
+      padding: 9px 4px;
+    }
+
+    .pr-name {
+      flex: 1 1 100%;
+    }
+
+    .pr-stock {
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-start;
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .pr-stock.warn {
+      color: var(--danger);
+    }
+
+    .pr-price {
+      justify-self: start;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .pr-cart {
+      margin-left: auto;
     }
 
     .picker-footer-actions {

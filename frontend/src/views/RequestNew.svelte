@@ -27,6 +27,7 @@
   let subject = $state('');
   let body = $state('');
   let descriptionOpen = $state(false);
+let paramsOpen = $state(true);
   let priority = $state(2);
   let clientId = $state(0);
   let error = $state('');
@@ -767,7 +768,7 @@
       <a class="back" href="#/requests" title="К списку заявок" aria-label="К списку заявок">
         <Icon name="arrow-left" size={16} />
       </a>
-      <div>
+      <div class="head-text">
         <h1>{draftId === null ? 'Новая заявка' : 'Черновик заявки'}</h1>
         <p class="sub">Оформление заявки и добавление номенклатуры</p>
       </div>
@@ -855,13 +856,16 @@
               </select>
             {/if}
 
-            <Button
+            <button
+              type="button"
+              class="add-btn"
+              title="Добавить номенклатуру"
               disabled={!appSettings.salesEnabled || priceTypeRequired}
               onclick={() => (pickerOpen = true)}
             >
               <Icon name="plus" size={14} />
-              Добавить
-            </Button>
+              <span class="add-label">Добавить</span>
+            </button>
           </div>
         </div>
 
@@ -1047,9 +1051,23 @@
             </section>
           {/if}
 
-          <section class="card">
-            <div class="card-head"><h2>Параметры</h2></div>
-            <div class="stack">
+          <section class="card params-card" class:collapsed={!paramsOpen}>
+            <div class="card-head params-head">
+              <h2>Параметры</h2>
+              <button
+                type="button"
+                class="params-toggle"
+                aria-expanded={paramsOpen}
+                aria-controls="params-body"
+                title={paramsOpen ? 'Свернуть параметры' : 'Развернуть параметры'}
+                onclick={() => (paramsOpen = !paramsOpen)}
+              >
+                <span class="chev">
+                  <Icon name="arrow-down" size={14} />
+                </span>
+              </button>
+            </div>
+            <div class="stack params-body" id="params-body">
               <Input label="Тема заявки" bind:value={subject} placeholder="Коротко: что нужно" />
 
               <label class="field">
@@ -1166,6 +1184,51 @@
   .card-head h2 {
     margin: 0;
     font-size: 16px;
+  }
+
+  .add-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    height: 32px;
+    padding: 0 15px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: var(--primary);
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .add-btn:hover:not(:disabled) {
+    background: var(--primary-hover);
+  }
+
+  .add-btn:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .add-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
+  }
+
+  .params-toggle {
+    display: none;
+  }
+
+  .chev {
+    display: inline-flex;
+    transition: transform 0.15s ease;
+  }
+
+  .params-toggle[aria-expanded='true'] .chev {
+    transform: rotate(180deg);
   }
 
   .draft-status {
@@ -1795,6 +1858,59 @@
 
     .ir-del {
       margin-left: auto;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .head .back {
+      align-self: flex-start;
+    }
+
+    .add-label {
+      display: none;
+    }
+
+    .add-btn {
+      width: var(--control-height);
+      padding: 0;
+    }
+
+    .params-toggle {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 28px;
+      padding: 0;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: color 0.12s ease, background 0.12s ease;
+    }
+
+    .params-toggle:hover {
+      background: rgba(0, 0, 0, 0.05);
+      color: var(--text);
+    }
+
+    .params-toggle:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px var(--focus-ring);
+    }
+
+    .params-card.collapsed .params-body {
+      display: none;
+    }
+
+    .params-card.collapsed .params-head {
+      margin-bottom: 0;
+    }
+
+    .params-card.collapsed {
+      padding-top: 10px;
+      padding-bottom: 10px;
     }
   }
 </style>

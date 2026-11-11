@@ -850,7 +850,7 @@
           onclick={() => router.navigate('/requests/new')}
         >
           <Icon name="plus" size={14} />
-          Новая заявка
+          <span class="create-label">Новая заявка</span>
         </button>
       {/if}
     </div>
@@ -1517,6 +1517,11 @@
   .create-button:focus-visible {
     outline: 2px solid var(--primary);
     outline-offset: 2px;
+  }
+
+  .create-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .toolbar-divider {
@@ -2305,6 +2310,37 @@
   .client-picked-clear:hover {
     border-color: var(--danger);
     color: var(--danger);
+  }
+
+  @media (max-width: 720px) {
+    .filters {
+      row-gap: var(--space-2);
+    }
+
+    .search {
+      flex-basis: 100%;
+      max-width: 100%;
+    }
+
+    .filter-icons {
+      width: 100%;
+      margin-left: 0;
+      flex-wrap: nowrap;
+      justify-content: flex-start;
+    }
+
+    .create-button {
+      width: var(--control-height);
+      height: var(--control-height);
+      padding: 0;
+      margin-left: auto;
+      justify-content: center;
+      flex: 0 0 auto;
+    }
+
+    .create-label {
+      display: none;
+    }
   }
 
 </style>
