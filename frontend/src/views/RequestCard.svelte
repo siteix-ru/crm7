@@ -1696,7 +1696,14 @@
             <div class="visibility-row">
               <label class="visibility-toggle">
                 <input type="checkbox" bind:checked={shareWithClient} />
-                <span>Доступно клиенту</span>
+                <span class="visibility-body">
+                  <span class="visibility-title">Доступно клиенту</span>
+                  <span class="visibility-hint">
+                    {shareWithClient
+                      ? 'Клиент увидит событие в карточке и чате'
+                      : 'Событие видят только сотрудники'}
+                  </span>
+                </span>
               </label>
             </div>
           {/if}
@@ -2199,7 +2206,14 @@
               {#if isStaff}
                 <label class="visibility-toggle">
                   <input type="checkbox" bind:checked={uploadInternal} />
-                  <span>Внутренний файл — не показывать клиенту</span>
+                  <span class="visibility-body">
+                    <span class="visibility-title">Внутренний файл</span>
+                    <span class="visibility-hint">
+                      {uploadInternal
+                        ? 'Файл увидят только сотрудники'
+                        : 'Файл будет доступен клиенту'}
+                    </span>
+                  </span>
                 </label>
               {/if}
 
@@ -3911,18 +3925,54 @@
   }
 
   .visibility-toggle {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
     color: var(--text);
     font-size: 13px;
     cursor: pointer;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .visibility-toggle:hover {
+    border-color: var(--border);
+    background: var(--surface);
+  }
+
+  .visibility-toggle:has(input:checked) {
+    border-color: var(--primary);
   }
 
   .visibility-toggle input {
+    flex: 0 0 auto;
     width: 16px;
     height: 16px;
+    margin-top: 2px;
     accent-color: var(--primary);
+    cursor: pointer;
+  }
+
+  .visibility-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .visibility-title {
+    font-weight: 600;
+    line-height: 1.3;
+  }
+
+  .visibility-hint {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.35;
   }
 
   .composer {
