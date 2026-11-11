@@ -80,7 +80,7 @@ final class AttachmentService
                 fn (array $row): array => $this->mapAttachment($row, $userId, $canManage),
                 $this->attachments->listByRequest($requestId, $isStaff)
             ),
-            'can_upload' => true,
+            'can_upload' => !$this->requestService->isFinalStatus($request),
             'max_size' => self::MAX_SIZE,
             'request_id' => (int) $request['ID'],
         ];
@@ -94,7 +94,12 @@ final class AttachmentService
         bool $isInternal = false,
         ?string $comment = null
     ): array {
-        $this->requireRequest($user, $capabilities, $requestId);
+        $request = $this->requireRequest($user, $capabilities, $requestId);
+
+        if ($this->requestService->isFinalStatus($request)) {
+            throw new HttpException(422, 'final_status', 'Заявка закрыта — добавление файлов недоступно');
+        }
+
         $isInternal = (int) $user['LEVEL'] >= 10 && $isInternal;
         $comment = trim((string) $comment);
 

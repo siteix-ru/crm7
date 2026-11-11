@@ -318,6 +318,7 @@ export interface RequestDetail {
   views: ViewEntry[];
   previous_manager: { id: number; name: string } | null;
   can: {
+    closed: boolean;
     transition: boolean;
     transition_to: string[];
     cancel: boolean;

@@ -1618,7 +1618,25 @@
       {/if}
     {/snippet}
 
+    {#snippet closedNotice()}
+      <div class="closed-notice" role="status">
+        <Icon name="admin" size={16} />
+        <div class="closed-notice-text">
+          <strong>Заявка закрыта.</strong>
+          <span>Добавлять файлы, комментарии, события и сообщения нельзя. Скопируйте заявку, чтобы создать новую.</span>
+        </div>
+        {#if appSettings.salesEnabled && auth.can('requests.create')}
+          <Button size="sm" onclick={openCopy}>Скопировать</Button>
+        {/if}
+      </div>
+    {/snippet}
+
     {#snippet eventComposer()}
+      {#if detail?.can.closed}
+        <div class="card event-composer-card">
+          <p class="muted closed-section-hint">Заявка закрыта — новые события и комментарии недоступны.</p>
+        </div>
+      {:else}
       <div class="card event-composer-card">
         <div class="card-head event-card-head">
           <h2>Новое событие</h2>
@@ -1775,7 +1793,12 @@
           </div>
         </form>
       </div>
+      {/if}
     {/snippet}
+
+    {#if detail.can.closed}
+      <div class="closed-banner">{@render closedNotice()}</div>
+    {/if}
 
     <div class="layout">
       <div class="main">
@@ -1822,8 +1845,10 @@
         {#if detail.items.length === 0}
           <div class="items-empty">
             <span class="items-empty-icon"><Icon name="cart" size={20} /></span>
-            <strong>Состав пока пуст</strong>
-            <p class="muted">Добавьте номенклатуру из склада — цены и остатки подтянутся автоматически.</p>
+            <strong>Состав пуст</strong>
+            {#if !detail.can.closed}
+              <p class="muted">Добавьте номенклатуру из склада — цены и остатки подтянутся автоматически.</p>
+              {/if}
             {#if detail.can.edit_items}
               <Button variant="ghost" onclick={openPicker}>
                 <Icon name="plus" size={16} />
@@ -1947,8 +1972,10 @@
         {#if discussion.length === 0}
           <div class="events-empty">
             <span class="events-empty-icon"><Icon name="history" size={20} /></span>
-            <strong>Активности пока нет</strong>
-            <span class="muted">Добавьте событие — оно появится здесь.</span>
+            <strong>{detail?.can.closed ? 'Активностей нет' : 'Активности пока нет'}</strong>
+            {#if !detail?.can.closed}
+              <span class="muted">Добавьте событие — оно появится здесь.</span>
+            {/if}
           </div>
         {:else}
           <div class="discussion events-scroll">
@@ -1982,6 +2009,9 @@
         <p class="muted chat-hint">
           Заявка {detail.request.number} · переписка с {isStaff ? 'клиентом' : 'менеджером'}
         </p>
+        {#if detail.can.closed}
+          <p class="muted chat-unavailable">Заявка закрыта — отправка сообщений недоступна</p>
+        {/if}
 
         <div class="chat-body">
           {#if chatLoading}
@@ -2018,6 +2048,7 @@
           {/if}
         </div>
 
+        {#if !detail.can.closed}
         {#if detail.chat.can_post}
           <form class="chat-form" onsubmit={sendChat}>
             <textarea
@@ -2032,6 +2063,7 @@
           </form>
         {:else}
           <p class="muted chat-unavailable">Отправка сообщений в этом диалоге недоступна</p>
+        {/if}
         {/if}
       </div>
     {/if}
@@ -2048,8 +2080,10 @@
         {#if attachments.length === 0}
           <div class="files-empty">
             <Icon name="files" size={22} />
-            <span class="files-empty-title">Файлов пока нет</span>
-            <span class="files-empty-hint">Добавьте файл в блоке «Добавить файл»</span>
+            <span class="files-empty-title">{detail.can.closed ? 'Файлов нет' : 'Файлов пока нет'}</span>
+            {#if !detail.can.closed}
+              <span class="files-empty-hint">Добавьте файл в блоке «Добавить файл»</span>
+            {/if}
           </div>
         {/if}
 
@@ -2179,6 +2213,11 @@
         {/if}
 
         {#if cardTab === 'files'}
+          {#if detail.can.closed}
+            <div class="card">
+              <p class="muted closed-section-hint">Заявка закрыта — добавление файлов недоступно.</p>
+            </div>
+          {:else}
           <div class="card files-upload-card">
             <div class="card-head">
               <h2>Добавить файл</h2>
@@ -2266,6 +2305,7 @@
               </div>
             </form>
           </div>
+          {/if}
         {/if}
 
         {#if cardTab === 'comments'}
@@ -3185,6 +3225,59 @@
     color: var(--muted);
     font-size: 12px;
     white-space: nowrap;
+  }
+
+  .closed-notice {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--warning);
+    border-radius: 10px;
+    background: var(--warning-bg);
+    color: var(--warning-text);
+  }
+
+  .closed-notice-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    font-size: 13px;
+    line-height: 1.4;
+  }
+
+  .closed-notice-text strong {
+    font-weight: 600;
+  }
+
+  .closed-banner {
+    margin-bottom: var(--space-4);
+  }
+
+  .closed-section-hint {
+    margin: 0;
+    padding: var(--space-2) 0;
+  }
+
+  .closed-notice > :global(svg) {
+    flex-shrink: 0;
+    margin-top: 1px;
+  }
+
+  .closed-notice > :global(button) {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  @media (max-width: 640px) {
+    .closed-notice {
+      flex-wrap: wrap;
+    }
+
+    .closed-notice > :global(button) {
+      width: 100%;
+      margin-left: 0;
+    }
   }
 
   .items-empty {

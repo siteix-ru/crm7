@@ -873,7 +873,7 @@
             onclick={() => (pickerOpen = true)}
           >
             <span class="items-empty-icon"><Icon name="stocks" size={26} /></span>
-            <span class="items-empty-title">Состав пока пуст</span>
+            <span class="items-empty-title">Состав пуст</span>
             <span class="items-empty-text">Добавьте номенклатуру из складских остатков</span>
             <span class="items-empty-cta"><Icon name="plus" size={14} /> Добавить номенклатуру</span>
           </button>

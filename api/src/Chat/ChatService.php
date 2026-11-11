@@ -210,6 +210,10 @@ final class ChatService
             if ($thread['client_id'] === null || (int) $request['client_id'] !== (int) $thread['client_id']) {
                 throw new HttpException(422, 'validation_error', 'Заявка не относится к этому клиенту');
             }
+
+            if ($this->requests->isFinalRequest((int) $request['ID'])) {
+                throw new HttpException(422, 'final_status', 'Заявка закрыта — отправка сообщений недоступна');
+            }
         }
 
         RateLimiter::hit('chat.send', 'user:' . (int) $user['ID'], 240, 3600);

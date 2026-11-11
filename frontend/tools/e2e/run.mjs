@@ -1702,6 +1702,86 @@ const scenarios = [
     }
   },
   {
+    name: 'req: закрытая заявка только для чтения',
+    role: 'manager',
+    async run(page, ctx) {
+      const token = ctx.session.token;
+      const api = async (method, path, body) => {
+        const response = await fetch(`${API}${path}`, {
+          method,
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: body ? JSON.stringify(body) : undefined
+        });
+
+        return { status: response.status, json: await response.json().catch(() => null) };
+      };
+
+      const list = await api('GET', '/requests?per_page=50');
+      assert(list.status === 200, `не удалось получить список заявок (${list.status})`);
+
+      const closed = (list.json?.data?.items ?? []).find((item) => item.status.is_final);
+      assert(closed, 'нет закрытой заявки для проверки (нужны демо-данные)');
+
+      const detail = await api('GET', `/requests/${closed.id}`);
+      assert(detail.json?.data?.can?.closed === true, 'API не помечает заявку закрытой');
+
+      const comment = await api('POST', `/requests/${closed.id}/comments`, { body: 'e2e' });
+      assert(
+        comment.status === 422 && comment.json?.error?.code === 'final_status',
+        `комментарий в закрытую заявку не заблокирован (${comment.status})`
+      );
+
+      const activity = await api('POST', `/requests/${closed.id}/activities`, {
+        type: 'custom',
+        subject: 'e2e'
+      });
+      assert(
+        activity.status === 422 && activity.json?.error?.code === 'final_status',
+        `событие в закрытую заявку не заблокировано (${activity.status})`
+      );
+
+      const files = await api('GET', `/requests/${closed.id}/attachments`);
+      assert(files.json?.data?.can_upload === false, 'загрузка файлов в закрытую заявку не заблокирована');
+
+      const thread = detail.json?.data?.chat?.thread_id ?? 0;
+
+      if (thread > 0) {
+        const message = await api('POST', `/chat/threads/${thread}/messages`, {
+          body: 'e2e',
+          request_id: closed.id
+        });
+        assert(
+          message.status === 422 && message.json?.error?.code === 'final_status',
+          `сообщение в чат закрытой заявки не заблокировано (${message.status})`
+        );
+      }
+
+      await page.goto(`${BASE}/#/requests/${closed.id}`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.locator('.closed-notice'), 'нет плашки о закрытой заявке');
+
+      await page.getByLabel(/Активность/).click();
+      await page.waitForTimeout(800);
+      assert(
+        (await page.locator('.event-composer-card form').count()) === 0,
+        'форма события доступна в закрытой заявке'
+      );
+
+      await page.getByLabel(/Файлы/).click();
+      await page.waitForTimeout(800);
+      assert(
+        (await page.locator('.files-upload-form').count()) === 0,
+        'загрузка файлов доступна в закрытой заявке'
+      );
+
+      await page.getByLabel(/Чат по заявке/).click();
+      await page.waitForTimeout(800);
+      assert(
+        (await page.locator('.chat-form').count()) === 0,
+        'форма чата доступна в закрытой заявке'
+      );
+    }
+  },
+  {
     name: 'Мобильный клиент: список заявок и карточка',
     role: 'client',
     mobile: true,

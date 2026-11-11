@@ -292,6 +292,17 @@ final class RequestService
         ], $this->statuses->all());
     }
 
+    public function isFinalStatus(?array $request): bool
+    {
+        if ($request === null) {
+            return false;
+        }
+
+        $status = $this->statuses->map()[(string) ($request['status_id'] ?? '')] ?? null;
+
+        return $status !== null && (bool) $status['is_final'];
+    }
+
     public function list(array $user, array $capabilities, array $filters): array
     {
         $page = max(1, (int) ($filters['page'] ?? 1));
@@ -488,6 +499,7 @@ final class RequestService
                 ? ['id' => (int) $previousManager['id'], 'name' => (string) $previousManager['name']]
                 : null,
             'can' => [
+                'closed' => $isFinal,
                 'transition' => $isStaff && $this->canTransition($user, $capabilities, $request),
                 'transition_to' => $this->transitionTargets($user, $capabilities, $request, $isManager),
                 'cancel' => !$isStaff && $this->canTransition($user, $capabilities, $request),
@@ -499,7 +511,7 @@ final class RequestService
                 'edit' => $this->canEdit($user, $capabilities, $request),
                 'priority' => $isStaff && $this->canEdit($user, $capabilities, $request),
                 'meta' => $isStaff && !$isFinal && $this->canTransition($user, $capabilities, $request),
-                'edit_text' => $isStaff && $this->canTransition($user, $capabilities, $request),
+                'edit_text' => $isStaff && !$isFinal && $this->canTransition($user, $capabilities, $request),
                 'edit_items' => $this->canEditItems($user, $capabilities, $request),
             ],
             'chat' => $chat,
@@ -1603,6 +1615,10 @@ final class RequestService
 
         $this->assertCanView($user, $capabilities, $request);
 
+        if ($this->isFinalStatus($request)) {
+            throw new HttpException(422, 'final_status', 'Заявка закрыта — добавление событий недоступно');
+        }
+
         $type = $this->activityTypes->map()[$typeCode] ?? null;
 
         if ($type === null || !(bool) $type['is_active']) {
@@ -1723,6 +1739,10 @@ final class RequestService
         }
 
         $this->assertCanView($user, $capabilities, $request);
+
+        if ($this->isFinalStatus($request)) {
+            throw new HttpException(422, 'final_status', 'Заявка закрыта — добавление комментариев недоступно');
+        }
 
         $isInternal = $this->canManage($user, $capabilities, $request)
             && (bool) ($input['is_internal'] ?? true);

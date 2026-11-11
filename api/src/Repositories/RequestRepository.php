@@ -66,6 +66,18 @@ final class RequestRepository
         return $stmt->fetch() ?: null;
     }
 
+    public function isFinalRequest(int $id): bool
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT s.is_final FROM requests r
+             INNER JOIN request_statuses s ON s.code = r.status_id
+             WHERE r.ID = ? LIMIT 1'
+        );
+        $stmt->execute([$id]);
+
+        return (int) $stmt->fetchColumn() === 1;
+    }
+
     public function findByIdForUpdate(int $id): ?array
     {
         $stmt = Database::pdo()->prepare('SELECT * FROM requests WHERE ID = ? LIMIT 1 FOR UPDATE');
