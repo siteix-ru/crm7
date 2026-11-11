@@ -1618,19 +1618,6 @@
       {/if}
     {/snippet}
 
-    {#snippet closedNotice()}
-      <div class="closed-notice" role="status">
-        <Icon name="admin" size={16} />
-        <div class="closed-notice-text">
-          <strong>Заявка закрыта.</strong>
-          <span>Добавлять файлы, комментарии, события и сообщения нельзя. Скопируйте заявку, чтобы создать новую.</span>
-        </div>
-        {#if appSettings.salesEnabled && auth.can('requests.create')}
-          <Button size="sm" onclick={openCopy}>Скопировать</Button>
-        {/if}
-      </div>
-    {/snippet}
-
     {#snippet eventComposer()}
       {#if detail?.can.closed}
         <div class="card event-composer-card">
@@ -1795,10 +1782,6 @@
       </div>
       {/if}
     {/snippet}
-
-    {#if detail.can.closed}
-      <div class="closed-banner">{@render closedNotice()}</div>
-    {/if}
 
     <div class="layout">
       <div class="main">
@@ -3227,57 +3210,9 @@
     white-space: nowrap;
   }
 
-  .closed-notice {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-    border: 1px solid var(--warning);
-    border-radius: 10px;
-    background: var(--warning-bg);
-    color: var(--warning-text);
-  }
-
-  .closed-notice-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    font-size: 13px;
-    line-height: 1.4;
-  }
-
-  .closed-notice-text strong {
-    font-weight: 600;
-  }
-
-  .closed-banner {
-    margin-bottom: var(--space-4);
-  }
-
   .closed-section-hint {
     margin: 0;
     padding: var(--space-2) 0;
-  }
-
-  .closed-notice > :global(svg) {
-    flex-shrink: 0;
-    margin-top: 1px;
-  }
-
-  .closed-notice > :global(button) {
-    margin-left: auto;
-    flex-shrink: 0;
-  }
-
-  @media (max-width: 640px) {
-    .closed-notice {
-      flex-wrap: wrap;
-    }
-
-    .closed-notice > :global(button) {
-      width: 100%;
-      margin-left: 0;
-    }
   }
 
   .items-empty {

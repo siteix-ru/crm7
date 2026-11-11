@@ -1757,7 +1757,7 @@ const scenarios = [
       }
 
       await page.goto(`${BASE}/#/requests/${closed.id}`, { waitUntil: 'domcontentloaded' });
-      await expectVisible(page.locator('.closed-notice'), 'нет плашки о закрытой заявке');
+      await expectVisible(page.getByText('Закрыта').first(), 'нет статуса «Закрыта» в карточке');
 
       await page.getByLabel(/Активность/).click();
       await page.waitForTimeout(800);
