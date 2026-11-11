@@ -39,6 +39,13 @@ jobs:
       - run: npm run build
       - name: Lighthouse (mobile, Fast 3G)
         run: npm run lighthouse
+      - name: Upload Lighthouse report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-report
+          path: frontend/artifacts/lighthouse
+          if-no-files-found: ignore
 
   php:
     runs-on: ubuntu-latest
