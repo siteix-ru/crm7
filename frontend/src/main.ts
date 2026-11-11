@@ -16,6 +16,23 @@ if ('serviceWorker' in navigator && import.meta.env.PROD) {
       // офлайн-режим недоступен — не критично
     });
   });
+
+  const hadController = Boolean(navigator.serviceWorker.controller);
+  let interacted = false;
+  let reloading = false;
+
+  for (const type of ['pointerdown', 'keydown', 'input'] as const) {
+    window.addEventListener(type, () => (interacted = true), { once: true, capture: true });
+  }
+
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || interacted || reloading) {
+      return;
+    }
+
+    reloading = true;
+    window.location.reload();
+  });
 }
 
 export default app;

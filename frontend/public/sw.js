@@ -1,4 +1,4 @@
-const CACHE = 'crm-shell-v2:' + self.location.pathname.replace(/\/[^/]*$/, '');
+const CACHE = 'crm-shell-v3:' + self.location.pathname.replace(/\/[^/]*$/, '');
 const SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (event) => {
