@@ -3468,24 +3468,6 @@
     resize: vertical;
   }
 
-  @media (max-width: 900px) {
-    .account,
-    .requests-layout {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .account-side,
-    .requests-side {
-      position: static;
-    }
-  }
-
-  @media (max-width: 640px) {
-    .hero {
-      align-items: flex-start;
-    }
-  }
-
   .event {
     font-weight: 500;
     font-size: 14px;
@@ -3780,5 +3762,23 @@
     display: grid;
     place-items: center;
     padding: var(--space-6);
+  }
+
+  @media (max-width: 1024px) {
+    .account,
+    .requests-layout {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .account-side,
+    .requests-side {
+      position: static;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .hero {
+      align-items: flex-start;
+    }
   }
 </style>

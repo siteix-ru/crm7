@@ -349,7 +349,7 @@
   }
 </script>
 
-<section class="page">
+<section class="page page-wide">
   <div class="page-hero">
   <div class="filters">
     <div class="head">

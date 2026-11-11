@@ -128,6 +128,27 @@ main:has(.page-wide) {
   max-width: none;
 }
 
+main:has(.page-full) {
+  max-width: none;
+}
+
+/* Списки и таблицы плавно расширяются на больших мониторах. */
+main:has(.page-wide) > .page:not(.page-full) {
+  max-width: 1280px;
+}
+
+@media (min-width: 1600px) {
+  main:has(.page-wide) > .page:not(.page-full) {
+    max-width: 1440px;
+  }
+}
+
+@media (min-width: 1920px) {
+  main:has(.page-wide) > .page:not(.page-full) {
+    max-width: 1600px;
+  }
+}
+
 /* Страницы занимают оставшуюся высоту, чтобы пагинация прижималась к низу. */
 main {
   display: flex;

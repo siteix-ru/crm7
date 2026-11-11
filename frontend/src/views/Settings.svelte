@@ -772,7 +772,7 @@ async function saveSettings(): Promise<void> {
   }
 </script>
 
-<section class="page page-wide">
+<section class="page page-wide page-full">
   <div class="settings-layout">
     <aside class="settings-sidebar" aria-label="Настройки">
       <div class="settings-sidebar-head">
