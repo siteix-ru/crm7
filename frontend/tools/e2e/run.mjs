@@ -240,7 +240,7 @@ const scenarios = [
       await card.click();
 
       await expectVisible(page.getByRole('button', { name: /^Заявка/ }), 'нет вкладки «Заявка»');
-      await expectVisible(page.getByRole('button', { name: /^Активность/ }), 'нет вкладки «Активность»');
+      await expectVisible(page.getByRole('button', { name: /^История/ }), 'нет вкладки «Активность»');
       await expectVisible(page.locator('.main .items-card'), 'состав заявки не в основной колонке');
       await expectVisible(
         page.locator('.side .side-description-card'),
@@ -251,7 +251,7 @@ const scenarios = [
         'блок «Итого» не удалён'
       );
 
-      await page.getByRole('button', { name: /^Активность/ }).click();
+      await page.getByRole('button', { name: /^История/ }).click();
       await expectVisible(
         page.getByRole('heading', { name: 'Новое событие' }),
         'нет формы добавления события'
@@ -309,19 +309,19 @@ const scenarios = [
         'подсказка не закрылась по клику вне'
       );
 
-      await page.locator('.events-head-actions .link-btn').click();
-      const historyDialog = page.getByRole('dialog');
-      await expectVisible(historyDialog, 'не открылась модалка истории');
-      await expectVisible(
-        historyDialog.getByRole('button', { name: /^Активность/ }),
-        'нет вкладки «Активность» в истории'
+      await expectVisible(page.locator('.event-list-card h2'), 'нет блока «История»');
+      assert(
+        (await page.locator('.events-head-actions').count()) === 0,
+        'осталась ссылка на модалку истории'
       );
-      await historyDialog.getByRole('button', { name: 'Хронология' }).click();
-      await expectVisible(
-        historyDialog.getByRole('button', { name: 'Хронология' }),
-        'нет вкладки «Хронология» в истории'
-      );
-      await page.keyboard.press('Escape');
+      const discussion = page.locator('.event-list-card .discussion');
+
+      if ((await discussion.count()) > 0) {
+        assert(
+          (await discussion.evaluate((el) => getComputedStyle(el).overflowY)) === 'visible',
+          'в истории есть внутренний скролл'
+        );
+      }
 
       await page.getByRole('button', { name: /^Файлы/ }).click();
       await expectVisible(
@@ -1759,7 +1759,7 @@ const scenarios = [
       await page.goto(`${BASE}/#/requests/${closed.id}`, { waitUntil: 'domcontentloaded' });
       await expectVisible(page.getByText('Закрыта').first(), 'нет статуса «Закрыта» в карточке');
 
-      await page.getByLabel(/Активность/).click();
+      await page.getByLabel(/История/).click();
       await page.waitForTimeout(800);
       assert(
         (await page.locator('.event-composer-card form').count()) === 0,

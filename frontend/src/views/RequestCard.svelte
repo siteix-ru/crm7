@@ -68,8 +68,6 @@
   let targetStatus = $state('');
   let transitionComment = $state('');
   let cardTab = $state<CardTab>('request');
-  let historyModalOpen = $state(false);
-  let historyModalTab = $state<'events' | 'timeline' | 'assignments' | 'views'>('events');
   let helperOpen = $state(false);
   let helperToggleEl = $state<HTMLButtonElement | null>(null);
   let helperEl = $state<HTMLDivElement | null>(null);
@@ -79,8 +77,8 @@
   let actionNotice = $state('');
   let activityTypes = $state<ActivityType[]>([]);
 
-  type DiscussionItem = {
-    kind: 'comment' | 'activity';
+  type HistoryItem = {
+    kind: 'comment' | 'activity' | 'status';
     id: number;
     at: string;
     user: { id: number; name: string };
@@ -90,10 +88,10 @@
     attachment: { id: number; name: string; size: number } | null;
   };
 
-  const discussion = $derived.by((): DiscussionItem[] => {
+  const historyFeed = $derived.by((): HistoryItem[] => {
     if (!detail) return [];
 
-    const items: DiscussionItem[] = [
+    const items: HistoryItem[] = [
       ...detail.comments.map((comment) => ({
         kind: 'comment' as const,
         id: comment.id,
@@ -104,24 +102,35 @@
         clientVisible: !comment.is_internal,
         attachment: null
       })),
-      ...detail.activities
-        .filter((activity) => activity.manual)
-        .map((activity) => ({
-          kind: 'activity' as const,
-          id: activity.id,
-          at: activity.created_at,
-          user: activity.user,
-          title: activity.type.title,
-          body: activity.body,
-          clientVisible: !activity.is_internal,
-          attachment: activity.attachment
-        }))
+      ...detail.activities.map((activity) => ({
+        kind: 'activity' as const,
+        id: activity.id,
+        at: activity.created_at,
+        user: activity.user,
+        title: activity.type.title,
+        body: activity.body,
+        clientVisible: !activity.is_internal,
+        attachment: activity.attachment
+      })),
+      ...detail.history.map((event) => ({
+        kind: 'status' as const,
+        id: event.id,
+        at: event.created_at,
+        user: event.user,
+        title:
+          event.from && event.to && event.from.code !== event.to.code
+            ? `Статус: ${event.from.title} → ${event.to.title}`
+            : 'Статус изменён',
+        body: event.comment,
+        clientVisible: true,
+        attachment: null
+      }))
     ];
 
     return items.sort((a, b) => (a.at === b.at ? b.id - a.id : a.at < b.at ? 1 : -1));
   });
 
-  const discussionCount = $derived(discussion.length);
+  const historyCount = $derived(historyFeed.length);
   let chatUnread = $state(0);
 
   let priorityOpen = $state(false);
@@ -1014,55 +1023,6 @@
     }
   }
 
-  type TimelineItem =
-    | {
-        kind: 'status';
-        id: number;
-        at: string;
-        user: { id: number; name: string; level: number; position: string };
-        from: { code: string; title: string } | null;
-        to: { code: string; title: string } | null;
-        comment: string;
-      }
-    | {
-        kind: 'activity';
-        id: number;
-        at: string;
-        user: { id: number; name: string; level: number; position: string };
-        title: string;
-        body: string;
-      };
-
-  const timeline = $derived.by((): TimelineItem[] => {
-    if (!detail) return [];
-
-    const items: TimelineItem[] = [
-      ...detail.history.map(
-        (event): TimelineItem => ({
-          kind: 'status',
-          id: event.id,
-          at: event.created_at,
-          user: event.user,
-          from: event.from,
-          to: event.to,
-          comment: event.comment
-        })
-      ),
-      ...detail.activities.map(
-        (activity): TimelineItem => ({
-          kind: 'activity',
-          id: activity.id,
-          at: activity.created_at,
-          user: activity.user,
-          title: activity.type.title,
-          body: activity.body
-        })
-      )
-    ];
-
-    return items.sort((a, b) => (a.at === b.at ? b.id - a.id : a.at < b.at ? 1 : -1));
-  });
-
   function openCopy(): void {
     copyOpen = true;
   }
@@ -1154,11 +1114,6 @@
         chatLoading = false;
       }
     }
-  }
-
-  function openEventsHistory(): void {
-    historyModalTab = 'events';
-    historyModalOpen = true;
   }
 
   async function openCardTab(next: CardTab): Promise<void> {
@@ -1384,14 +1339,14 @@
                 type="button"
                 class="hero-tab"
                 class:active={cardTab === 'comments'}
-                title={`Активность${discussionCount > 0 ? `: ${discussionCount}` : ''}`}
-                aria-label={`Активность${discussionCount > 0 ? `, ${discussionCount}` : ''}`}
+                title={`История${historyCount > 0 ? `: ${historyCount}` : ''}`}
+                aria-label={`История${historyCount > 0 ? `, ${historyCount}` : ''}`}
                 onclick={() => void openCardTab('comments')}
               >
-                <Icon name="events" size={18} />
-                {#if discussionCount > 0}
+                <Icon name="history" size={18} />
+                {#if historyCount > 0}
                   <span class="tab-count">
-                    {discussionCount > 99 ? '99+' : discussionCount}
+                    {historyCount > 99 ? '99+' : historyCount}
                   </span>
                 {/if}
               </button>
@@ -1516,15 +1471,18 @@
       </Button>
     </div>
   {:else if detail}
-    {#snippet eventItem(item: DiscussionItem)}
+    {#snippet eventItem(item: HistoryItem)}
       <div class="discussion-item">
-        <span class="di-icon" class:activity={item.kind === 'activity'}>
-          <Icon name={item.kind === 'activity' ? 'check-circle' : 'comments'} size={14} />
+        <span class="di-icon" class:activity={item.kind !== 'comment'}>
+          <Icon
+            name={item.kind === 'comment' ? 'comments' : item.kind === 'status' ? 'history' : 'check-circle'}
+            size={14}
+          />
         </span>
         <div class="di-main">
           <div class="di-head">
-            <span class="di-kind" class:activity={item.kind === 'activity'}>{item.title}</span>
-            {#if isStaff && item.clientVisible}
+            <span class="di-kind" class:activity={item.kind !== 'comment'}>{item.title}</span>
+            {#if isStaff && item.kind !== 'status' && item.clientVisible}
               <span class="di-shared" title="Доступно клиенту">Клиенту</span>
             {/if}
             <span class="di-author">{item.user.name}</span>
@@ -1546,36 +1504,6 @@
           {/if}
         </div>
       </div>
-    {/snippet}
-
-    {#snippet historyTimeline()}
-      {#if timeline.length === 0}
-        <p class="muted">Записей пока нет</p>
-      {:else}
-        <ol class="timeline">
-          {#each timeline as event (`${event.kind}-${event.id}`)}
-            <li>
-              <div class="t-head">
-                <strong>{event.user.name}</strong>
-                {#if event.user.position}<span class="t-pos">{event.user.position}</span>{/if}
-                {#if event.kind === 'status'}
-                  <span class="t-activity">Статус изменён</span>
-                {:else}
-                  <span class="t-activity">{event.title}</span>
-                {/if}
-                <span class="t-date">{formatDateTime(event.at)}</span>
-              </div>
-              {#if event.kind === 'status'}
-                {#if event.comment}
-                  <div class="t-comment">{event.comment}</div>
-                {/if}
-              {:else if event.body}
-                <div class="t-comment">{event.body}</div>
-              {/if}
-            </li>
-          {/each}
-        </ol>
-      {/if}
     {/snippet}
 
     {#snippet historyAssignments(requestDetail: RequestDetail)}
@@ -1937,40 +1865,43 @@
       <div class="card event-list-card">
         <div class="card-head">
           <div class="events-title">
-            <h2>Лента активности</h2>
-            {#if discussionCount > 0}
-              <span class="events-count" title={`Всего событий: ${discussionCount}`}>
-                {discussionCount}
+            <h2>История</h2>
+            {#if historyCount > 0}
+              <span class="events-count" title={`Всего записей: ${historyCount}`}>
+                {historyCount}
               </span>
             {/if}
           </div>
-          <div class="events-head-actions">
-            <button type="button" class="link-btn events-history-link" onclick={openEventsHistory}>
-              <Icon name="history" size={14} />
-              История
-            </button>
-          </div>
         </div>
 
-        {#if discussion.length === 0}
+        {#if historyFeed.length === 0}
           <div class="events-empty">
             <span class="events-empty-icon"><Icon name="history" size={20} /></span>
-            <strong>{detail?.can.closed ? 'Активностей нет' : 'Активности пока нет'}</strong>
+            <strong>{detail?.can.closed ? 'Записей нет' : 'Записей пока нет'}</strong>
             {#if !detail?.can.closed}
               <span class="muted">Добавьте событие — оно появится здесь.</span>
             {/if}
           </div>
         {:else}
-          <div class="discussion events-scroll">
-            {#each discussion.slice(0, 20) as item (`${item.kind}-${item.id}`)}
+          <div class="discussion">
+            {#each historyFeed as item (`${item.kind}-${item.id}`)}
               {@render eventItem(item)}
             {/each}
           </div>
-          {#if discussion.length > 20}
-            <p class="muted events-tail">
-              Показаны последние 20 из {discussionCount}
-            </p>
-          {/if}
+        {/if}
+
+        {#if detail && isStaff && detail.assignments.length > 0}
+          <section class="history-section">
+            <h3>Передачи</h3>
+            {@render historyAssignments(detail)}
+          </section>
+        {/if}
+
+        {#if detail && isStaff && detail.views.length > 0}
+          <section class="history-section">
+            <h3>Просмотры</h3>
+            {@render historyViews(detail)}
+          </section>
         {/if}
       </div>
     {/snippet}
@@ -2404,63 +2335,6 @@
 
       </aside>
     </div>
-
-    <Modal open={historyModalOpen} title="История" onclose={() => (historyModalOpen = false)}>
-      <div class="tabs tab-scroll">
-        <button
-          type="button"
-          class="tab"
-          class:active={historyModalTab === 'events'}
-          onclick={() => (historyModalTab = 'events')}
-        >
-          Активность ({discussion.length})
-        </button>
-        <button
-          type="button"
-          class="tab"
-          class:active={historyModalTab === 'timeline'}
-          onclick={() => (historyModalTab = 'timeline')}
-        >
-          Хронология
-        </button>
-        {#if isStaff}
-          <button
-            type="button"
-            class="tab"
-            class:active={historyModalTab === 'assignments'}
-            onclick={() => (historyModalTab = 'assignments')}
-          >
-            Передачи ({detail.assignments.length})
-          </button>
-          <button
-            type="button"
-            class="tab"
-            class:active={historyModalTab === 'views'}
-            onclick={() => (historyModalTab = 'views')}
-          >
-            Просмотры ({detail.views.length})
-          </button>
-        {/if}
-      </div>
-
-      {#if historyModalTab === 'events'}
-        {#if discussion.length === 0}
-          <p class="muted">Активности пока нет</p>
-        {:else}
-          <div class="discussion events-modal-scroll">
-            {#each discussion as item (`${item.kind}-${item.id}`)}
-              {@render eventItem(item)}
-            {/each}
-          </div>
-        {/if}
-      {:else if historyModalTab === 'timeline'}
-        {@render historyTimeline()}
-      {:else if historyModalTab === 'assignments'}
-        {@render historyAssignments(detail)}
-      {:else}
-        {@render historyViews(detail)}
-      {/if}
-    </Modal>
 
     <Modal open={itemModalOpen} title="Количество" onclose={() => (itemModalOpen = false)}>
       <div class="form">
@@ -3083,11 +2957,6 @@
     color: var(--danger);
   }
 
-  .t-pos {
-    color: var(--muted);
-    font-size: 12px;
-  }
-
   .step {
     display: inline-flex;
     align-items: center;
@@ -3622,35 +3491,6 @@
     gap: var(--space-3);
   }
 
-  .tabs {
-    display: flex;
-    gap: var(--space-2);
-    margin-bottom: var(--space-3);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .tab {
-    padding: 8px 4px;
-    margin-bottom: -1px;
-    border: none;
-    border-bottom: 2px solid transparent;
-    background: none;
-    font: inherit;
-    font-size: 13px;
-    color: var(--muted);
-    cursor: pointer;
-  }
-
-  .tab:hover {
-    color: var(--text);
-  }
-
-  .tab.active {
-    color: var(--primary);
-    border-bottom-color: var(--primary);
-    font-weight: 600;
-  }
-
   .chat-card {
     display: flex;
     flex-direction: column;
@@ -3975,34 +3815,12 @@
     border-color: var(--primary);
   }
 
-  .timeline {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    border-left: 2px solid var(--border);
-    padding-left: var(--space-4);
-  }
-
-  .timeline li {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
   .t-head {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     gap: var(--space-2);
     font-size: 14px;
-  }
-
-  .t-activity {
-    color: var(--success-text);
-    font-size: 13px;
   }
 
   .t-date {
@@ -4112,13 +3930,25 @@
   .event-optional-links {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--space-3);
+    gap: var(--space-2);
   }
 
   .event-optional-links .link-btn {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .event-optional-links .link-btn:hover {
+    border-color: var(--primary);
+    color: var(--primary);
   }
 
   .event-optional-field {
@@ -4323,38 +4153,16 @@
     font-weight: 600;
   }
 
-  .events-head-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin-left: auto;
-  }
-
-  .events-history-link {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-  }
-
-  .events-scroll {
-    max-height: min(62vh, 680px);
-    max-height: min(62dvh, 680px);
-    overflow-y: auto;
-    padding-right: 4px;
-    scrollbar-width: thin;
-  }
-
-  .events-modal-scroll {
-    max-height: 60vh;
-    overflow-y: auto;
-    padding-right: 4px;
-  }
-
-  .events-tail {
-    margin-top: var(--space-2);
-    padding-top: var(--space-2);
+  .history-section {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
     border-top: 1px solid var(--border-secondary);
-    font-size: 12px;
+  }
+
+  .history-section h3 {
+    margin: 0 0 var(--space-3);
+    font-size: 14px;
+    color: var(--muted);
   }
 
   .events-empty {
