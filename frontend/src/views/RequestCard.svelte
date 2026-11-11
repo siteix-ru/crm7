@@ -2177,9 +2177,11 @@
                     onchange={onUploadFileSelected}
                     disabled={uploading}
                   />
-                  <Icon name="file-plus" size={18} />
+                  <span class="files-dropzone-icon"><Icon name="file-plus" size={22} /></span>
                   <span class="files-dropzone-title">Выбрать файл</span>
-                  <span class="files-dropzone-hint">или перетащите сюда · до 10 МБ</span>
+                  <span class="files-dropzone-hint">
+                    или перетащите сюда · PDF, документы, архивы, до 10 МБ
+                  </span>
                 </label>
               {/if}
 
@@ -3949,6 +3951,7 @@
   .event-optional-links .link-btn:hover {
     border-color: var(--primary);
     color: var(--primary);
+    text-decoration: none;
   }
 
   .event-optional-field {
@@ -4000,10 +4003,11 @@
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 2px;
-    padding: 12px 10px;
+    gap: 4px;
+    padding: 20px 12px;
     border: 1px dashed var(--border);
-    border-radius: var(--radius-sm);
+    border-radius: var(--radius-md);
+    background: var(--bg);
     color: var(--muted);
     text-align: center;
     cursor: pointer;
@@ -4012,7 +4016,7 @@
 
   .files-dropzone:hover {
     border-color: var(--primary);
-    background: var(--bg);
+    background: var(--surface);
   }
 
   .files-dropzone input,
@@ -4020,10 +4024,23 @@
     display: none;
   }
 
+  .files-dropzone-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--primary);
+    box-shadow: var(--shadow-sm);
+  }
+
   .files-dropzone-title {
+    margin-top: 2px;
     color: var(--text);
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 14px;
+    font-weight: 600;
   }
 
   .files-dropzone:hover .files-dropzone-title {
@@ -4031,7 +4048,9 @@
   }
 
   .files-dropzone-hint {
-    font-size: 11px;
+    max-width: 26ch;
+    font-size: 12px;
+    line-height: 1.35;
   }
 
   .files-selected {
@@ -4089,9 +4108,18 @@
   .files-replace {
     display: inline-flex;
     align-self: flex-start;
+    padding: 5px 9px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
     color: var(--primary);
     font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
+  }
+
+  .files-replace:hover {
+    border-color: var(--primary);
   }
 
   .files-upload-form .field {
@@ -4108,13 +4136,38 @@
     align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-secondary);
   }
 
   .files-comment-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 4px;
-    font-size: 12px;
+    gap: 6px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .files-comment-toggle:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+    text-decoration: none;
+  }
+
+  @media (max-width: 720px) {
+    .files-upload-actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .files-upload-actions :global(button) {
+      width: 100%;
+    }
   }
 
   .event-file-link {
