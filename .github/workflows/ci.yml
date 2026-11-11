@@ -121,9 +121,9 @@ jobs:
           sed -i "s/^APP_KEY=.*/APP_KEY=$(openssl rand -hex 32)/" api/config/.env
       - name: Migrate and seed
         run: |
-          php api/bin/migrate.php
+          php api/bin/migrate.php --allow-destructive
           php api/bin/seed-dev.php --password=Secret123
-          php api/bin/seed-demo.php --force
+          php api/bin/seed-demo.php --force --allow-non-demo --password=Secret123
       - name: Install frontend deps
         run: npm ci
         working-directory: frontend
