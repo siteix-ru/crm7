@@ -360,8 +360,24 @@ const scenarios = [
         'на вкладке чата виден блок «Итого»'
       );
 
+      await page.getByRole('button', { name: 'Клиент', exact: true }).click();
+      await expectVisible(page.locator('.client-tab'), 'нет вкладки «Клиент»');
+      await expectVisible(page.locator('.client-tab .client-facts').first(), 'нет данных клиента');
+      await expectVisible(
+        page.locator('.client-tab .client-stat').first(),
+        'нет статистики заявок клиента'
+      );
+      assert(
+        (await page.locator('.side').count()) === 0,
+        'на вкладке клиента осталась боковая колонка'
+      );
+
       await page.getByRole('button', { name: /^Заявка/ }).click();
       await expectVisible(page.locator('.it-row:not(.it-head)').first(), 'в составе нет позиций');
+      assert(
+        (await page.locator('.side-client-card').count()) === 0,
+        'в боковой колонке остался блок клиента'
+      );
     }
   },
   {

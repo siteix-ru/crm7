@@ -18,12 +18,14 @@
   import type {
     ActivityType,
     ChatMessage,
+    ClientCard,
     ManagerItem,
     RequestAttachment,
     RequestDetail,
     RequestItemRow,
     RequestStatus
   } from '../lib/api/types';
+  import { getClientCard } from '../lib/api/clients';
   import ItemsPicker from '../lib/components/requests/ItemsPicker.svelte';
   import {
     deleteAttachment,
@@ -39,7 +41,7 @@
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
-  import { formatDateTime, formatPrice, formatSize, priorityLabel } from '../lib/format';
+  import { formatDate, formatDateTime, formatPrice, formatSize, priorityLabel } from '../lib/format';
   import { sortItems, type ItemsSortKey } from '../lib/items-sort';
 
   interface Props {
@@ -379,6 +381,9 @@
   let transferComment = $state('');
 
   let attachments = $state<RequestAttachment[]>([]);
+  let clientCard = $state<ClientCard | null>(null);
+  let clientLoading = $state(false);
+  let clientError = $state('');
   let uploading = $state(false);
   let uploadFile = $state<File | null>(null);
   let uploadInternal = $state(true);
@@ -422,7 +427,7 @@
   let chatMessages = $state<ChatMessage[]>([]);
   let chatListEl = $state<HTMLDivElement | null>(null);
 
-  type CardTab = 'request' | 'comments' | 'chat' | 'files';
+  type CardTab = 'request' | 'client' | 'comments' | 'chat' | 'files';
 
   const AUTO_REFRESH_MS = 15000;
   let loadSeq = 0;
@@ -1116,8 +1121,29 @@
     }
   }
 
+  async function loadClientCard(): Promise<void> {
+    if (!detail || !isStaff || clientLoading || clientCard !== null) {
+      return;
+    }
+
+    clientLoading = true;
+    clientError = '';
+
+    try {
+      clientCard = await getClientCard(detail.request.client.id);
+    } catch (cause) {
+      clientError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить данные клиента';
+    } finally {
+      clientLoading = false;
+    }
+  }
+
   async function openCardTab(next: CardTab): Promise<void> {
     cardTab = next;
+
+    if (next === 'client') {
+      await loadClientCard();
+    }
 
     if (next === 'chat') {
       const loaded = await loadChat();
@@ -1338,6 +1364,19 @@
                 <span class="tab-count">{detail.items.length > 99 ? '99+' : detail.items.length}</span>
               {/if}
             </button>
+
+            {#if isStaff}
+              <button
+                type="button"
+                class="hero-tab"
+                class:active={cardTab === 'client'}
+                title="Клиент"
+                aria-label="Клиент"
+                onclick={() => void openCardTab('client')}
+              >
+                <Icon name="clients" size={18} />
+              </button>
+            {/if}
 
             {#if detail.can.comment || detail.can.activity}
               <button
@@ -1728,8 +1767,146 @@
       {/if}
     {/snippet}
 
-    <div class="layout">
+    <div class="layout" class:single={cardTab === 'chat' || cardTab === 'client'}>
       <div class="main">
+    {#if cardTab === 'client'}
+      <div class="client-tab">
+        {#if clientError}
+          <div class="alert" role="alert">{clientError}</div>
+        {/if}
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Клиент</h2>
+            <a class="link-btn" href={`#/clients/${detail.request.client.id}`}>
+              Открыть карточку →
+            </a>
+          </div>
+
+          {#if clientLoading && clientCard === null}
+            <p class="muted client-loading"><Spinner size={16} /> Загружаем данные клиента…</p>
+          {:else}
+            <dl class="client-facts">
+              <div>
+                <dt>Название</dt>
+                <dd>{clientCard?.client.company || detail.request.client.name}</dd>
+              </div>
+              <div>
+                <dt>Контактное лицо</dt>
+                <dd>
+                  {clientCard?.client.name || detail.request.client.name}
+                  {#if clientCard?.client.position}
+                    <span class="muted"> · {clientCard.client.position}</span>
+                  {/if}
+                </dd>
+              </div>
+              <div>
+                <dt>ИНН</dt>
+                <dd>{clientCard?.client.inn || detail.request.client.inn || '—'}</dd>
+              </div>
+              <div>
+                <dt>Менеджер</dt>
+                <dd>{clientCard?.manager?.name ?? detail.request.manager?.name ?? '—'}</dd>
+              </div>
+              <div>
+                <dt>Тип цен</dt>
+                <dd>
+                  {clientCard && clientCard.client.price_types.length > 0
+                    ? clientCard.client.price_types.map((type) => type.title).join(', ')
+                    : '—'}
+                </dd>
+              </div>
+              <div>
+                <dt>Статус</dt>
+                <dd>
+                  {clientCard === null
+                    ? '—'
+                    : clientCard.client.active
+                      ? 'Активен'
+                      : 'Заблокирован'}
+                </dd>
+              </div>
+            </dl>
+          {/if}
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2>Контакты</h2>
+          </div>
+          <dl class="client-facts">
+            <div>
+              <dt>Телефон</dt>
+              <dd>
+                {#if clientCard?.client.phone || detail.request.client.phone}
+                  <a class="side-contact" href={`tel:${clientCard?.client.phone || detail.request.client.phone}`}>
+                    {clientCard?.client.phone || detail.request.client.phone}
+                  </a>
+                {:else}
+                  —
+                {/if}
+              </dd>
+            </div>
+            <div>
+              <dt>E-mail</dt>
+              <dd>
+                {#if clientCard?.client.email || detail.request.client.email}
+                  <a class="side-contact" href={`mailto:${clientCard?.client.email || detail.request.client.email}`}>
+                    {clientCard?.client.email || detail.request.client.email}
+                  </a>
+                {:else}
+                  —
+                {/if}
+              </dd>
+            </div>
+            <div>
+              <dt>Город</dt>
+              <dd>{clientCard?.client.city || '—'}</dd>
+            </div>
+            <div>
+              <dt>Адрес</dt>
+              <dd>{clientCard?.client.address || '—'}</dd>
+            </div>
+            {#if clientCard?.client.registered_at}
+              <div>
+                <dt>Регистрация</dt>
+                <dd>{formatDate(clientCard.client.registered_at)}</dd>
+              </div>
+            {/if}
+          </dl>
+        </div>
+
+        {#if clientCard}
+          <div class="card">
+            <div class="card-head">
+              <h2>Заявки</h2>
+              <a class="link-btn" href={`#/clients/${detail.request.client.id}`}>
+                Все заявки →
+              </a>
+            </div>
+            <div class="client-stats">
+              <div class="client-stat">
+                <span class="client-stat-value">{clientCard.stats.total}</span>
+                <span class="client-stat-label">всего</span>
+              </div>
+              <div class="client-stat">
+                <span class="client-stat-value">{clientCard.stats.open}</span>
+                <span class="client-stat-label">открыто</span>
+              </div>
+              <div class="client-stat">
+                <span class="client-stat-value">{clientCard.stats.closed}</span>
+                <span class="client-stat-label">закрыто</span>
+              </div>
+              <div class="client-stat" class:overdue={clientCard.stats.overdue > 0}>
+                <span class="client-stat-value">{clientCard.stats.overdue}</span>
+                <span class="client-stat-label">просрочено</span>
+              </div>
+            </div>
+          </div>
+        {/if}
+      </div>
+    {/if}
+
     {#if cardTab === 'request'}
       <div class="card items-card">
         <div class="items-head">
@@ -2080,37 +2257,8 @@
 
       </div>
 
+      {#if cardTab === 'request' || cardTab === 'files' || cardTab === 'comments'}
       <aside class="side">
-        <div class="card side-client-card">
-          {#if isStaff}
-            <a
-              class="side-client side-client-link"
-              href={`#/clients/${detail.request.client.id}`}
-              title="Открыть карточку клиента"
-            >
-              <span class="side-client-name">{detail.request.client.name}</span>
-              <span class="side-client-open" aria-hidden="true">
-                <Icon name="arrow-right" size={14} />
-              </span>
-            </a>
-          {:else}
-            <div class="side-client">
-              <span class="side-client-name">{detail.request.client.name}</span>
-            </div>
-          {/if}
-
-          <div class="side-contacts">
-            {#if detail.request.client.inn}
-              <span class="side-meta">ИНН {detail.request.client.inn}</span>
-            {/if}
-            {#if detail.request.client.phone}
-              <a class="side-meta side-contact" href={`tel:${detail.request.client.phone}`}>
-                {detail.request.client.phone}
-              </a>
-            {/if}
-          </div>
-        </div>
-
         {#if cardTab === 'request'}
           <div class="card side-description-card">
             <div class="card-head">
@@ -2265,7 +2413,7 @@
           {@render eventComposer()}
         {/if}
 
-        {#if cardTab !== 'comments' && cardTab !== 'files' && cardTab !== 'chat'}
+        {#if cardTab !== 'comments' && cardTab !== 'files'}
           <div class="card">
             <div class="card-head">
               <h2>Параметры</h2>
@@ -2373,6 +2521,7 @@
         {/if}
 
       </aside>
+      {/if}
     </div>
 
     <Modal open={itemModalOpen} title="Количество" onclose={() => (itemModalOpen = false)}>
@@ -2666,6 +2815,79 @@
     align-items: start;
   }
 
+  .layout.single {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .client-tab {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+  }
+
+  .client-facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-3) var(--space-5);
+    margin: 0;
+  }
+
+  .client-facts div {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .client-facts dt {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .client-facts dd {
+    margin: 0;
+    color: var(--text);
+    font-size: 14px;
+    overflow-wrap: anywhere;
+  }
+
+  .client-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin: 0;
+  }
+
+  .client-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: var(--space-3);
+  }
+
+  .client-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-3);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    background: var(--bg);
+  }
+
+  .client-stat-value {
+    font-size: 20px;
+    font-weight: 600;
+  }
+
+  .client-stat-label {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .client-stat.overdue .client-stat-value {
+    color: var(--danger);
+  }
+
   .main,
   .side {
     display: flex;
@@ -2831,61 +3053,6 @@
   .side-description-more {
     align-self: flex-start;
     font-size: 12px;
-  }
-
-  .side-client-card {
-    padding: var(--space-3);
-    gap: var(--space-2);
-  }
-
-  .side-client {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-width: 0;
-  }
-
-  .side-client-link {
-    margin: -2px;
-    padding: 2px;
-    border-radius: var(--radius-sm);
-    color: inherit;
-    text-decoration: none;
-  }
-
-  .side-client-link:hover {
-    background: var(--bg);
-  }
-
-  .side-client-link:hover .side-client-name,
-  .side-client-link:hover .side-client-open {
-    color: var(--primary);
-  }
-
-  .side-client-name {
-    overflow: hidden;
-    flex: 1;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 14px;
-    font-weight: 600;
-  }
-
-  .side-client-open {
-    display: inline-flex;
-    flex: 0 0 auto;
-    color: var(--muted);
-  }
-
-  .side-contacts {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 2px var(--space-3);
-  }
-
-  .side-meta {
-    color: var(--muted);
-    font-size: 13px;
   }
 
   .side-contact {
