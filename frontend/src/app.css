@@ -496,3 +496,25 @@ html.cookie-visible main {
     grid-template-columns: 1fr;
   }
 }
+
+/*
+ * Кнопки в модалках на телефоне: один ряд, равные ширины.
+ * Селекторы с .overlay перекрывают локальные flex-wrap у страниц.
+ */
+@media (max-width: 720px) {
+  .overlay .dialog-body .modal-actions {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .overlay .dialog-body .modal-buttons {
+    display: contents;
+  }
+
+  .overlay .dialog-body .modal-actions button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 8px;
+    white-space: nowrap;
+  }
+}
