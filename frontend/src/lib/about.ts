@@ -1,5 +1,5 @@
 export const APP_NAME = 'CRM7';
-export const APP_VERSION = '1.7.0';
+export const APP_VERSION = '1.7.1';
 
 export const SITE_URL = 'https://www.crm7.ru';
 export const SITE_LABEL = 'www.crm7.ru';
