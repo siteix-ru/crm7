@@ -96,13 +96,90 @@
       (showSettings ? 1 : 0)
   );
 
-  const mobileNavCount = $derived(
-    2 +
-      (showReports || showMyReports ? 1 : 0) +
-      (showClients ? 1 : 0) +
-      (showStaff ? 1 : 0) +
-      (showSettings ? 1 : 0)
-  );
+  interface MobileNavItem {
+    path: string;
+    label: string;
+    icon: string;
+    active: boolean;
+  }
+
+  const mobileNavItems = $derived.by<MobileNavItem[]>(() => {
+    const items: MobileNavItem[] = [
+      {
+        path: '/stocks',
+        label: 'Номенклатура',
+        icon: 'stocks',
+        active: path === '/stocks' || path.startsWith('/stocks/')
+      },
+      { path: '/requests', label: 'Заявки', icon: 'requests', active: path.startsWith('/requests') }
+    ];
+
+    if (showReports) {
+      items.push({ path: '/reports', label: 'Отчёты', icon: 'reports', active: path === '/reports' });
+    }
+    if (showMyReports) {
+      items.push({
+        path: '/my-reports',
+        label: 'Мои отчёты',
+        icon: 'my-reports',
+        active: path === '/my-reports'
+      });
+    }
+    if (showClients) {
+      items.push({
+        path: '/clients',
+        label: 'Клиенты',
+        icon: 'clients',
+        active: path.startsWith('/clients')
+      });
+    }
+    if (showStaff) {
+      items.push({
+        path: '/staff',
+        label: 'Сотрудники',
+        icon: 'staff',
+        active: path.startsWith('/staff') || path === '/substitutions'
+      });
+    }
+    if (showSettings) {
+      items.push({
+        path: '/settings',
+        label: 'Настройки',
+        icon: 'settings',
+        active: path === '/settings'
+      });
+    }
+
+    return items;
+  });
+
+  const primaryNavItems = $derived(mobileNavItems.slice(0, 3));
+  const overflowNavItems = $derived(mobileNavItems.slice(3));
+  const overflowActive = $derived(overflowNavItems.some((item) => item.active));
+
+  let mobileMenuOpen = $state(false);
+  let mobileMenuEl = $state<HTMLElement | null>(null);
+
+  function closeMobileMenu(): void {
+    mobileMenuOpen = false;
+  }
+
+  $effect(() => {
+    void path;
+    mobileMenuOpen = false;
+  });
+
+  $effect(() => {
+    if (mobileMenuOpen) {
+      mobileMenuEl?.focus();
+    }
+  });
+
+  function onGlobalKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && mobileMenuOpen) {
+      mobileMenuOpen = false;
+    }
+  }
 
   onMount(() => {
     if (auth.user) {
@@ -134,6 +211,8 @@
   });
 
 </script>
+
+<svelte:window onkeydown={onGlobalKeydown} />
 
 <div class="shell" class:demo={appSettings.demoMode} use:swipeBack>
   <a class="skip-link" href="#main-content">К содержимому</a>
@@ -334,81 +413,78 @@
   {@render children?.()}
 </main>
 
-  <nav class="mobile-nav" class:dense={mobileNavCount > 4} aria-label="Основная навигация">
-    <a
-      href="#/stocks"
-      class:active={path === '/stocks' || path.startsWith('/stocks/')}
-      aria-current={path === '/stocks' || path.startsWith('/stocks/') ? 'page' : undefined}
-      title="Номенклатура"
-    >
-      <Icon name="stocks" size={20} />
-      <span class="nav-label">Номенклатура</span>
-    </a>
-    <a
-      href="#/requests"
-      class:active={path.startsWith('/requests')}
-      aria-current={path.startsWith('/requests') ? 'page' : undefined}
-      title="Заявки"
-    >
-      <Icon name="requests" size={20} />
-      <span class="nav-label">Заявки</span>
-    </a>
-    {#if showReports}
+  <nav class="mobile-nav" aria-label="Основная навигация">
+    {#each primaryNavItems as item (item.path)}
       <a
-        href="#/reports"
-        class:active={path === '/reports'}
-        aria-current={path === '/reports' ? 'page' : undefined}
-        title="Отчёты"
+        href={`#${item.path}`}
+        class:active={item.active}
+        aria-current={item.active ? 'page' : undefined}
+        title={item.label}
       >
-        <Icon name="reports" size={20} />
-        <span class="nav-label">Отчёты</span>
+        <Icon name={item.icon} size={20} />
+        <span class="nav-label">{item.label}</span>
       </a>
-    {/if}
-    {#if showMyReports}
-      <a
-        href="#/my-reports"
-        class:active={path === '/my-reports'}
-        aria-current={path === '/my-reports' ? 'page' : undefined}
-        title="Мои отчёты"
+    {/each}
+    {#if overflowNavItems.length > 0}
+      <button
+        type="button"
+        class="nav-more"
+        class:active={mobileMenuOpen || overflowActive}
+        aria-expanded={mobileMenuOpen}
+        aria-controls="mobile-more-menu"
+        title="Ещё"
+        onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
       >
-        <Icon name="my-reports" size={20} />
-        <span class="nav-label">Мои отчёты</span>
-      </a>
-    {/if}
-    {#if showClients}
-      <a
-        href="#/clients"
-        class:active={path.startsWith('/clients')}
-        aria-current={path.startsWith('/clients') ? 'page' : undefined}
-        title="Клиенты"
-      >
-        <Icon name="clients" size={20} />
-        <span class="nav-label">Клиенты</span>
-      </a>
-    {/if}
-    {#if showStaff}
-      <a
-        href="#/staff"
-        class:active={path.startsWith('/staff') || path === '/substitutions'}
-        aria-current={path.startsWith('/staff') || path === '/substitutions' ? 'page' : undefined}
-        title="Сотрудники"
-      >
-        <Icon name="staff" size={20} />
-        <span class="nav-label">Сотрудники</span>
-      </a>
-    {/if}
-    {#if showSettings}
-      <a
-        href="#/settings"
-        class:active={path === '/settings'}
-        aria-current={path === '/settings' ? 'page' : undefined}
-        title="Настройки"
-      >
-        <Icon name="settings" size={20} />
-        <span class="nav-label">Настройки</span>
-      </a>
+        <Icon name="menu" size={20} />
+        <span class="nav-label">Ещё</span>
+      </button>
     {/if}
   </nav>
+
+  {#if mobileMenuOpen && overflowNavItems.length > 0}
+    <button
+      type="button"
+      class="mobile-menu-backdrop"
+      aria-label="Закрыть меню"
+      tabindex="-1"
+      onclick={closeMobileMenu}
+    ></button>
+    <div
+      id="mobile-more-menu"
+      class="mobile-menu"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Ещё разделы"
+      tabindex="-1"
+      bind:this={mobileMenuEl}
+    >
+      <div class="mobile-menu-head">
+        <span>Ещё</span>
+        <button
+          type="button"
+          class="mobile-menu-close"
+          aria-label="Закрыть меню"
+          title="Закрыть"
+          onclick={closeMobileMenu}
+        >
+          <Icon name="close" size={18} />
+        </button>
+      </div>
+      <nav class="mobile-menu-list" aria-label="Дополнительные разделы">
+        {#each overflowNavItems as item (item.path)}
+          <a
+            href={`#${item.path}`}
+            class:active={item.active}
+            aria-current={item.active ? 'page' : undefined}
+            onclick={closeMobileMenu}
+          >
+            <Icon name={item.icon} size={18} />
+            <span>{item.label}</span>
+          </a>
+        {/each}
+      </nav>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -716,7 +792,8 @@
       z-index: 10;
     }
 
-    .mobile-nav a {
+    .mobile-nav a,
+    .mobile-nav .nav-more {
       display: flex;
       flex: 1 1 0;
       flex-direction: column;
@@ -729,7 +806,16 @@
       white-space: nowrap;
     }
 
-    .mobile-nav a.active {
+    .mobile-nav .nav-more {
+      border: 0;
+      background: none;
+      color: inherit;
+      font-family: inherit;
+      cursor: pointer;
+    }
+
+    .mobile-nav a.active,
+    .mobile-nav .nav-more.active {
       color: var(--primary);
     }
 
@@ -739,15 +825,94 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+  }
 
-    /* Если разделов больше четырёх, подписи мельче и обрезаются многоточием. */
-    .mobile-nav.dense a {
-      padding: 4px 2px;
+  .mobile-menu-backdrop {
+    position: fixed;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: rgba(15, 23, 42, 0.4);
+    z-index: 45;
+    animation: mobile-menu-fade 120ms ease-out;
+  }
+
+  .mobile-menu {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: column;
+    width: min(320px, 86vw);
+    padding: calc(12px + env(safe-area-inset-top)) 0 calc(12px + env(safe-area-inset-bottom));
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+    outline: none;
+    z-index: 46;
+    animation: mobile-menu-slide 140ms ease-out;
+  }
+
+  .mobile-menu-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 var(--space-4) var(--space-2);
+    font-weight: 600;
+  }
+
+  .mobile-menu-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+  }
+
+  .mobile-menu-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 var(--space-2);
+    overflow-y: auto;
+  }
+
+  .mobile-menu-list a {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: 12px var(--space-3);
+    border-bottom: none;
+    border-radius: var(--radius-sm);
+    color: var(--text);
+  }
+
+  .mobile-menu-list a.active {
+    background: var(--primary-bg);
+    color: var(--primary);
+  }
+
+  @keyframes mobile-menu-slide {
+    from {
+      transform: translateX(100%);
     }
+    to {
+      transform: translateX(0);
+    }
+  }
 
-    .mobile-nav.dense .nav-label {
-      font-size: 9px;
-      letter-spacing: -0.01em;
+  @keyframes mobile-menu-fade {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
     }
   }
 </style>

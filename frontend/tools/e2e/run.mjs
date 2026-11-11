@@ -1893,6 +1893,47 @@ const scenarios = [
         'страница корзины пустая'
       );
     }
+  },
+  {
+    name: 'Мобильный менеджер: меню «Ещё»',
+    role: 'manager',
+    mobile: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1500);
+
+      const nav = page.locator('.mobile-nav');
+      const primary = await nav.locator('a').count();
+      assert(primary === 3, `в нижнем меню ${primary} разделов вместо 3`);
+
+      const more = nav.locator('.nav-more');
+      await expectVisible(more, 'нет кнопки «Ещё» при четырёх разделах');
+      await more.click();
+      await page.waitForTimeout(350);
+
+      const menu = page.locator('.mobile-menu');
+      await expectVisible(menu, 'боковое меню не открылось');
+      const clients = menu.locator('a', { hasText: 'Клиенты' }).first();
+      await expectVisible(clients, 'в боковом меню нет скрытого раздела «Клиенты»');
+      await clients.click();
+      await page.waitForTimeout(700);
+
+      assert(
+        (await page.evaluate(() => location.hash)) === '#/clients',
+        'переход из бокового меню не открыл клиентов'
+      );
+      assert((await page.locator('.mobile-menu').count()) === 0, 'меню не закрылось после перехода');
+
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(200);
+      assert(
+        Math.max(
+          0,
+          await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
+        ) === 0,
+        'страница скроллится по горизонтали'
+      );
+    }
   }
 ];
 
