@@ -1103,6 +1103,17 @@
           </div>
         </div>
 
+    <div class="view-period">
+      <label class="filter-field">
+        <span>Период с</span>
+        <input type="date" bind:value={draft.from} max={draft.to || undefined} />
+      </label>
+      <label class="filter-field">
+        <span>Период по</span>
+        <input type="date" bind:value={draft.to} min={draft.from || undefined} max={todayIso()} />
+      </label>
+    </div>
+
     <div class="filter-group">
       <span class="filter-label" title="Если ничего не выбрано — все статусы">Статусы</span>
       <MultiSelect
@@ -1216,16 +1227,6 @@
       </div>
     {/if}
 
-    <div class="view-period">
-      <label class="filter-field">
-        <span>Период с</span>
-        <input type="date" bind:value={draft.from} max={draft.to || undefined} />
-      </label>
-      <label class="filter-field">
-        <span>Период по</span>
-        <input type="date" bind:value={draft.to} min={draft.from || undefined} max={todayIso()} />
-      </label>
-    </div>
       </div>
 
       <div class="modal-actions">

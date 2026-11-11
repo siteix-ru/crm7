@@ -506,8 +506,19 @@
           </div>
         </div>
 
+    <div class="view-period">
+      <label class="filter-field">
+        <span>Дата регистрации с</span>
+        <input type="date" bind:value={draft.from} max={draft.to || undefined} />
+      </label>
+      <label class="filter-field">
+        <span>Дата регистрации по</span>
+        <input type="date" bind:value={draft.to} min={draft.from || undefined} />
+      </label>
+    </div>
+
     <div class="filter-group">
-      <span class="filter-label" title="Если ничего не выбрано — активные и ожидающие подтверждения">
+      <span class="filter-label" title="Если ничего не выбрано — статусы, которые ожидают подтверждения">
         Статусы
       </span>
       <MultiSelect
@@ -540,17 +551,6 @@
         emptyLabel="Нет городов"
         maxHeight="280px"
       />
-    </div>
-
-    <div class="view-period">
-      <label class="filter-field">
-        <span>Регистрация с</span>
-        <input type="date" bind:value={draft.from} max={draft.to || undefined} />
-      </label>
-      <label class="filter-field">
-        <span>Регистрация по</span>
-        <input type="date" bind:value={draft.to} min={draft.from || undefined} />
-      </label>
     </div>
 
       </div>

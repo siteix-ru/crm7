@@ -698,6 +698,17 @@
       </div>
     </div>
   {:else}
+    <div class="filter-fields">
+      <label class="filter-field">
+        <span>Период с</span>
+        <input type="date" bind:value={substDraft.periodFrom} max={substDraft.periodTo || undefined} />
+      </label>
+      <label class="filter-field">
+        <span>Период по</span>
+        <input type="date" bind:value={substDraft.periodTo} min={substDraft.periodFrom || undefined} />
+      </label>
+    </div>
+
     <div class="filter-group">
       <span class="filter-label">Статусы</span>
       <MultiSelect
@@ -732,16 +743,6 @@
       />
     </div>
 
-    <div class="filter-fields">
-      <label class="filter-field">
-        <span>Период с</span>
-        <input type="date" bind:value={substDraft.periodFrom} max={substDraft.periodTo || undefined} />
-      </label>
-      <label class="filter-field">
-        <span>Период по</span>
-        <input type="date" bind:value={substDraft.periodTo} min={substDraft.periodFrom || undefined} />
-      </label>
-    </div>
   {/if}
 
       </div>
