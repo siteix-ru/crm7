@@ -88,6 +88,10 @@ ssh crm7-server "cd /srv/projects/crm7-test && docker compose logs --tail=100 ph
 `crm7-update-demo.timer` (каждые ~30 минут), `crm7-update-k.timer` (раз в
 сутки).
 
+Демо-стенд в режиме `DEMO_MODE=true`: страница входа показывает учётные записи
+`demo_root` / `demo_admin` / `demo_manager` / `demo_client` (пароль `demo123456`,
+создаются `php api/bin/seed-demo-users.php`) для быстрого входа при отладке.
+
 ## Сборка образов и релиз
 
 Образы собираются на сервере (локальный Docker не нужен), скрипты ходят по

@@ -33,7 +33,7 @@ CRM для заявок клиентов: склад с ценами и корз
 - `api/src/Controllers` → `api/src/<Домен>/*Service` → `api/src/Repositories` — слои API.
 - `api/src/Core`, `api/src/Http`, `api/src/Support` — инфраструктура (Config, Database, Router, Storage, Crypto…).
 - `api/db/migrations/` — нумерованные SQL-миграции (только добавлять новые).
-- `api/bin/` — `migrate.php`, `seed-dev.php`, `seed-demo.php`, `cron.php`.
+- `api/bin/` — `migrate.php`, `seed-dev.php`, `seed-demo.php`, `seed-demo-users.php`, `cron.php`.
 - `frontend/src/views/` — страницы; `frontend/src/lib/api/` — клиент API; `frontend/src/lib/stores/` — сторы;
   `frontend/src/lib/components/` — компоненты; `frontend/src/App.svelte` + `lib/router.svelte.ts` — роутинг.
 - `deploy/` — `Dockerfile.app`, `Dockerfile.web`, `nginx.conf`, `build_images.py`, `release_crm7.py`,
@@ -70,6 +70,11 @@ php api/bin/migrate.php
 php api/bin/seed-dev.php --password=<пароль>   # базовые учётные записи
 php api/bin/seed-demo.php --force              # демо-данные (только для demo/dev)
 ```
+
+Демо-вход для отладки: в `api/config/.env` стоит `DEMO_MODE=true`, учётные записи —
+`php api/bin/seed-demo-users.php` (идемпотентно): `demo_root`/`demo_admin`/`demo_manager`/`demo_client`,
+пароль общий `demo123456`. Страница входа сама показывает эти доступы и подставляет
+логин/пароль по клику. То же включено на демо-стенде `demo.crm7.ru`.
 
 ## Проверки перед коммитом
 
