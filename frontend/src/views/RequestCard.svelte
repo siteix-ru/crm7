@@ -2272,93 +2272,99 @@
           </p>
 
           <form class="form files-upload-form" onsubmit={submitFileUpload}>
-            {#if uploadFile}
-              <div class="files-selected">
-                <Icon name="files" size={16} />
-                <div class="files-selected-info">
-                  <span class="files-selected-name" title={uploadFile.name}>{uploadFile.name}</span>
-                  <span class="files-selected-size">{formatSize(uploadFile.size)}</span>
-                </div>
-                <button
-                  type="button"
-                  class="files-selected-remove"
-                  title="Убрать файл"
-                  aria-label="Убрать файл"
-                  disabled={uploading}
-                  onclick={() => (uploadFile = null)}
-                >
-                  <Icon name="close" size={14} />
-                </button>
+            <div class="files-upload-body">
+              <div class="files-upload-left">
+                {#if uploadFile}
+                  <div class="files-selected">
+                    <Icon name="files" size={16} />
+                    <div class="files-selected-info">
+                      <span class="files-selected-name" title={uploadFile.name}>{uploadFile.name}</span>
+                      <span class="files-selected-size">{formatSize(uploadFile.size)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="files-selected-remove"
+                      title="Убрать файл"
+                      aria-label="Убрать файл"
+                      disabled={uploading}
+                      onclick={() => (uploadFile = null)}
+                    >
+                      <Icon name="close" size={14} />
+                    </button>
+                  </div>
+                  <label class="files-replace">
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
+                      onchange={onUploadFileSelected}
+                      disabled={uploading}
+                    />
+                    <span>Заменить файл</span>
+                  </label>
+                {:else}
+                  <label
+                    class="files-dropzone"
+                    ondragover={(event) => event.preventDefault()}
+                    ondrop={onFileDrop}
+                  >
+                    <input
+                      type="file"
+                      accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
+                      onchange={onUploadFileSelected}
+                      disabled={uploading}
+                    />
+                    <span class="files-dropzone-icon"><Icon name="file-plus" size={22} /></span>
+                    <span class="files-dropzone-title">Выбрать файл</span>
+                    <span class="files-dropzone-hint">
+                      или перетащите сюда · PDF, документы, архивы, до 10 МБ
+                    </span>
+                  </label>
+                {/if}
               </div>
-              <label class="files-replace">
-                <input
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
-                  onchange={onUploadFileSelected}
-                  disabled={uploading}
-                />
-                <span>Заменить файл</span>
-              </label>
-            {:else}
-              <label
-                class="files-dropzone"
-                ondragover={(event) => event.preventDefault()}
-                ondrop={onFileDrop}
-              >
-                <input
-                  type="file"
-                  accept=".jpg,.jpeg,.png,.webp,.pdf,.xls,.xlsx,.doc,.docx,.txt,.zip,.rar"
-                  onchange={onUploadFileSelected}
-                  disabled={uploading}
-                />
-                <span class="files-dropzone-icon"><Icon name="file-plus" size={22} /></span>
-                <span class="files-dropzone-title">Выбрать файл</span>
-                <span class="files-dropzone-hint">
-                  или перетащите сюда · PDF, документы, архивы, до 10 МБ
-                </span>
-              </label>
-            {/if}
 
-            {#if fileCommentOpen}
-              <label class="field files-comment-field">
-                <textarea
-                  bind:value={fileComment}
-                  rows="2"
-                  maxlength="1000"
-                  placeholder="Комментарий к файлу"
-                ></textarea>
-              </label>
-            {/if}
+              <div class="files-upload-right">
+                {#if fileCommentOpen}
+                  <label class="field files-comment-field">
+                    <textarea
+                      bind:value={fileComment}
+                      rows="2"
+                      maxlength="1000"
+                      placeholder="Комментарий к файлу"
+                    ></textarea>
+                  </label>
+                {/if}
 
-            {#if isStaff}
-              <label class="visibility-toggle">
-                <input type="checkbox" bind:checked={uploadInternal} />
-                <span class="visibility-body">
-                  <span class="visibility-title">Внутренний файл</span>
-                  <span class="visibility-hint">
-                    {uploadInternal
-                      ? 'Файл увидят только сотрудники'
-                      : 'Файл будет доступен клиенту'}
-                  </span>
-                </span>
-              </label>
-            {/if}
+                {#if isStaff}
+                  <label class="visibility-toggle">
+                    <input type="checkbox" bind:checked={uploadInternal} />
+                    <span class="visibility-body">
+                      <span class="visibility-title">Внутренний файл</span>
+                      <span class="visibility-hint">
+                        {uploadInternal
+                          ? 'Файл увидят только сотрудники'
+                          : 'Файл будет доступен клиенту'}
+                      </span>
+                    </span>
+                  </label>
+                {/if}
 
-            <div class="files-upload-actions">
-              <button
-                type="button"
-                class="link-btn files-comment-toggle"
-                onclick={fileCommentOpen ? closeFileComment : openFileComment}
-              >
-                <Icon name="comments" size={14} />
-                {fileCommentOpen ? 'Убрать комментарий' : 'Добавить комментарий'}
-              </button>
+                <div class="files-upload-actions">
+                  <button
+                    type="button"
+                    class="link-btn files-comment-toggle"
+                    onclick={fileCommentOpen ? closeFileComment : openFileComment}
+                  >
+                    <Icon name="comments" size={14} />
+                    {fileCommentOpen ? 'Убрать комментарий' : 'Добавить комментарий'}
+                  </button>
 
-              {#if uploadFile}
-                <Button type="submit" size="sm" loading={uploading} disabled={uploading}>
-                  Загрузить
-                </Button>
-              {/if}
+                  {#if uploadFile}
+                    <Button type="submit" size="sm" loading={uploading} disabled={uploading}>
+                      Загрузить
+                    </Button>
+                  {/if}
+                </div>
+              </div>
             </div>
           </form>
         </div>
@@ -4249,7 +4255,40 @@
 
   .files-upload-form {
     gap: var(--space-2);
-    max-width: 560px;
+  }
+
+  .files-upload-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+    gap: var(--space-3);
+    align-items: stretch;
+  }
+
+  .files-upload-left,
+  .files-upload-right {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .files-upload-left .files-dropzone {
+    flex: 1;
+    min-height: 150px;
+  }
+
+  .files-upload-right .files-upload-actions {
+    margin-top: auto;
+  }
+
+  @media (max-width: 900px) {
+    .files-upload-body {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .files-upload-left .files-dropzone {
+      min-height: 0;
+    }
   }
 
   .files-upload-hint {
