@@ -639,8 +639,6 @@
     flex-direction: column;
     gap: var(--space-4);
     width: 100%;
-    max-width: 980px;
-    margin: 0 auto;
   }
 
   .hero-row {

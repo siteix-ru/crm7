@@ -272,8 +272,6 @@
     flex-direction: column;
     gap: var(--space-4);
     width: 100%;
-    max-width: 900px;
-    margin-inline: auto;
   }
 
   .head {
