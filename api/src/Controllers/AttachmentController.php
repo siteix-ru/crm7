@@ -34,7 +34,8 @@ final class AttachmentController extends ApiController
                 (int) ($params['id'] ?? 0),
                 $_FILES['file'] ?? [],
                 (string) ($_POST['is_internal'] ?? '') === '1',
-                (string) ($_POST['comment'] ?? '')
+                (string) ($_POST['comment'] ?? ''),
+                (string) ($_POST['log_activity'] ?? '1') !== '0'
             ),
             201
         );

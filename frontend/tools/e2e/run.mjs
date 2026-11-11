@@ -270,26 +270,26 @@ const scenarios = [
         assert(!(await clientVisible.isChecked()), 'чекбокс «Доступно клиенту» включён по умолчанию');
       }
       await expectVisible(
-        page.getByRole('button', { name: 'Добавить комментарий' }),
-        'нет кнопки добавления комментария'
+        page.getByRole('button', { name: 'Добавить описание' }),
+        'нет кнопки добавления описания'
       );
       await expectVisible(
         page.getByRole('button', { name: 'Добавить файл' }),
         'нет кнопки добавления файла'
       );
       assert(
-        (await page.getByPlaceholder('Комментарий к событию (необязательно)').count()) === 0,
-        'поле комментария не скрыто по умолчанию'
+        (await page.getByPlaceholder('Описание события (необязательно)').count()) === 0,
+        'поле описания не скрыто по умолчанию'
       );
       assert(
         (await page.getByText('Выбрать файл (до 10 МБ)').count()) === 0,
         'поле файла не скрыто по умолчанию'
       );
 
-      await page.getByRole('button', { name: 'Добавить комментарий' }).click();
+      await page.getByRole('button', { name: 'Добавить описание' }).click();
       await expectVisible(
-        page.getByPlaceholder('Комментарий к событию (необязательно)'),
-        'поле комментария не раскрылось'
+        page.getByPlaceholder('Описание события (необязательно)'),
+        'поле описания не раскрылось'
       );
       await page.getByRole('button', { name: 'Добавить файл' }).click();
       await expectVisible(page.getByText('Выбрать файл (до 10 МБ)'), 'поле файла не раскрылось');

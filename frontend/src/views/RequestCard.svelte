@@ -1177,6 +1177,11 @@
     eventComment = '';
   }
 
+  async function openEventWithFile(): Promise<void> {
+    await openCardTab('comments');
+    openFile();
+  }
+
   function openFile(): void {
     fileOpen = true;
   }
@@ -1240,7 +1245,7 @@
 
       if (!attachmentId && selectedFile) {
         const before = new Set(attachments.map((item) => item.id));
-        const list = await uploadAttachment(id, selectedFile, isInternal);
+        const list = await uploadAttachment(id, selectedFile, isInternal, '', false);
         attachments = list.items;
         const uploaded = list.items.find((item) => !before.has(item.id));
 
@@ -1590,6 +1595,10 @@
           {/if}
         </div>
 
+        <p class="event-composer-hint">
+          Запись в истории заявки. Описание и файл прикрепятся к событию.
+        </p>
+
         <form class="form composer" onsubmit={saveEvent}>
           <label class="field">
             <span>Тема</span>
@@ -1611,7 +1620,7 @@
             {#if !commentOpen}
               <button type="button" class="link-btn" onclick={openComment}>
                 <Icon name="comments" size={14} />
-                Добавить комментарий
+                Добавить описание
               </button>
             {/if}
             {#if !fileOpen}
@@ -1625,15 +1634,15 @@
           {#if commentOpen}
             <div class="event-optional-field">
               <label class="field">
-                <span>Комментарий</span>
+                <span>Описание</span>
                 <textarea
                   bind:value={eventComment}
                   rows="3"
-                  placeholder="Комментарий к событию (необязательно)"
+                  placeholder="Описание события (необязательно)"
                 ></textarea>
               </label>
               <button type="button" class="link-btn" onclick={closeComment}>
-                Убрать комментарий
+                Убрать описание
               </button>
             </div>
           {/if}
@@ -1689,6 +1698,7 @@
                   Скрыть
                 </button>
               {/if}
+              <span class="event-file-hint">Файл также появится во вкладке «Файлы».</span>
             </div>
           {/if}
 
@@ -2143,6 +2153,13 @@
             <div class="card-head">
               <h2>Добавить файл</h2>
             </div>
+
+            <p class="files-upload-hint">
+              В истории появится запись «Прикреплён файл».
+              <button type="button" class="link-btn" onclick={() => void openEventWithFile()}>
+                Добавить событие с файлом →
+              </button>
+            </p>
 
             <form class="form files-upload-form" onsubmit={submitFileUpload}>
               {#if uploadFile}
@@ -4046,6 +4063,32 @@
 
   .files-upload-form {
     gap: var(--space-2);
+  }
+
+  .files-upload-hint {
+    margin: 0 0 var(--space-2);
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .files-upload-hint .link-btn {
+    display: inline;
+    font-size: 12px;
+    white-space: normal;
+  }
+
+  .event-composer-hint {
+    margin: 0 0 var(--space-3);
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
+  .event-file-hint {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
   }
 
   .files-dropzone {

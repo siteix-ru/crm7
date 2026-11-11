@@ -16,12 +16,14 @@ export function uploadAttachment(
   requestId: number,
   file: File,
   isInternal = false,
-  comment = ''
+  comment = '',
+  logActivity = true
 ): Promise<AttachmentList> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('is_internal', isInternal ? '1' : '0');
   formData.append('comment', comment);
+  formData.append('log_activity', logActivity ? '1' : '0');
 
   return apiUpload<AttachmentList>(`/requests/${requestId}/attachments`, formData);
 }

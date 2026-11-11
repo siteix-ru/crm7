@@ -92,7 +92,8 @@ final class AttachmentService
         int $requestId,
         array $file,
         bool $isInternal = false,
-        ?string $comment = null
+        ?string $comment = null,
+        bool $logActivity = true
     ): array {
         $request = $this->requireRequest($user, $capabilities, $requestId);
 
@@ -164,16 +165,18 @@ final class AttachmentService
                 $comment !== '' ? $comment : null
             );
 
-            $this->activities->add(
-                $requestId,
-                (int) $user['ID'],
-                'file_attached',
-                'Загружен файл',
-                $activityBody,
-                null,
-                $isInternal,
-                $attachmentId
-            );
+            if ($logActivity) {
+                $this->activities->add(
+                    $requestId,
+                    (int) $user['ID'],
+                    'file_attached',
+                    'Прикреплён файл',
+                    $activityBody,
+                    null,
+                    $isInternal,
+                    $attachmentId
+                );
+            }
 
             $pdo->commit();
         } catch (Throwable $exception) {
