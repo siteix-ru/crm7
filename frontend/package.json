@@ -1,7 +1,7 @@
 {
   "name": "crm-frontend",
   "private": true,
-  "version": "1.8.8",
+  "version": "1.8.9",
   "type": "module",
   "engines": {
     "node": ">=22.12.0"
