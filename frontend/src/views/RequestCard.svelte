@@ -1984,13 +1984,19 @@
           <form class="chat-form" onsubmit={sendChat}>
             <textarea
               bind:value={chatBody}
-              rows="2"
+              rows="1"
               maxlength="4000"
               placeholder="Сообщение по заявке"
             ></textarea>
-            <div class="row">
-              <Button type="submit" loading={chatBusy} disabled={!chatBody.trim()}>Отправить</Button>
-            </div>
+            <Button
+              type="submit"
+              loading={chatBusy}
+              disabled={!chatBody.trim()}
+              title="Отправить"
+              ariaLabel="Отправить"
+            >
+              {#if !chatBusy}<Icon name="send" size={16} />{/if}
+            </Button>
           </form>
         {:else}
           <p class="muted chat-unavailable">Отправка сообщений в этом диалоге недоступна</p>
@@ -3607,11 +3613,26 @@
   .chat-form {
     display: flex;
     flex: 0 0 auto;
-    flex-direction: column;
+    align-items: flex-end;
     gap: var(--space-2);
     margin-top: 0;
     padding-top: var(--space-3);
     border-top: 1px solid var(--border);
+  }
+
+  .chat-form textarea {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 36px;
+    max-height: 120px;
+    resize: none;
+  }
+
+  .chat-form :global(button) {
+    flex: 0 0 auto;
+    width: 36px;
+    height: 36px;
+    padding: 0;
   }
 
   .chat-unavailable {
