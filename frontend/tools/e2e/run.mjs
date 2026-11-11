@@ -1833,6 +1833,22 @@ const scenarios = [
       assert(/^#\/requests\/\d+/.test(hash), `не открылась карточка заявки (${hash})`);
       await expectVisible(page.locator('h1').first(), 'в карточке нет заголовка');
 
+      if ((await page.locator('.items-card .it-row:not(.it-head)').count()) > 0) {
+        const layout = await page.evaluate(() => {
+          const row = document.querySelector('.items-card .it-row:not(.it-head)');
+          const name = row?.querySelector('.it-name-col');
+          return {
+            nameWidth: name ? Math.round(name.getBoundingClientRect().width) : 0,
+            overflow: Math.max(0, document.documentElement.scrollWidth - window.innerWidth)
+          };
+        });
+        assert(
+          layout.nameWidth > 150,
+          `колонка названия в составе сжалась до ${layout.nameWidth}px`
+        );
+        assert(layout.overflow === 0, 'карточка заявки скроллится по горизонтали');
+      }
+
       await page.goBack();
       await page.waitForTimeout(700);
       await expectVisible(page.locator('main a.card[href*="/requests/"]').first(), 'возврат из карточки не вернул к списку');

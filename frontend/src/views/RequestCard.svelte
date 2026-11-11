@@ -2010,7 +2010,7 @@
                   <span class="item-qty-static">{qtyText(item)}</span>
                 {/if}
 
-                <span class="it-wh">{item.warehouse_name || '—'}</span>
+                <span class="it-wh" title={item.warehouse_name || ''}>{item.warehouse_name || '—'}</span>
 
                 {#if showPrices}
                   <span class="it-price" class:missing={item.price === null}>
@@ -3379,7 +3379,7 @@
 
   .it-row.prices {
     grid-template-columns:
-      minmax(0, 2fr) minmax(64px, 0.7fr) minmax(64px, 0.9fr)
+      minmax(0, 2.2fr) minmax(64px, 0.8fr) minmax(96px, 1.1fr)
       minmax(72px, 0.8fr) minmax(76px, 0.9fr) 32px;
   }
 
@@ -3548,23 +3548,27 @@
       display: none;
     }
 
-    .it-row {
-      grid-template-columns: minmax(0, 1fr) 36px;
-      grid-template-areas:
-        'name del'
-        'qty qty'
-        'wh wh';
-      gap: 6px var(--space-2);
+    .it-row,
+    .it-row.prices {
+      grid-template-columns: minmax(0, 1fr) auto 36px;
+      gap: 4px var(--space-2);
       min-width: 0;
       padding: var(--space-3) 0;
     }
 
+    .it-row {
+      grid-template-areas:
+        'name name del'
+        'qty qty qty'
+        'wh wh wh';
+    }
+
     .it-row.prices {
       grid-template-areas:
-        'name del'
-        'qty qty'
-        'wh wh'
-        'price sum';
+        'name name del'
+        'qty qty qty'
+        'wh wh wh'
+        'price sum sum';
     }
 
     .it-name-col {
@@ -3587,9 +3591,10 @@
     .it-wh {
       grid-area: wh;
       display: block;
-      overflow: visible;
-      white-space: normal;
-      text-overflow: clip;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
     }
 
     .it-row.prices .it-wh {
@@ -3603,7 +3608,9 @@
 
     .it-price {
       grid-area: price;
+      min-width: 0;
       text-align: left;
+      white-space: normal;
     }
 
     .it-price::before {
@@ -3614,7 +3621,9 @@
 
     .it-sum {
       grid-area: sum;
+      min-width: 0;
       text-align: right;
+      white-space: normal;
     }
 
     .it-sum::before {
@@ -3623,9 +3632,26 @@
       font-weight: 400;
     }
 
-    .it-del {
+    .it-row .it-del {
       grid-area: del;
       align-self: start;
+      width: 32px;
+      height: 32px;
+    }
+  }
+
+  @media (max-width: 400px) {
+    .it-row.prices {
+      grid-template-areas:
+        'name name del'
+        'qty qty qty'
+        'wh wh wh'
+        'price price price'
+        'sum sum sum';
+    }
+
+    .it-row.prices .it-sum {
+      justify-self: end;
     }
   }
 
