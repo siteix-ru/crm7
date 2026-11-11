@@ -3640,21 +3640,6 @@
     }
   }
 
-  @media (max-width: 400px) {
-    .it-row.prices {
-      grid-template-areas:
-        'name name del'
-        'qty qty qty'
-        'wh wh wh'
-        'price price price'
-        'sum sum sum';
-    }
-
-    .it-row.prices .it-sum {
-      justify-self: end;
-    }
-  }
-
   .it-del {
     justify-self: end;
     display: inline-flex;
@@ -4752,5 +4737,62 @@
     display: grid;
     place-items: center;
     padding: var(--space-6);
+  }
+
+  /*
+   * Узкие экраны: действия шапки уходят на свою строку, вкладки занимают всю
+   * ширину. Селекторы с .page-hero нужны, чтобы перебить базовые правила
+   * из app.css (они грузятся раньше и имеют ту же специфичность).
+   */
+  @media (max-width: 400px) {
+    .page-hero .head-actions {
+      flex: 1 1 100%;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      margin-left: 0;
+      gap: var(--space-2);
+    }
+
+    .page-hero .head-text h1 {
+      font-size: 17px;
+      line-height: 1.35;
+    }
+
+    .hero-status {
+      order: 1;
+    }
+
+    .hero-actions {
+      order: 2;
+    }
+
+    .hero-divider {
+      display: none;
+    }
+
+    .hero-tabs {
+      order: 3;
+      flex: 1 1 100%;
+      justify-content: space-between;
+      gap: 4px;
+    }
+
+    .hero-tab {
+      width: 34px;
+      height: 34px;
+    }
+
+    .it-row.prices {
+      grid-template-areas:
+        'name name del'
+        'qty qty qty'
+        'wh wh wh'
+        'price price price'
+        'sum sum sum';
+    }
+
+    .it-row.prices .it-sum {
+      justify-self: end;
+    }
   }
 </style>

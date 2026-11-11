@@ -1203,4 +1203,19 @@
       display: none;
     }
   }
+  @media (max-width: 360px) {
+    .status-table {
+      overflow-x: auto;
+    }
+
+    .status-head,
+    .status-row {
+      gap: var(--space-2);
+    }
+
+    .status-row .num,
+    .status-head .num {
+      min-width: 0;
+    }
+  }
 </style>
