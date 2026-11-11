@@ -116,7 +116,6 @@
   });
   let viewOpen = $state(false);
   let viewDraft = $state<'list' | 'tiles'>('list');
-  let helpOpen = $state(false);
 
   const filtered = $derived.by(() => {
     const term = query.trim().toLowerCase();
@@ -469,16 +468,6 @@
           <Icon name="view" size={16} />
         </button>
 
-        <button
-          type="button"
-          class="sort-button"
-          title="Как пользоваться"
-          aria-label="Как пользоваться страницей"
-          onclick={() => (helpOpen = true)}
-        >
-          <Icon name="help" size={16} />
-        </button>
-
         {#if canCreateWarehouse}
           <span class="toolbar-divider" aria-hidden="true"></span>
 
@@ -690,36 +679,6 @@
   </div>
 </Modal>
 
-<Modal open={helpOpen} title="Как пользоваться" onclose={() => (helpOpen = false)} wide>
-  <div class="help">
-    <p>
-      Здесь собраны склады системы. Раздел доступен сотрудникам с правами на импорт из 1С и
-      редактирование номенклатуры.
-    </p>
-    <div class="help-block">
-      <h3>Список и плитки</h3>
-      <p>
-        Кнопка «Вид и фильтры» переключает таблицу и плитки и задаёт показ активированных и
-        деактивированных складов. В таблице клик по заголовку колонки сортирует, повторный клик
-        меняет направление; кнопка «Сортировка» задаёт несколько условий.
-      </p>
-    </div>
-    <div class="help-block">
-      <h3>Карточка склада</h3>
-      <p>
-        Клик по складу открывает карточку: название, адрес, активность. На вкладке «Доступ» —
-        список пользователей с персональным доступом к складу.
-      </p>
-    </div>
-    <div class="help-block">
-      <h3>Импорт</h3>
-      <p>
-        Новые склады из файла 1С добавляются автоматически. Скрытый (неактивный) склад не виден
-        пользователям, но импорт на него идёт и остатки обновляются.
-      </p>
-    </div>
-  </div>
-</Modal>
 
 <style>
   .page {
@@ -770,12 +729,6 @@
     color: var(--text);
   }
 
-  h3 {
-    margin: 0 0 4px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--text);
-  }
 
   .filters {
     display: flex;
@@ -1283,26 +1236,6 @@
     margin: 0;
     font-size: 13px;
     color: var(--text-description);
-  }
-
-  .help {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    font-size: 14px;
-    color: var(--text);
-  }
-
-  .help p {
-    margin: 0;
-    color: var(--text-description);
-  }
-
-  .help-block {
-    padding: var(--space-3);
-    border: 1px solid var(--border-secondary);
-    border-radius: var(--radius-md);
-    background: var(--fill-tertiary);
   }
 
   .modal-actions {

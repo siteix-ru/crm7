@@ -72,7 +72,6 @@
   let viewMode = $state<'list' | 'tiles'>(initialFilters.view === 'tiles' ? 'tiles' : 'list');
   let sortOpen = $state(false);
   let viewOpen = $state(false);
-  let helpOpen = $state(false);
   let sortDraft = $state<string[]>(['name_asc']);
   let viewDraft = $state<'list' | 'tiles'>('list');
   let dragSortField = $state<string | null>(null);
@@ -402,16 +401,6 @@
         {/if}
       </button>
 
-      <button
-        type="button"
-        class="sort-button"
-        title="Как пользоваться"
-        aria-label="Как пользоваться страницей"
-        onclick={() => (helpOpen = true)}
-      >
-        <Icon name="help" size={16} />
-      </button>
-
       {#if canCreateClient}
         <span class="toolbar-divider" aria-hidden="true"></span>
 
@@ -576,28 +565,6 @@
     </div>
   </Modal>
 
-  <Modal open={helpOpen} title="Как пользоваться" onclose={() => (helpOpen = false)} wide>
-    <div class="help-list">
-      <p>Статусы клиентов:</p>
-      <ul>
-        <li>
-          <span class="dot pending"></span>ожидает подтверждения регистрации — клиент сам зарегистрировался;
-          подтверждение и отклонение — в карточке клиента;
-        </li>
-        <li>
-          <span class="dot blocked"></span>заблокирован — доступ к сайту отключён;
-        </li>
-        <li>
-          <span class="dot transfer"></span>передают вам — клиент передан от другого менеджера.
-        </li>
-      </ul>
-      <p>
-        Поиск идёт по имени, компании, ИНН и телефону. Кнопка со стрелками — последовательная
-        сортировка (несколько условий сверху вниз); кнопка «Вид и фильтры» — строкой-таблица или
-        плитки и фильтры по состоянию, менеджеру и дате регистрации.
-      </p>
-    </div>
-  </Modal>
 
   {#if error}
     <div class="alert">{error}</div>
@@ -874,28 +841,6 @@
   .state.transfer-chip {
     border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
     color: var(--primary);
-  }
-
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 3px;
-    border: 1px solid var(--border);
-  }
-
-  .dot.pending {
-    background: color-mix(in srgb, var(--primary) 35%, #fff);
-    border-color: var(--primary);
-  }
-
-  .dot.blocked {
-    background: color-mix(in srgb, var(--danger) 30%, #fff);
-    border-color: var(--danger);
-  }
-
-  .dot.transfer {
-    background: color-mix(in srgb, var(--primary) 55%, #fff);
-    border-color: var(--primary);
   }
 
   .hint {
@@ -1449,33 +1394,6 @@
     .ct-head .num {
       text-align: right;
     }
-  }
-
-  .help-list {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
-    font-size: 14px;
-    color: var(--text);
-  }
-
-  .help-list ul {
-    margin: 0;
-    padding-left: var(--space-5);
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .help-list li {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-  }
-
-  .help-list .dot {
-    flex: 0 0 auto;
-    margin-top: 5px;
   }
 
   .list {

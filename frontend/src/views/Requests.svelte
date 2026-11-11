@@ -89,7 +89,6 @@
   let clientInputEl = $state<HTMLInputElement | null>(null);
   let clientTimer: ReturnType<typeof setTimeout> | undefined;
   let exportOpen = $state(false);
-  let helpOpen = $state(false);
   let exporting = $state(false);
   let message = $state('');
 
@@ -840,18 +839,6 @@
         <Icon name="export" size={16} />
       </button>
 
-      <span class="toolbar-divider" aria-hidden="true"></span>
-
-      <button
-        type="button"
-        class="sort-button"
-        title="Как пользоваться"
-        aria-label="Как пользоваться страницей"
-        onclick={() => (helpOpen = true)}
-      >
-        <Icon name="help" size={16} />
-      </button>
-
       {#if appSettings.salesEnabled && auth.can('requests.create')}
         <span class="toolbar-divider" aria-hidden="true"></span>
 
@@ -1096,66 +1083,6 @@
     </div>
   </Modal>
 
-  <Modal open={helpOpen} title="Как пользоваться" onclose={() => (helpOpen = false)} wide>
-    <div class="help">
-      <p class="help-intro">
-        Эта страница показывает заявки клиентов. Ниже — краткая справка по кнопкам и возможностям
-        страницы.
-      </p>
-
-      <div class="help-block">
-        <h3>Кнопки сверху</h3>
-        <ul>
-          <li>
-            <b>Значок сортировки</b> (стрелки ↑↓) — расставить заявки по порядку. Можно задать
-            несколько условий: например, «сначала по статусу, потом по дате». Стрелка вверх — по
-            возрастанию, вниз — по убыванию.
-          </li>
-          <li>
-            <b>Значок вида</b> (квадратики) — показать заявки списком или плитками и открыть
-            фильтры: статусы{#if warehouses.length > 0}, склады{/if}{#if isStaff}, клиент,
-            менеджеры{/if}, просрочка и период. Выбор запоминается.
-          </li>
-          <li>
-            <b>Черновики</b> — незавершённые заявки. Их можно продолжить или удалить.
-          </li>
-          {#if appSettings.salesEnabled && auth.can('requests.create')}
-            <li><b>Лист с плюсом</b> — создать новую заявку.</li>
-          {/if}
-          <li>
-            <b>Экспорт</b> (стрелка вниз) — скачать список заявок файлом: Excel, CSV, TXT или PDF.
-            Можно отправить файл на почту, если почта настроена.
-          </li>
-        </ul>
-      </div>
-
-      <div class="help-block">
-        <h3>Поиск</h3>
-        <p>
-          Поле поиска ищет по теме, клиенту, номеру, телефону и описанию заявки. Начните вводить —
-          список обновится сам. Крестик в поле очищает поиск, а по пустому полю можно открыть
-          прошлые запросы.
-        </p>
-      </div>
-
-      <div class="help-block">
-        <h3>Список заявок</h3>
-        <p>
-          В строке видны номер, тема, {#if isStaff}клиент, {/if}менеджер, количество номенклатуры,
-          статус, просрочка и дата. Нажмите на заявку, чтобы открыть её карточку: там история,
-          комментарии, состав и чат.
-        </p>
-      </div>
-
-      <div class="help-block">
-        <h3>Сколько показывать</h3>
-        <p>
-          Внизу списка есть «Показывать»: 10, 20, 50 или 100 заявок на странице. Выбор
-          запоминается.
-        </p>
-      </div>
-    </div>
-  </Modal>
 
   <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
     <div class="filters-form view-modal">
@@ -2378,40 +2305,4 @@
     color: var(--danger);
   }
 
-  .help {
-    font-size: 14px;
-  }
-
-  .help-intro {
-    margin: 0 0 var(--space-4);
-    font-size: 14px;
-    color: var(--muted);
-  }
-
-  .help-block {
-    margin-bottom: var(--space-4);
-  }
-
-  .help-block:last-child {
-    margin-bottom: 0;
-  }
-
-  .help-block h3 {
-    margin: 0 0 var(--space-2);
-    font-size: 15px;
-  }
-
-  .help-block p {
-    margin: 0;
-    font-size: 14px;
-  }
-
-  .help ul {
-    margin: 0;
-    padding-left: 20px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    font-size: 14px;
-  }
 </style>

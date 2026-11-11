@@ -137,7 +137,6 @@
   let viewMode = $state<'list' | 'tiles'>(initialFilters.view === 'tiles' ? 'tiles' : 'list');
   let sortOpen = $state(false);
   let viewOpen = $state(false);
-  let helpOpen = $state(false);
   let tab = $state<'staff' | 'substitutions'>(initialTabValue());
   let substSearch = $state('');
   let substSearchInput = $state('');
@@ -464,19 +463,7 @@
         >
           <Icon name="substitutions" size={16} />
         </button>
-
-        <span class="toolbar-divider" aria-hidden="true"></span>
       {/if}
-
-      <button
-        type="button"
-        class="sort-button"
-        title="Справка по странице"
-        aria-label="Справка по странице"
-        onclick={() => (helpOpen = true)}
-      >
-        <Icon name="help" size={16} />
-      </button>
 
       {#if tab === 'staff' ? canCreate : canAddSubstitution}
         <span class="toolbar-divider" aria-hidden="true"></span>
@@ -769,37 +756,6 @@
   </div>
 </Modal>
 
-<Modal open={helpOpen} title="Справка по странице" onclose={() => (helpOpen = false)}>
-  {#if tab === 'staff'}
-    <p class="help-text">
-      Здесь собраны сотрудники: менеджеры, руководители и технические администраторы. Видны имя, роль,
-      контакты, отдел, город и офис.
-    </p>
-    <p class="help-text">
-      Нажмите на строку, чтобы открыть карточку. В карточке можно изменить данные, роль, типы цен,
-      заблокировать сотрудника или выдать пароль.
-    </p>
-    <p class="help-text">
-      Сотрудники с ролью технического администратора управляют правами других пользователей, но не
-      меняют свою роль.
-    </p>
-  {:else}
-    <p class="help-text">
-      Здесь оформляются замещения: кто уходит, кто замещает, период и причина. На время замещения
-      заявки сотрудника передаются заместителю.
-    </p>
-    <p class="help-text">
-      Нажмите «Добавить замещение», чтобы открыть форму. Поиск ищет по участникам, причине и датам.
-      Сортировка и вид работают так же, как в списке сотрудников.
-    </p>
-    <p class="help-text">
-      Активное замещение можно завершить досрочно — заявки вернутся сотруднику.
-    </p>
-  {/if}
-  <div class="modal-actions">
-    <Button onclick={() => (helpOpen = false)}>Понятно</Button>
-  </div>
-</Modal>
 
 <style>
   .page {
@@ -1166,11 +1122,6 @@
     margin-left: auto;
   }
 
-
-  .help-text {
-    color: var(--text);
-    font-size: 14px;
-  }
 
   @media (max-width: 980px) {
     .row {
