@@ -103,6 +103,11 @@
     active: boolean;
   }
 
+  /*
+   * Мобильная навигация — одна, внизу: до 4 основных разделов + «Ещё».
+   * Шапка несёт только статусные каналы (уведомления) и профиль;
+   * чат, корзина и служебные пункты живут в «Ещё», чтобы не дублировать меню.
+   */
   const mobileNavItems = $derived.by<MobileNavItem[]>(() => {
     const items: MobileNavItem[] = [
       {
@@ -110,10 +115,17 @@
         label: 'Номенклатура',
         icon: 'stocks',
         active: path === '/stocks' || path.startsWith('/stocks/')
-      },
-      { path: '/requests', label: 'Заявки', icon: 'requests', active: path.startsWith('/requests') }
+      }
     ];
 
+    if (appSettings.requestsEnabled) {
+      items.push({
+        path: '/requests',
+        label: 'Заявки',
+        icon: 'requests',
+        active: path.startsWith('/requests')
+      });
+    }
     if (showReports) {
       items.push({ path: '/reports', label: 'Отчёты', icon: 'reports', active: path === '/reports' });
     }
@@ -153,16 +165,77 @@
     return items;
   });
 
-  const primaryNavItems = $derived(mobileNavItems.slice(0, 3));
-  const overflowNavItems = $derived(mobileNavItems.slice(3));
+  const primaryNavItems = $derived(mobileNavItems.slice(0, 4));
+  const overflowNavItems = $derived(mobileNavItems.slice(4));
   const overflowActive = $derived(overflowNavItems.some((item) => item.active));
+
+  const mobileServices = $derived.by<{
+    path: string;
+    label: string;
+    icon: string;
+    active: boolean;
+    badge: number;
+  }[]>(() => {
+    const items: { path: string; label: string; icon: string; active: boolean; badge: number }[] = [];
+
+    if (appSettings.chatEnabled && auth.can('chat.use')) {
+      items.push({
+        path: '/chat',
+        label: 'Чат',
+        icon: 'chat',
+        active: path === '/chat',
+        badge: chatUnreadCount
+      });
+    }
+    if (appSettings.salesEnabled && appSettings.cartEnabled) {
+      items.push({
+        path: '/cart',
+        label: 'Корзина',
+        icon: 'cart',
+        active: path === '/cart',
+        badge: cart.count
+      });
+    }
+    items.push({ path: '/about', label: 'О программе', icon: 'info', active: path === '/about', badge: 0 });
+    if (showAudit) {
+      items.push({
+        path: '/admin/audit',
+        label: 'Журнал',
+        icon: 'audit',
+        active: path === '/admin/audit',
+        badge: 0
+      });
+    }
+
+    return items;
+  });
+
+  const moreBadge = $derived(
+    mobileServices.reduce((sum, item) => sum + item.badge, 0)
+  );
 
   let mobileMenuOpen = $state(false);
   let mobileMenuEl = $state<HTMLElement | null>(null);
+  let moreBtnEl = $state<HTMLElement | null>(null);
 
   function closeMobileMenu(): void {
+    if (mobileMenuOpen) {
+      moreBtnEl?.focus();
+    }
     mobileMenuOpen = false;
   }
+
+  $effect(() => {
+    const mq = window.matchMedia('(max-width: 720px)');
+    const onChange = (event: MediaQueryListEvent): void => {
+      // шторка «Ещё» — мобильный артефакт: при поворте/расширении закрываем
+      if (!event.matches && mobileMenuOpen) {
+        mobileMenuOpen = false;
+      }
+    };
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  });
 
   $effect(() => {
     void path;
@@ -177,7 +250,7 @@
 
   function onGlobalKeydown(event: KeyboardEvent): void {
     if (event.key === 'Escape' && mobileMenuOpen) {
-      mobileMenuOpen = false;
+      closeMobileMenu();
     }
   }
 
@@ -304,7 +377,7 @@
       {#if showAudit}
         <button
           type="button"
-          class="bell"
+          class="bell bell-audit"
           class:current={path === '/admin/audit'}
           aria-label="Журнал"
           title="Журнал"
@@ -315,7 +388,7 @@
       {/if}
       <button
         type="button"
-        class="bell"
+        class="bell bell-info"
         class:current={path === '/about'}
         aria-label="О программе"
         title="О программе"
@@ -326,7 +399,7 @@
       {#if appSettings.chatEnabled && auth.can('chat.use')}
         <button
           type="button"
-          class="bell"
+          class="bell bell-chat"
           class:has-new={chatUnreadCount > 0}
           class:current={path === '/chat'}
           aria-label={chatUnreadCount > 0 ? `Чат: ${chatUnreadCount} новых` : 'Чат'}
@@ -358,7 +431,7 @@
       {#if appSettings.salesEnabled && appSettings.cartEnabled}
         <button
           type="button"
-          class="bell"
+          class="bell bell-cart"
           class:has-new={cart.count > 0}
           class:current={path === '/cart'}
           aria-label={cart.count > 0 ? `Корзина: ${cart.count}` : 'Корзина'}
@@ -425,23 +498,28 @@
         <span class="nav-label">{item.label}</span>
       </a>
     {/each}
-    {#if overflowNavItems.length > 0}
-      <button
-        type="button"
-        class="nav-more"
-        class:active={mobileMenuOpen || overflowActive}
-        aria-expanded={mobileMenuOpen}
-        aria-controls="mobile-more-menu"
-        title="Ещё"
-        onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
-      >
+    <button
+      type="button"
+      class="nav-more"
+      class:active={mobileMenuOpen || overflowActive}
+      aria-expanded={mobileMenuOpen}
+      aria-controls="mobile-more-menu"
+      aria-label={moreBadge > 0 ? `Ещё: ${moreBadge} новых` : 'Ещё'}
+      title={moreBadge > 0 ? `Ещё: ${moreBadge} новых` : 'Ещё'}
+      bind:this={moreBtnEl}
+      onclick={() => (mobileMenuOpen = !mobileMenuOpen)}
+    >
+      <span class="more-icon">
         <Icon name="menu" size={20} />
-        <span class="nav-label">Ещё</span>
-      </button>
-    {/if}
+        {#if moreBadge > 0}
+          <span class="more-badge">{moreBadge > 99 ? '99+' : moreBadge}</span>
+        {/if}
+      </span>
+      <span class="nav-label">Ещё</span>
+    </button>
   </nav>
 
-  {#if mobileMenuOpen && overflowNavItems.length > 0}
+  {#if mobileMenuOpen}
     <button
       type="button"
       class="mobile-menu-backdrop"
@@ -454,7 +532,7 @@
       class="mobile-menu"
       role="dialog"
       aria-modal="true"
-      aria-label="Ещё разделы"
+      aria-label="Ещё: разделы и сервис"
       tabindex="-1"
       bind:this={mobileMenuEl}
     >
@@ -470,19 +548,41 @@
           <Icon name="close" size={18} />
         </button>
       </div>
-      <nav class="mobile-menu-list" aria-label="Дополнительные разделы">
-        {#each overflowNavItems as item (item.path)}
-          <a
-            href={`#${item.path}`}
-            class:active={item.active}
-            aria-current={item.active ? 'page' : undefined}
-            onclick={closeMobileMenu}
-          >
-            <Icon name={item.icon} size={18} />
-            <span>{item.label}</span>
-          </a>
-        {/each}
-      </nav>
+      <div class="mobile-menu-list">
+        {#if overflowNavItems.length > 0}
+          <nav class="mobile-menu-group" aria-label="Дополнительные разделы">
+            <p class="mobile-menu-title">Разделы</p>
+            {#each overflowNavItems as item (item.path)}
+              <a
+                href={`#${item.path}`}
+                class:active={item.active}
+                aria-current={item.active ? 'page' : undefined}
+                onclick={closeMobileMenu}
+              >
+                <Icon name={item.icon} size={18} />
+                <span>{item.label}</span>
+              </a>
+            {/each}
+          </nav>
+        {/if}
+        <nav class="mobile-menu-group" aria-label="Сервис">
+          <p class="mobile-menu-title">Сервис</p>
+          {#each mobileServices as item (item.path)}
+            <a
+              href={`#${item.path}`}
+              class:active={item.active}
+              aria-current={item.active ? 'page' : undefined}
+              onclick={closeMobileMenu}
+            >
+              <Icon name={item.icon} size={18} />
+              <span>{item.label}</span>
+              {#if item.badge > 0}
+                <span class="menu-badge">{item.badge > 99 ? '99+' : item.badge}</span>
+              {/if}
+            </a>
+          {/each}
+        </nav>
+      </div>
     </div>
   {/if}
 </div>
@@ -771,6 +871,17 @@
       display: none;
     }
 
+    /*
+     * Шапка — не меню: только логотип, уведомления и профиль.
+     * Чат, корзина, «О программе» и «Журнал» — в нижнем «Ещё».
+     */
+    .bell-audit,
+    .bell-info,
+    .bell-chat,
+    .bell-cart {
+      display: none;
+    }
+
     main {
       padding: var(--space-4);
       padding-bottom: calc(84px + env(safe-area-inset-bottom));
@@ -812,6 +923,27 @@
       color: inherit;
       font-family: inherit;
       cursor: pointer;
+    }
+
+    .more-icon {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .more-badge {
+      position: absolute;
+      top: -5px;
+      right: -7px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      border-radius: 8px;
+      background: var(--danger);
+      color: #fff;
+      font-size: 10px;
+      line-height: 16px;
+      text-align: center;
+      box-shadow: 0 0 0 1px var(--surface);
     }
 
     .mobile-nav a.active,
@@ -878,9 +1010,40 @@
   .mobile-menu-list {
     display: flex;
     flex-direction: column;
+    overflow-y: auto;
+  }
+
+  .mobile-menu-group {
+    display: flex;
+    flex-direction: column;
     gap: 2px;
     padding: 0 var(--space-2);
-    overflow-y: auto;
+  }
+
+  .mobile-menu-title {
+    margin: var(--space-3) var(--space-3) 4px;
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .mobile-menu-group:first-child .mobile-menu-title {
+    margin-top: 0;
+  }
+
+  .mobile-menu-group .menu-badge {
+    margin-left: auto;
+    min-width: 20px;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 10px;
+    background: var(--danger);
+    color: #fff;
+    font-size: 12px;
+    line-height: 20px;
+    text-align: center;
   }
 
   .mobile-menu-list a {

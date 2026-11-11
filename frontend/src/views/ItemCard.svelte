@@ -1148,4 +1148,70 @@
     place-items: center;
     padding: var(--space-6);
   }
+
+  /*
+   * Узкие экраны: остатки по складам — карточкой, без горизонтального скролла.
+   * Колонка склада с корзиной сверху, цены и остаток — строками ниже.
+   */
+  @media (max-width: 720px) {
+    .levels-table,
+    .levels-table.no-prices,
+    .levels-table.no-cart,
+    .levels-table.no-prices.no-cart {
+      min-width: 0;
+    }
+
+    .levels-head {
+      display: none;
+    }
+
+    .levels-table .level-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'wh cart'
+        'prices prices'
+        'stock stock';
+      align-items: center;
+      padding: 12px var(--space-3);
+    }
+
+    .levels-table .level-wh {
+      grid-area: wh;
+    }
+
+    .levels-table .col-price {
+      grid-area: prices;
+    }
+
+    .levels-table .col-stock {
+      grid-area: stock;
+      justify-self: start;
+    }
+
+    .levels-table .col-cart {
+      grid-area: cart;
+    }
+
+    .levels-table.no-prices .level-row {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        'wh cart'
+        'stock stock';
+    }
+
+    .levels-table.no-cart .level-row {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'wh'
+        'prices'
+        'stock';
+    }
+
+    .levels-table.no-prices.no-cart .level-row {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas:
+        'wh'
+        'stock';
+    }
+  }
 </style>

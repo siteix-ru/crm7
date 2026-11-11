@@ -361,4 +361,21 @@
       margin-left: 0;
     }
   }
+
+  /* Узкие экраны: без горизонтального скролла, «Код» прячем. */
+  @media (max-width: 720px) {
+    table {
+      min-width: 0;
+    }
+
+    th:nth-child(2),
+    td:nth-child(2) {
+      display: none;
+    }
+
+    th.count-head,
+    th.state-head {
+      width: auto;
+    }
+  }
 </style>

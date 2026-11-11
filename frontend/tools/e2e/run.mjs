@@ -1897,8 +1897,14 @@ const scenarios = [
       await expectVisible(add, 'нет кнопок «Добавить в корзину» (склад или корзина выключены?)');
       await add.click();
 
-      const cart = page.locator('header button[aria-label^="Корзина"]').first();
-      await expectVisible(cart, 'нет кнопки корзины в шапке');
+      // на мобильном корзина — в нижнем меню «Ещё», бейдж с количеством на кнопке
+      const more = page.locator('.mobile-nav .nav-more');
+      await expectVisible(more, 'нет кнопки «Ещё» в нижнем меню');
+      await more.click();
+      await page.waitForTimeout(350);
+
+      const cart = page.locator('.mobile-menu a', { hasText: 'Корзина' }).first();
+      await expectVisible(cart, 'нет «Корзины» в меню «Ещё»');
       await cart.click();
 
       await page.waitForTimeout(600);
@@ -1920,23 +1926,29 @@ const scenarios = [
 
       const nav = page.locator('.mobile-nav');
       const primary = await nav.locator('a').count();
-      assert(primary === 3, `в нижнем меню ${primary} разделов вместо 3`);
+      assert(primary === 4, `в нижнем меню ${primary} разделов вместо 4`);
+
+      // шапка не дублирует навигацию: только уведомления и аватар
+      const headerLinks = await page
+        .locator('header .bell-info, header .bell-audit, header .bell-chat, header .bell-cart')
+        .evaluateAll((els) => els.filter((el) => getComputedStyle(el).display !== 'none').length);
+      assert(headerLinks === 0, `в мобильной шапке осталось служебных кнопок: ${headerLinks}`);
 
       const more = nav.locator('.nav-more');
-      await expectVisible(more, 'нет кнопки «Ещё» при четырёх разделах');
+      await expectVisible(more, 'нет кнопки «Ещё»');
       await more.click();
       await page.waitForTimeout(350);
 
       const menu = page.locator('.mobile-menu');
       await expectVisible(menu, 'боковое меню не открылось');
-      const clients = menu.locator('a', { hasText: 'Клиенты' }).first();
-      await expectVisible(clients, 'в боковом меню нет скрытого раздела «Клиенты»');
-      await clients.click();
+      const about = menu.locator('a', { hasText: 'О программе' }).first();
+      await expectVisible(about, 'в меню «Ещё» нет пункта «О программе»');
+      await about.click();
       await page.waitForTimeout(700);
 
       assert(
-        (await page.evaluate(() => location.hash)) === '#/clients',
-        'переход из бокового меню не открыл клиентов'
+        (await page.evaluate(() => location.hash)) === '#/about',
+        'переход из бокового меню не открыл «О программе»'
       );
       assert((await page.locator('.mobile-menu').count()) === 0, 'меню не закрылось после перехода');
 

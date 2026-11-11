@@ -360,4 +360,15 @@
     place-items: center;
     padding: var(--space-6);
   }
+
+  /* Узкие экраны: без горизонтального скролла. */
+  @media (max-width: 720px) {
+    table {
+      min-width: 0;
+    }
+
+    th.count-head {
+      width: auto;
+    }
+  }
 </style>

@@ -1480,6 +1480,12 @@ let usersPerPage = $state(20);
     grid-template-columns: minmax(0, 1fr);
   }
 
+  @media (max-width: 720px) {
+    .module-page {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
   .module-card {
     display: flex;
     flex-direction: column;

@@ -532,11 +532,23 @@
       background: var(--surface);
     }
 
-    .period,
     .requests,
     .reason,
     .row > :nth-child(5) {
       display: none;
+    }
+
+    /* период не теряется: идёт второй строкой карточки, действия остаются справа */
+    .period {
+      grid-column: 1 / -1;
+      margin-top: calc(-1 * var(--space-2));
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .actions-cell {
+      grid-row: 1;
+      grid-column: 2;
     }
   }
 </style>
