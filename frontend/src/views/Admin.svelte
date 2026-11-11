@@ -1698,6 +1698,7 @@ let usersPerPage = $state(20);
 
   .module-setting-field input:focus,
   .module-setting-field select:focus {
+    box-shadow: 0 0 0 2px var(--focus-ring);
     border-color: var(--primary);
     outline: none;
   }
@@ -1853,10 +1854,6 @@ let usersPerPage = $state(20);
     gap: var(--space-2);
   }
 
-  h1 {
-    margin: 0;
-    font-size: 22px;
-  }
 
   h2 {
     margin: 0 0 var(--space-2);
@@ -1917,6 +1914,12 @@ let usersPerPage = $state(20);
     font: inherit;
   }
 
+  .filters select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
+  }
+
 
   .card {
     padding: var(--space-4);
@@ -1955,6 +1958,15 @@ let usersPerPage = $state(20);
     font: inherit;
     background: var(--surface);
     color: var(--text);
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  label input:focus,
+  label select:focus,
+  label textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   label textarea {
@@ -2064,11 +2076,11 @@ let usersPerPage = $state(20);
 
   .state {
     font-size: 12px;
-    color: #1e6b3a;
+    color: var(--success-text);
   }
 
   .state.off {
-    color: #8c1d18;
+    color: var(--error-text);
   }
 
   .meta {
@@ -2234,8 +2246,8 @@ let usersPerPage = $state(20);
   .notice {
     padding: 8px 12px;
     border-radius: var(--radius-sm);
-    background: #e7f5ec;
-    color: #1e6b3a;
+    background: var(--success-bg);
+    color: var(--success-text);
     font-size: 13px;
   }
 

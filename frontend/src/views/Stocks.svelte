@@ -2340,6 +2340,14 @@
     font-size: 14px;
   }
 
+  .import-field input[type='file']:focus,
+  .import-field input[type='date']:focus,
+  .import-field select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
+  }
+
   .count {
     font-size: 12px;
     color: var(--muted);
@@ -2647,6 +2655,7 @@
   .qty-filter-input:focus {
     border-color: var(--primary);
     outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .qty-filter-input:disabled {

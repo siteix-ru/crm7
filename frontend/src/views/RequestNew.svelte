@@ -1525,7 +1525,9 @@
 
   select:focus,
   textarea:focus {
+    outline: none;
     border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .text-input {
@@ -1538,7 +1540,9 @@
   }
 
   .text-input:focus {
+    outline: none;
     border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .muted {
@@ -1665,7 +1669,7 @@
     justify-content: flex-end;
     padding-top: var(--space-2);
     color: var(--muted);
-    font-size: 12.5px;
+    font-size: 12px;
   }
 
   .items-foot strong {

@@ -266,10 +266,6 @@
     gap: var(--space-3);
   }
 
-  h1 {
-    font-size: 22px;
-    margin: 0;
-  }
 
   .alert {
     margin: 0;
@@ -279,8 +275,8 @@
   }
 
   .alert.error {
-    background: #fdecea;
-    color: #8c1d18;
+    background: var(--danger-bg);
+    color: var(--error-text);
   }
 
   .list {

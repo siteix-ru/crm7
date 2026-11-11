@@ -3687,6 +3687,7 @@
   .qty-input:focus {
     border-color: var(--primary);
     outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .qty-unit {
@@ -4048,7 +4049,9 @@
 
   select:focus,
   textarea:focus {
+    outline: none;
     border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .t-head {
@@ -4692,11 +4695,13 @@
   .field textarea:focus {
     border-color: var(--primary);
     outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .field input[type='text']:focus {
     border-color: var(--primary);
     outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   h1 {

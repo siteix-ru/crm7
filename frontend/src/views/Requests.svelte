@@ -1678,7 +1678,7 @@
     background: var(--bg);
     background: color-mix(in srgb, var(--status) 10%, var(--surface));
     color: var(--status);
-    font-size: 12.5px;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1.6;
   }
@@ -1707,7 +1707,7 @@
     margin-top: auto;
     padding-top: 8px;
     border-top: 1px solid var(--border-secondary);
-    font-size: 12.5px;
+    font-size: 12px;
     color: var(--muted);
   }
 
@@ -2216,6 +2216,7 @@
   .client-filter-input:focus {
     border-color: var(--primary);
     outline: none;
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .client-filter-menu {

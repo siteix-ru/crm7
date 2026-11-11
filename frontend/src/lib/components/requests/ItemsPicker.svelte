@@ -623,7 +623,7 @@
 
   .picker-field select:focus {
     border-color: var(--primary);
-    box-shadow: 0 0 0 2px rgba(5, 145, 255, 0.1);
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .picker-field-wh select {

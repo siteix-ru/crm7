@@ -1044,6 +1044,12 @@
     color: var(--text);
   }
 
+  .composer textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
+  }
+
   .placeholder,
   .empty {
     color: var(--muted);

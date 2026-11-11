@@ -216,10 +216,6 @@
     flex-wrap: wrap;
   }
 
-  h1 {
-    margin: 0;
-    font-size: 22px;
-  }
 
   .unread-count {
     display: inline-block;

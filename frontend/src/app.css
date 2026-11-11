@@ -262,6 +262,7 @@ main > .page > .levels-wrap {
 .filters-form .filter-field select:focus {
   border-color: var(--primary);
   outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .filters-form .filter-field input:not([type='checkbox']):not([type='radio']):disabled {

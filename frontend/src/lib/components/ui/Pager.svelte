@@ -170,6 +170,12 @@
     font-size: 14px;
   }
 
+  .per-page select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
+  }
+
   .pager-main {
     display: flex;
     align-items: center;
@@ -246,6 +252,12 @@
     background: var(--surface);
     font: inherit;
     font-size: 13px;
+  }
+
+  .pager-jump input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .pager-simple {

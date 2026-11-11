@@ -761,11 +761,6 @@
     flex-wrap: wrap;
   }
 
-  h1 {
-    margin: 0;
-    font-size: 22px;
-  }
-
   h2 {
     margin: 0;
     font-size: 16px;
