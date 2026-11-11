@@ -96,6 +96,14 @@
       (showSettings ? 1 : 0)
   );
 
+  const mobileNavCount = $derived(
+    2 +
+      (showReports || showMyReports ? 1 : 0) +
+      (showClients ? 1 : 0) +
+      (showStaff ? 1 : 0) +
+      (showSettings ? 1 : 0)
+  );
+
   onMount(() => {
     if (auth.user) {
       void avatars.load(auth.user.id);
@@ -326,7 +334,7 @@
   {@render children?.()}
 </main>
 
-  <nav class="mobile-nav" aria-label="Основная навигация">
+  <nav class="mobile-nav" class:dense={mobileNavCount > 4} aria-label="Основная навигация">
     <a
       href="#/stocks"
       class:active={path === '/stocks' || path.startsWith('/stocks/')}
@@ -698,21 +706,26 @@
       right: 0;
       bottom: 0;
       display: flex;
-      justify-content: space-around;
+      justify-content: space-between;
+      box-sizing: border-box;
+      max-width: 100%;
+      overflow: hidden;
       background: var(--surface);
       border-top: 1px solid var(--border);
-      padding: 6px 0 calc(6px + env(safe-area-inset-bottom));
+      padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
       z-index: 10;
     }
 
     .mobile-nav a {
       display: flex;
+      flex: 1 1 0;
       flex-direction: column;
       align-items: center;
       gap: 2px;
+      min-width: 0;
       font-size: 10px;
       border-bottom: none;
-      padding: 4px 6px;
+      padding: 4px 2px;
       white-space: nowrap;
     }
 
@@ -720,10 +733,21 @@
       color: var(--primary);
     }
 
-  @media (max-width: 380px) {
     .mobile-nav .nav-label {
-      display: none;
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-  }
+
+    /* Если разделов больше четырёх, подписи мельче и обрезаются многоточием. */
+    .mobile-nav.dense a {
+      padding: 4px 2px;
+    }
+
+    .mobile-nav.dense .nav-label {
+      font-size: 9px;
+      letter-spacing: -0.01em;
+    }
   }
 </style>
