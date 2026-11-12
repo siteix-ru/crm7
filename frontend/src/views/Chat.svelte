@@ -600,6 +600,7 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    min-width: 0;
     min-height: 0;
   }
 
@@ -705,6 +706,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
+    min-width: 0;
     text-align: left;
     padding: var(--space-3);
     background: var(--surface);
@@ -735,7 +737,11 @@
   }
 
   .thread .name {
+    min-width: 0;
+    overflow: hidden;
     font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .row-tags {
@@ -1076,11 +1082,12 @@
   }
 
   @media (max-width: 720px) {
-    /* Чат занимает ровно видимую область: шапка 64 + отступы main 16/84 + демо-баннер. */
+    /* Чат заполняет остаток main (шапка, баннер и нижняя навигация уже учтены layout-ом). */
     .page {
-      grid-template-columns: 1fr;
-      height: calc(100vh - 164px - var(--demo-banner-height, 0px));
-      height: calc(100dvh - 164px - var(--demo-banner-height, 0px));
+      flex: 1 1 0;
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: minmax(0, 1fr);
+      height: auto;
       min-height: 0;
     }
 

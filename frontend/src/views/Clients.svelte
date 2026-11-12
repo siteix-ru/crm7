@@ -1454,4 +1454,22 @@
     font-size: 13px;
   }
 
+  @media (max-width: 720px) {
+    .filters {
+      row-gap: var(--space-2);
+    }
+
+    .search {
+      flex-basis: 100%;
+      max-width: 100%;
+    }
+
+    .filter-icons {
+      width: 100%;
+      margin-left: 0;
+      flex-wrap: nowrap;
+      justify-content: flex-start;
+    }
+  }
+
 </style>

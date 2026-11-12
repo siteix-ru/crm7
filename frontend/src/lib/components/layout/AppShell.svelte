@@ -589,15 +589,10 @@
 
 <style>
   .shell {
-    --demo-banner-height: 0px;
     min-height: 100vh;
     display: flex;
     flex-direction: column;
     padding-top: env(safe-area-inset-top);
-  }
-
-  .shell.demo {
-    --demo-banner-height: 37px;
   }
 
   .network-strip {
@@ -848,6 +843,15 @@
   }
 
   @media (max-width: 720px) {
+    /*
+     * Фиксированная высота оболочки на телефоне: main получает остаток
+     * экрана, и страницы вроде чата заполняют его без расчётов от 100dvh.
+     */
+    .shell {
+      height: 100dvh;
+      min-height: 100dvh;
+    }
+
     header {
       padding: 0 var(--space-4);
     }
@@ -883,6 +887,8 @@
     }
 
     main {
+      display: flex;
+      flex-direction: column;
       padding: var(--space-4);
       padding-bottom: calc(84px + env(safe-area-inset-bottom));
     }

@@ -315,8 +315,22 @@
   }
 
   function syncColumnsFromHead(): void {
-    if (columnsScrollEl && columnsHeadScrollEl) {
+    if (
+      columnsScrollEl
+      && columnsHeadScrollEl
+      && columnsScrollEl.scrollLeft !== columnsHeadScrollEl.scrollLeft
+    ) {
       columnsScrollEl.scrollLeft = columnsHeadScrollEl.scrollLeft;
+    }
+  }
+
+  function syncColumnsFromBody(): void {
+    if (
+      columnsScrollEl
+      && columnsHeadScrollEl
+      && columnsHeadScrollEl.scrollLeft !== columnsScrollEl.scrollLeft
+    ) {
+      columnsHeadScrollEl.scrollLeft = columnsScrollEl.scrollLeft;
     }
   }
 
@@ -1830,11 +1844,15 @@
           {/if}
           <div class="columns-sticky-head">
             <div class="columns-head-scroll" bind:this={columnsHeadScrollEl} onscroll={syncColumnsFromHead}>
-              <table class="columns-table columns-table-head" aria-label="Заголовок таблицы остатков">
+              <table
+                class="columns-table columns-table-head"
+                style="--columns-count: {selectedWarehouses.length}"
+                aria-label="Заголовок таблицы остатков"
+              >
                 <colgroup>
-                  <col style="width: 280px" />
+                  <col style="width: var(--columns-name-w)" />
                   {#each selectedWarehouses as warehouse (warehouse.id)}
-                    <col style="width: 220px" />
+                    <col style="width: var(--columns-wh-w)" />
                   {/each}
                 </colgroup>
                 <thead>
@@ -1879,12 +1897,16 @@
               </table>
             </div>
           </div>
-          <div class="columns-table-wrap" bind:this={columnsScrollEl}>
-            <table class="columns-table" aria-label="Остатки по складам">
+          <div class="columns-table-wrap" bind:this={columnsScrollEl} onscroll={syncColumnsFromBody}>
+            <table
+              class="columns-table"
+              style="--columns-count: {selectedWarehouses.length}"
+              aria-label="Остатки по складам"
+            >
               <colgroup>
-                <col style="width: 280px" />
+                <col style="width: var(--columns-name-w)" />
                 {#each selectedWarehouses as warehouse (warehouse.id)}
-                  <col style="width: 220px" />
+                  <col style="width: var(--columns-wh-w)" />
                 {/each}
               </colgroup>
               <tbody>
@@ -2947,6 +2969,8 @@
   }
 
   .columns-table {
+    --columns-name-w: 280px;
+    --columns-wh-w: 220px;
     width: max-content;
     min-width: 760px;
     table-layout: fixed;
@@ -3958,6 +3982,46 @@
     background: var(--surface);
     border: 1px dashed var(--border-secondary);
     border-radius: var(--radius-md);
+  }
+
+  /* Колоночный вид на телефоне: узкая колонка названия и компактные склады. */
+  @media (max-width: 720px) {
+    .columns-table {
+      --columns-name-w: clamp(120px, 42vw, 200px);
+      --columns-wh-w: 116px;
+      width: calc(var(--columns-name-w) + var(--columns-count, 1) * var(--columns-wh-w));
+      min-width: 100%;
+    }
+
+    .columns-head-button {
+      padding: 10px var(--space-2);
+    }
+
+    .columns-head-button span {
+      min-width: 0;
+    }
+
+    .columns-name {
+      min-width: 0;
+      max-width: none;
+    }
+
+    .columns-name-photo {
+      display: none;
+    }
+
+    .columns-name .name {
+      font-size: 13px;
+    }
+
+    .column-label,
+    .column-add-label {
+      display: none;
+    }
+
+    .columns-cell {
+      min-width: 0;
+    }
   }
 
 </style>
