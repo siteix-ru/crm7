@@ -358,27 +358,65 @@
     .page {
       gap: var(--space-3);
     }
-
-    .head-actions {
-      width: 100%;
-      margin-left: 0;
-    }
   }
 
-  /* Узкие экраны: без горизонтального скролла, «Код» прячем. */
+  /* Узкие экраны: строки-карточки вместо таблицы, «Код» прячем. */
   @media (max-width: 720px) {
-    table {
+    .table-wrap {
+      overflow-x: visible;
+    }
+
+    table,
+    tbody {
+      display: block;
       min-width: 0;
     }
 
-    th:nth-child(2),
+    thead {
+      display: none;
+    }
+
+    tbody tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    tbody tr:hover {
+      background: none;
+    }
+
+    td {
+      display: block;
+      padding: 0;
+      border: none;
+    }
+
+    td:nth-child(1) {
+      flex: 1 1 100%;
+    }
+
     td:nth-child(2) {
       display: none;
     }
 
-    th.count-head,
-    th.state-head {
-      width: auto;
+    td:nth-child(3) {
+      font-size: 13px;
+    }
+
+    td:nth-child(3)::before {
+      content: 'Позиции: ';
+    }
+
+    td:nth-child(5) {
+      margin-left: auto;
     }
   }
 </style>
