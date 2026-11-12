@@ -33,6 +33,7 @@
   import LogoutOutlined from '@ant-design/icons-svg/es/asn/LogoutOutlined';
   import MailOutlined from '@ant-design/icons-svg/es/asn/MailOutlined';
   import MenuOutlined from '@ant-design/icons-svg/es/asn/MenuOutlined';
+  import EllipsisOutlined from '@ant-design/icons-svg/es/asn/EllipsisOutlined';
   import MessageOutlined from '@ant-design/icons-svg/es/asn/MessageOutlined';
   import PaperClipOutlined from '@ant-design/icons-svg/es/asn/PaperClipOutlined';
   import PieChartOutlined from '@ant-design/icons-svg/es/asn/PieChartOutlined';
@@ -104,6 +105,7 @@
     logout: LogoutOutlined,
     mail: MailOutlined,
     menu: MenuOutlined,
+    more: EllipsisOutlined,
     'my-reports': PieChartOutlined,
     picture: PictureOutlined,
     price: DollarOutlined,

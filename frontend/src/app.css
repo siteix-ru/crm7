@@ -425,6 +425,7 @@ html.cookie-visible main {
 .view-filters-body {
   flex: 1 1 auto;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: var(--space-3);
   scrollbar-gutter: stable;
@@ -517,6 +518,26 @@ html.cookie-visible main {
     min-width: 0;
     padding-inline: 8px;
     white-space: nowrap;
+  }
+}
+
+/*
+ * Узкие экраны: подписи кнопок не сжимаем — переносим ряд, а главную
+ * (последнюю) кнопку растягиваем на всю ширину, чтобы текст не обрезался.
+ */
+@media (max-width: 480px) {
+  .overlay .dialog-body .modal-actions {
+    flex-wrap: wrap;
+  }
+
+  .overlay .dialog-body .modal-actions button {
+    flex: 1 1 auto;
+    min-width: fit-content;
+  }
+
+  .overlay .dialog-body .modal-actions > button:last-child,
+  .overlay .dialog-body .modal-actions .modal-buttons > button:last-child {
+    flex-basis: 100%;
   }
 }
 

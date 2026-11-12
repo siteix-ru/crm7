@@ -264,6 +264,10 @@
       padding: 8px clamp(6px, 2.5vw, 16px) calc(clamp(6px, 2.5vw, 16px) + env(safe-area-inset-bottom));
     }
 
+    .dialog-body {
+      overflow-x: hidden;
+    }
+
     .dialog {
       width: 100%;
       max-width: 560px;

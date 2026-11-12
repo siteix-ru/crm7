@@ -212,6 +212,39 @@
   let perPage = $state<number>(initialView === 'tiles' ? initialPerPageTiles : initialPerPageList);
   let showPhotos = $state<boolean>(initialStockFilters.photos !== false);
   let viewOpen = $state(false);
+  let moreOpen = $state(false);
+  let moreEl = $state<HTMLElement | null>(null);
+
+  function runMoreAction(run: () => void): void {
+    moreOpen = false;
+    run();
+  }
+
+  onMount(() => {
+    const onPointerDown = (event: PointerEvent): void => {
+      if (!moreOpen) {
+        return;
+      }
+
+      if (moreEl !== null && event.target instanceof Node && !moreEl.contains(event.target)) {
+        moreOpen = false;
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && moreOpen) {
+        moreOpen = false;
+      }
+    };
+
+    document.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('keydown', onKeyDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  });
+
   let viewDraft = $state<'list' | 'tiles' | 'columns'>('list');
   let photoDraft = $state<boolean>(true);
   let sortOpen = $state(false);
@@ -1318,83 +1351,172 @@
           <Icon name="view" size={16} />
         </button>
 
-        {#if auth.can('settings.manage') || canManageWarehouses}
-          <span class="toolbar-divider" aria-hidden="true"></span>
-          {#if auth.can('settings.manage')}
-            {#if appSettings.groupsConfigured}
+        {#if auth.can('settings.manage') || canManageWarehouses || canImport || canExport}
+          <div class="actions-secondary">
+            {#if auth.can('settings.manage') || canManageWarehouses}
+              <span class="toolbar-divider" aria-hidden="true"></span>
+              {#if auth.can('settings.manage')}
+                {#if appSettings.groupsConfigured}
+                  <button
+                    type="button"
+                    class="sort-button"
+                    title="Управление группами номенклатуры"
+                    aria-label="Управление группами номенклатуры"
+                    onclick={() => router.navigate('/stocks/groups')}
+                  >
+                    <Icon name="tags" size={16} />
+                  </button>
+                {/if}
+                <button
+                  type="button"
+                  class="sort-button"
+                  title="Управление типами номенклатуры"
+                  aria-label="Управление типами номенклатуры"
+                  onclick={() => router.navigate('/stocks/types')}
+                >
+                  <Icon name="types" size={16} />
+                </button>
+                {#if pricesEnabled}
+                  <button
+                    type="button"
+                    class="sort-button"
+                    title="Управление типами цен"
+                    aria-label="Управление типами цен"
+                    onclick={() => router.navigate('/stocks/price-types')}
+                  >
+                    <Icon name="price" size={16} />
+                  </button>
+                {/if}
+              {/if}
+
+              {#if canManageWarehouses}
+                <button
+                  type="button"
+                  class="sort-button"
+                  title="Управление складами"
+                  aria-label="Управление складами"
+                  onclick={() => router.navigate('/stocks/warehouses')}
+                >
+                  <Icon name="warehouse" size={16} />
+                </button>
+              {/if}
+            {/if}
+
+            {#if canImport || canExport}
+              <span class="toolbar-divider" aria-hidden="true"></span>
+            {/if}
+
+            {#if canImport}
               <button
                 type="button"
                 class="sort-button"
-                title="Управление группами номенклатуры"
-                aria-label="Управление группами номенклатуры"
-                onclick={() => router.navigate('/stocks/groups')}
+                title="Импорт остатков из 1С"
+                aria-label="Импорт остатков из 1С"
+                onclick={() => openImport('import')}
               >
-                <Icon name="tags" size={16} />
+                <Icon name="import" size={16} />
               </button>
             {/if}
-            <button
-              type="button"
-              class="sort-button"
-              title="Управление типами номенклатуры"
-              aria-label="Управление типами номенклатуры"
-              onclick={() => router.navigate('/stocks/types')}
-            >
-              <Icon name="types" size={16} />
-            </button>
-            {#if pricesEnabled}
+
+            {#if canExport}
               <button
                 type="button"
                 class="sort-button"
-                title="Управление типами цен"
-                aria-label="Управление типами цен"
-                onclick={() => router.navigate('/stocks/price-types')}
+                title="Экспорт"
+                aria-label="Экспорт остатков"
+                disabled={busy || selectedIds.length === 0}
+                onclick={() => (exportOpen = true)}
               >
-                <Icon name="price" size={16} />
+                <Icon name="export" size={16} />
               </button>
             {/if}
-          {/if}
+          </div>
 
-          {#if canManageWarehouses}
+          <div class="more-wrap" bind:this={moreEl}>
             <button
               type="button"
               class="sort-button"
-              title="Управление складами"
-              aria-label="Управление складами"
-              onclick={() => router.navigate('/stocks/warehouses')}
+              title="Ещё: управление и сервис"
+              aria-label="Ещё: управление и сервис"
+              aria-haspopup="menu"
+              aria-expanded={moreOpen}
+              onclick={() => (moreOpen = !moreOpen)}
             >
-              <Icon name="warehouse" size={16} />
+              <Icon name="more" size={16} />
             </button>
-          {/if}
 
-        {/if}
-
-        {#if canImport || canExport}
-          <span class="toolbar-divider" aria-hidden="true"></span>
-        {/if}
-
-        {#if canImport}
-          <button
-            type="button"
-            class="sort-button"
-            title="Импорт остатков из 1С"
-            aria-label="Импорт остатков из 1С"
-            onclick={() => openImport('import')}
-          >
-            <Icon name="import" size={16} />
-          </button>
-        {/if}
-
-        {#if canExport}
-        <button
-          type="button"
-          class="sort-button"
-          title="Экспорт"
-          aria-label="Экспорт остатков"
-          disabled={busy || selectedIds.length === 0}
-          onclick={() => (exportOpen = true)}
-        >
-          <Icon name="export" size={16} />
-        </button>
+            {#if moreOpen}
+              <div class="more-menu" role="menu" aria-label="Управление и сервис">
+                {#if auth.can('settings.manage') && appSettings.groupsConfigured}
+                  <button
+                    type="button"
+                    class="more-item"
+                    role="menuitem"
+                    onclick={() => runMoreAction(() => router.navigate('/stocks/groups'))}
+                  >
+                    <Icon name="tags" size={16} />
+                    <span>Группы номенклатуры</span>
+                  </button>
+                {/if}
+                {#if auth.can('settings.manage')}
+                  <button
+                    type="button"
+                    class="more-item"
+                    role="menuitem"
+                    onclick={() => runMoreAction(() => router.navigate('/stocks/types'))}
+                  >
+                    <Icon name="types" size={16} />
+                    <span>Типы номенклатуры</span>
+                  </button>
+                {/if}
+                {#if auth.can('settings.manage') && pricesEnabled}
+                  <button
+                    type="button"
+                    class="more-item"
+                    role="menuitem"
+                    onclick={() => runMoreAction(() => router.navigate('/stocks/price-types'))}
+                  >
+                    <Icon name="price" size={16} />
+                    <span>Типы цен</span>
+                  </button>
+                {/if}
+                {#if canManageWarehouses}
+                  <button
+                    type="button"
+                    class="more-item"
+                    role="menuitem"
+                    onclick={() => runMoreAction(() => router.navigate('/stocks/warehouses'))}
+                  >
+                    <Icon name="warehouse" size={16} />
+                    <span>Склады</span>
+                  </button>
+                {/if}
+                {#if canImport}
+                  <button
+                    type="button"
+                    class="more-item"
+                    role="menuitem"
+                    onclick={() => runMoreAction(() => openImport('import'))}
+                  >
+                    <Icon name="import" size={16} />
+                    <span>Импорт из 1С</span>
+                  </button>
+                {/if}
+                {#if canExport}
+                  <button
+                    type="button"
+                    class="more-item"
+                    role="menuitem"
+                    disabled={busy || selectedIds.length === 0}
+                    onclick={() => runMoreAction(() => (exportOpen = true))}
+                  >
+                    <Icon name="export" size={16} />
+                    <span>Экспорт остатков</span>
+                  </button>
+                {/if}
+              </div>
+            {/if}
+          </div>
         {/if}
 
         {#if canEdit}
@@ -1408,7 +1530,7 @@
             onclick={() => router.navigate('/stocks/items/new')}
           >
             <Icon name="plus" size={14} />
-            Новая номенклатура
+            <span class="create-label">Новая номенклатура</span>
           </button>
         {/if}
       </div>
@@ -2436,11 +2558,74 @@
   }
 
   .filter-icons {
+    position: relative;
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
     margin-left: auto;
+  }
+
+  /* На десктопе управление и импорт-экспорт видны в строке; на телефоне — в меню «Ещё». */
+  .actions-secondary {
+    display: contents;
+  }
+
+  .more-wrap {
+    display: none;
+    position: static;
+  }
+
+  .more-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    right: 0;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    min-width: min(260px, calc(100vw - 32px));
+    padding: 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
+    box-shadow: var(--shadow-md);
+  }
+
+  .more-item {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    width: 100%;
+    padding: 10px 12px;
+    border: none;
+    border-radius: var(--radius-xs);
+    background: none;
+    color: var(--text);
+    font: inherit;
+    font-size: 14px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .more-item:hover:not(:disabled) {
+    background: var(--fill-tertiary);
+  }
+
+  .more-item:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  .more-item:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: -2px;
+  }
+
+  .more-item span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .create-button {
@@ -2576,6 +2761,7 @@
   .view-filters-body {
     flex: 1 1 auto;
     min-height: 0;
+    overflow-x: hidden;
     overflow-y: auto;
     padding-right: var(--space-3);
     scrollbar-gutter: stable;
@@ -2686,6 +2872,22 @@
     background: var(--fill-tertiary);
     color: var(--text-description);
     cursor: not-allowed;
+  }
+
+  /* Узкие экраны: «Остаток» складывается, чтобы не появлялся горизонтальный скролл. */
+  @media (max-width: 420px) {
+    .qty-filter-row {
+      flex-wrap: wrap;
+    }
+
+    .qty-filter-row :global(.multi) {
+      flex: 1 1 100%;
+      min-width: 0;
+    }
+
+    .qty-filter-input {
+      width: 100%;
+    }
   }
 
   .options-head {
@@ -3984,6 +4186,28 @@
     background: var(--surface);
     border: 1px dashed var(--border-secondary);
     border-radius: var(--radius-md);
+  }
+
+  /* Телефон: главные иконки в строке, управление и импорт-экспорт — в «Ещё». */
+  @media (max-width: 720px) {
+    .actions-secondary {
+      display: none;
+    }
+
+    .more-wrap {
+      display: inline-flex;
+    }
+
+    .create-label {
+      display: none;
+    }
+
+    .create-button {
+      width: var(--control-height);
+      height: var(--control-height);
+      padding: 0;
+      justify-content: center;
+    }
   }
 
   /* Колоночный вид на телефоне: узкая колонка названия и компактные склады. */
