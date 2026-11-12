@@ -6,6 +6,7 @@
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
+  import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
@@ -46,11 +47,12 @@
         <Icon name="arrow-left" size={16} />
       </button>
       <div class="head-text">
-        <h1>Группы номенклатуры</h1>
-        <p class="sub">
-          Группа назначается номенклатуре при редактировании; по группам можно фильтровать остатки и выбор
-          номенклатуры в заявке.
-        </p>
+        <div class="title-row">
+          <h1>Группы номенклатуры</h1>
+          <HelpTip
+            text="Группа назначается номенклатуре при редактировании; по группам можно фильтровать остатки и выбор номенклатуры в заявке."
+          />
+        </div>
       </div>
       <div class="head-actions">
         <button
@@ -214,10 +216,11 @@
     color: var(--text);
   }
 
-  .sub {
-    margin: 0;
-    font-size: 14px;
-    color: var(--text-description);
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
   }
 
   .head-actions {

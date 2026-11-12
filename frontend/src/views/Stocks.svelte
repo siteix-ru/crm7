@@ -1321,15 +1321,17 @@
         {#if auth.can('settings.manage') || canManageWarehouses}
           <span class="toolbar-divider" aria-hidden="true"></span>
           {#if auth.can('settings.manage')}
-            <button
-              type="button"
-              class="sort-button"
-              title="Управление группами номенклатуры"
-              aria-label="Управление группами номенклатуры"
-              onclick={() => router.navigate('/stocks/groups')}
-            >
-              <Icon name="tags" size={16} />
-            </button>
+            {#if appSettings.groupsConfigured}
+              <button
+                type="button"
+                class="sort-button"
+                title="Управление группами номенклатуры"
+                aria-label="Управление группами номенклатуры"
+                onclick={() => router.navigate('/stocks/groups')}
+              >
+                <Icon name="tags" size={16} />
+              </button>
+            {/if}
             <button
               type="button"
               class="sort-button"
@@ -1711,7 +1713,7 @@
           <label class="view-mode-card" class:active={viewDraft === 'columns'}>
             <input type="radio" name="stock-view" value="columns" bind:group={viewDraft} />
             <Icon name="columns" size={18} />
-            <span>Колоночный вид</span>
+            <span>Колонки</span>
           </label>
         </div>
       </div>

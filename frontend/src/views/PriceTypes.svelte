@@ -4,6 +4,7 @@
   import { listAdminPriceTypes } from '../lib/api/prices';
   import type { PriceType } from '../lib/api/types';
   import { router } from '../lib/router.svelte';
+  import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
@@ -42,11 +43,12 @@
         <Icon name="arrow-left" size={16} />
       </button>
       <div class="head-text">
-        <h1>Типы цен</h1>
-        <p class="sub">
-          Типы профиля задают цену номенклатуры для клиента. Цены вводятся при редактировании
-          номенклатуры на складе.
-        </p>
+        <div class="title-row">
+          <h1>Типы цен</h1>
+          <HelpTip
+            text="Типы профиля задают цену номенклатуры для клиента. Цены вводятся при редактировании номенклатуры на складе."
+          />
+        </div>
       </div>
       <div class="head-actions">
         <button
@@ -210,10 +212,11 @@
     color: var(--text);
   }
 
-  .sub {
-    margin: 0;
-    font-size: 14px;
-    color: var(--text-description);
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-width: 0;
   }
 
   .head-actions {
