@@ -43,12 +43,15 @@
         <Icon name="arrow-left" size={16} />
       </button>
       <div class="head-text">
-        <div class="title-row">
-          <h1>Типы цен</h1>
+        <h1>
           <HelpTip
             text="Типы профиля задают цену номенклатуры для клиента. Цены вводятся при редактировании номенклатуры на складе."
-          />
-        </div>
+          >
+            {#snippet trigger()}
+              Типы цен
+            {/snippet}
+          </HelpTip>
+        </h1>
       </div>
       <div class="head-actions">
         <button
@@ -212,12 +215,6 @@
     color: var(--text);
   }
 
-  .title-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    min-width: 0;
-  }
 
   .head-actions {
     display: flex;

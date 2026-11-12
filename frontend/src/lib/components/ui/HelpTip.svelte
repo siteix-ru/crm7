@@ -1,13 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import type { Snippet } from 'svelte';
   import Icon from './Icon.svelte';
 
   interface Props {
     text: string;
     label?: string;
+    trigger?: Snippet;
   }
 
-  let { text, label = 'Подсказка' }: Props = $props();
+  let { text, label = 'Подсказка', trigger }: Props = $props();
 
   let open = $state(false);
   let root = $state<HTMLSpanElement | null>(null);
@@ -98,21 +100,36 @@
   });
 </script>
 
-<span class="help-root" bind:this={root}>
-  <button
-    type="button"
-    class="help-trigger"
-    class:active={open}
-    aria-label={label}
-    aria-expanded={open}
-    title={label}
-    onclick={(event) => {
-      event.stopPropagation();
-      open = !open;
-    }}
-  >
-    <Icon name="help" size={16} />
-  </button>
+<span class="help-root" class:text-mode={trigger !== undefined} bind:this={root}>
+  {#if trigger}
+    <button
+      type="button"
+      class="help-text-trigger"
+      class:active={open}
+      aria-expanded={open}
+      onclick={(event) => {
+        event.stopPropagation();
+        open = !open;
+      }}
+    >
+      {@render trigger()}
+    </button>
+  {:else}
+    <button
+      type="button"
+      class="help-trigger"
+      class:active={open}
+      aria-label={label}
+      aria-expanded={open}
+      title={label}
+      onclick={(event) => {
+        event.stopPropagation();
+        open = !open;
+      }}
+    >
+      <Icon name="help" size={16} />
+    </button>
+  {/if}
 
   {#if open}
     <span
@@ -131,6 +148,33 @@
     position: relative;
     display: inline-flex;
     flex: 0 0 auto;
+  }
+
+  .help-root.text-mode {
+    display: inline;
+  }
+
+  .help-text-trigger {
+    display: inline;
+    padding: 0;
+    border: none;
+    border-bottom: 1px dotted transparent;
+    background: none;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 0.12s ease;
+  }
+
+  .help-text-trigger:hover,
+  .help-text-trigger.active {
+    border-bottom-color: var(--muted);
+  }
+
+  .help-text-trigger:focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
   }
 
   .help-trigger {

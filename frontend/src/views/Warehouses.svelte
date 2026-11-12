@@ -1067,7 +1067,8 @@
 
     .levels:not(.tiles) .level {
       flex-wrap: wrap;
-      row-gap: var(--space-2);
+      row-gap: 6px;
+      column-gap: var(--space-3);
     }
 
     .levels:not(.tiles) .name-col {
@@ -1075,8 +1076,43 @@
     }
 
     .levels:not(.tiles) .level-bottom {
-      flex: 1 1 100%;
-      justify-content: flex-start;
+      display: contents;
+    }
+
+    .levels:not(.tiles) .stat {
+      flex-direction: row;
+      align-items: baseline;
+      gap: 4px;
+    }
+
+    .levels:not(.tiles) .stat-label::after {
+      content: ':';
+    }
+
+    .levels:not(.tiles) .stat.col-address {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .levels:not(.tiles) .stat.col-address .value {
+      overflow-wrap: anywhere;
+    }
+
+    .levels:not(.tiles) .stat.col-positions {
+      align-items: baseline;
+      text-align: left;
+    }
+
+    .levels:not(.tiles) .stat.col-active {
+      margin-left: auto;
+    }
+
+    .levels:not(.tiles) .stat.col-active .stat-label {
+      display: none;
+    }
+
+    .levels:not(.tiles) .tag {
+      align-self: center;
     }
   }
 
@@ -1303,5 +1339,51 @@
     display: grid;
     place-items: center;
     padding: var(--space-6);
+  }
+
+  /* Плитки на телефоне: подписи в строку, адрес отдельной строкой. */
+  @media (max-width: 719.98px) {
+    .levels.tiles .level-bottom {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px var(--space-3);
+    }
+
+    .levels.tiles .stat {
+      flex-direction: row;
+      align-items: baseline;
+      gap: 4px;
+    }
+
+    .levels.tiles .stat-label::after {
+      content: ':';
+    }
+
+    .levels.tiles .stat.col-address {
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+
+    .levels.tiles .stat.col-address .value {
+      overflow-wrap: anywhere;
+    }
+
+    .levels.tiles .stat.col-positions {
+      align-items: baseline;
+      text-align: left;
+    }
+
+    .levels.tiles .stat.col-active {
+      margin-left: auto;
+    }
+
+    .levels.tiles .stat.col-active .stat-label {
+      display: none;
+    }
+
+    .levels.tiles .tag {
+      align-self: center;
+    }
   }
 </style>

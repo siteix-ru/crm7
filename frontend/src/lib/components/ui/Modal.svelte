@@ -257,20 +257,24 @@
     overflow: auto;
   }
 
-  /* Мобильный паттерн: шторка снизу на всю ширину. */
+  /* Мобильный паттерн: шторка снизу с отступами от краёв экрана. */
   @media (max-width: 720px) {
     .overlay {
-      place-items: end stretch;
-      padding: 0;
+      place-items: end center;
+      padding: 8px clamp(6px, 2.5vw, 16px) calc(clamp(6px, 2.5vw, 16px) + env(safe-area-inset-bottom));
     }
 
-    .dialog,
-    .dialog.wide {
+    .dialog {
       width: 100%;
+      max-width: 560px;
       max-height: 92dvh;
-      padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
-      border-radius: 16px 16px 0 0;
+      padding: 12px 16px 16px;
+      border-radius: 16px;
       animation: sheet-up 0.22s ease-out;
+    }
+
+    .dialog.wide {
+      max-width: 780px;
     }
 
     .dialog::before {

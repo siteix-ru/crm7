@@ -47,12 +47,15 @@
         <Icon name="arrow-left" size={16} />
       </button>
       <div class="head-text">
-        <div class="title-row">
-          <h1>Группы номенклатуры</h1>
+        <h1>
           <HelpTip
             text="Группа назначается номенклатуре при редактировании; по группам можно фильтровать остатки и выбор номенклатуры в заявке."
-          />
-        </div>
+          >
+            {#snippet trigger()}
+              Группы номенклатуры
+            {/snippet}
+          </HelpTip>
+        </h1>
       </div>
       <div class="head-actions">
         <button
@@ -216,13 +219,6 @@
     color: var(--text);
   }
 
-  .title-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-    min-width: 0;
-  }
-
   .head-actions {
     display: flex;
     align-items: center;
@@ -364,14 +360,59 @@
     padding: var(--space-6);
   }
 
-  /* Узкие экраны: без горизонтального скролла. */
+  /* Узкие экраны: строки-карточки вместо таблицы. */
   @media (max-width: 720px) {
-    table {
+    .table-wrap {
+      overflow-x: visible;
+    }
+
+    table,
+    tbody {
+      display: block;
       min-width: 0;
     }
 
-    th.count-head {
-      width: auto;
+    thead {
+      display: none;
+    }
+
+    tbody tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 4px 10px;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody tr:last-child {
+      border-bottom: none;
+    }
+
+    tbody tr:hover {
+      background: none;
+    }
+
+    td {
+      display: block;
+      padding: 0;
+      border: none;
+    }
+
+    td:nth-child(1) {
+      flex: 1 1 100%;
+    }
+
+    td:nth-child(2) {
+      font-size: 13px;
+    }
+
+    td:nth-child(2)::before {
+      content: 'Номенклатуры: ';
+    }
+
+    td:nth-child(3) {
+      margin-left: auto;
     }
   }
 </style>
