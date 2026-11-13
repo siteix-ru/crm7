@@ -113,7 +113,8 @@
     const spaceAbove = rect.top - gap - viewportGap;
     const placeAbove = spaceBelow < 80 && spaceAbove > spaceBelow;
     const available = Math.max(0, placeAbove ? spaceAbove : spaceBelow);
-    const height = Math.max(80, Math.min(requested, available));
+    const height =
+      available >= 80 ? Math.min(Math.max(80, requested), available) : available;
     const vertical = placeAbove
       ? `bottom: ${window.innerHeight - rect.top + gap}px`
       : `top: ${rect.bottom + gap}px`;

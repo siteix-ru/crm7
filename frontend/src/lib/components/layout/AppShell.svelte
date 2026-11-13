@@ -219,10 +219,39 @@
   let moreBtnEl = $state<HTMLElement | null>(null);
 
   function closeMobileMenu(): void {
-    if (mobileMenuOpen) {
+    const active = document.activeElement;
+    if (mobileMenuOpen && mobileMenuEl?.contains(active)) {
       moreBtnEl?.focus();
     }
     mobileMenuOpen = false;
+  }
+
+  function onMenuKeydown(event: KeyboardEvent): void {
+    if (event.key !== 'Tab' || mobileMenuEl === null) {
+      return;
+    }
+
+    const focusables = Array.from(
+      mobileMenuEl.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )
+    ).filter((element) => element.offsetParent !== null);
+
+    if (focusables.length === 0) {
+      return;
+    }
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement as HTMLElement | null;
+
+    if (event.shiftKey && (active === first || active === mobileMenuEl)) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && active === last) {
+      event.preventDefault();
+      first.focus();
+    }
   }
 
   $effect(() => {
@@ -246,6 +275,19 @@
     if (mobileMenuOpen) {
       mobileMenuEl?.focus();
     }
+  });
+
+  $effect(() => {
+    if (!mobileMenuOpen) {
+      return;
+    }
+
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previous;
+    };
   });
 
   function onGlobalKeydown(event: KeyboardEvent): void {
@@ -534,6 +576,7 @@
       aria-modal="true"
       aria-label="Ещё: разделы и сервис"
       tabindex="-1"
+      onkeydown={onMenuKeydown}
       bind:this={mobileMenuEl}
     >
       <div class="mobile-menu-head">
@@ -962,6 +1005,19 @@
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    /* Очень узкие телефоны: «Номенклатура» должна помещаться целиком. */
+    @media (max-width: 360px) {
+      .mobile-nav a,
+      .mobile-nav .nav-more {
+        padding: 4px 1px;
+      }
+
+      .mobile-nav .nav-label {
+        font-size: 9px;
+        letter-spacing: -0.2px;
+      }
     }
   }
 
