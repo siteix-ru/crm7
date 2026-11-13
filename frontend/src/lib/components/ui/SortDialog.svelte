@@ -81,32 +81,33 @@
     draft = next;
   }
 
-  function startDrag(event: DragEvent, field: string): void {
-    dragField = field;
-
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', field);
-    }
-  }
-
-  function over(event: DragEvent, field: string): void {
-    if (dragField === null || draftIndex(field) === 0) {
+  /*
+   * Перестановка условий: pointer-события (мышь и палец), а не HTML5 drag&drop,
+   * который не работает на тач-устройствах.
+   */
+  function startDrag(event: PointerEvent, field: string): void {
+    if (draftIndex(field) === 0) {
       return;
     }
 
+    dragField = field;
+    dragOver = null;
+    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
     event.preventDefault();
-    dragOver = field;
   }
 
-  function drop(event: DragEvent, field: string): void {
-    event.preventDefault();
-
-    if (dragField !== null && draftIndex(field) > 0) {
-      move(dragField, field);
+  function dragMove(event: PointerEvent): void {
+    if (dragField === null) {
+      return;
     }
 
-    endDrag();
+    const row = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-sort-field]');
+    const target = row?.getAttribute('data-sort-field') ?? null;
+
+    if (target !== null && target !== dragField && draftIndex(target) > 0) {
+      dragOver = target;
+      move(dragField, target);
+    }
   }
 
   function endDrag(): void {
@@ -137,22 +138,17 @@
         class:active
         class:drag-over={dragOver === column.field && dragField !== column.field}
         role="listitem"
-        ondragover={(event) => over(event, column.field)}
-        ondragleave={() => {
-          if (dragOver === column.field) {
-            dragOver = null;
-          }
-        }}
-        ondrop={(event) => drop(event, column.field)}
+        data-sort-field={column.field}
       >
         <span
           class="sort-drag"
           class:off={!active}
-          draggable={active}
           title={active ? 'Перетащите, чтобы изменить порядок' : undefined}
           aria-hidden="true"
-          ondragstart={(event) => startDrag(event, column.field)}
-          ondragend={endDrag}
+          onpointerdown={(event) => startDrag(event, column.field)}
+          onpointermove={dragMove}
+          onpointerup={endDrag}
+          onpointercancel={endDrag}
         >
           <Icon name="holder" size={14} />
         </span>
@@ -242,6 +238,7 @@
     height: 24px;
     color: var(--muted);
     cursor: grab;
+    touch-action: none;
   }
 
   .sort-drag:active {

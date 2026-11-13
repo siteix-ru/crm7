@@ -721,4 +721,11 @@
       grid-column: 1 / -1;
     }
   }
+
+  @media (max-width: 720px) {
+    .notify-close {
+      width: 32px;
+      height: 32px;
+    }
+  }
 </style>

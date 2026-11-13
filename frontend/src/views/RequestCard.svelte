@@ -4501,6 +4501,14 @@
     .files-upload-actions :global(button) {
       width: 100%;
     }
+
+    .param-edit,
+    .notify-close,
+    .files-selected-remove,
+    .it-del {
+      width: 32px;
+      height: 32px;
+    }
   }
 
   .event-file-link {

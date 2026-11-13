@@ -375,5 +375,10 @@
     .sum {
       min-width: 0;
     }
+
+    .del {
+      width: 32px;
+      height: 32px;
+    }
   }
 </style>

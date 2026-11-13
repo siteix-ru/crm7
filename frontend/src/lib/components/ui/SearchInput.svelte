@@ -212,6 +212,8 @@
     z-index: 20;
     display: flex;
     flex-direction: column;
+    max-height: min(40dvh, 240px);
+    overflow-y: auto;
     padding: 4px;
     background: var(--surface);
     border: 1px solid var(--border);

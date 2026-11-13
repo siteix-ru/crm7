@@ -3789,4 +3789,63 @@
       align-items: flex-start;
     }
   }
+
+  /* Телефон: «Интересы» карточными строками вместо широкой таблицы. */
+  @media (max-width: 720px) {
+    .table-scroll {
+      overflow-x: visible;
+    }
+
+    .interests {
+      min-width: 0;
+    }
+
+    .interests .tr.th {
+      display: none;
+    }
+
+    .interests .tr {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 4px var(--space-3);
+      padding: 10px 0;
+    }
+
+    .interests .name {
+      flex: 1 1 100%;
+    }
+
+    .interests .tr > span:nth-child(2) {
+      flex: 1 1 100%;
+      color: var(--text-description);
+      font-size: 12px;
+    }
+
+    .interests .tr > span:nth-child(2)::before {
+      content: 'Склад: ';
+    }
+
+    .interests .tr > span:nth-child(3)::before {
+      content: 'Заказов: ';
+      color: var(--text-description);
+    }
+
+    .interests .tr > span:nth-child(4)::before {
+      content: 'Кол-во: ';
+      color: var(--text-description);
+    }
+
+    .interests .tr > span:nth-child(5) {
+      margin-left: auto;
+      color: var(--text-description);
+      font-size: 12px;
+    }
+
+    .notify-close,
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+    }
+  }
 </style>

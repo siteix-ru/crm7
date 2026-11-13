@@ -551,8 +551,11 @@
   }
 
   .contact-value {
+    flex: 1 1 auto;
+    min-width: 0;
     font-weight: 500;
     color: inherit;
+    overflow-wrap: anywhere;
   }
 
   a.contact-value {

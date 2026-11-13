@@ -1175,5 +1175,10 @@
       content: 'Роль: ';
       color: var(--muted);
     }
+
+    .notify-close {
+      width: 32px;
+      height: 32px;
+    }
   }
 </style>

@@ -650,4 +650,11 @@
       grid-template-columns: 1fr;
     }
   }
+
+  @media (max-width: 720px) {
+    .notify-close {
+      width: 32px;
+      height: 32px;
+    }
+  }
 </style>

@@ -1292,6 +1292,12 @@
     .client-requests {
       display: none;
     }
+
+    .notify-close,
+    .icon-btn {
+      width: 32px;
+      height: 32px;
+    }
   }
 
   .row {

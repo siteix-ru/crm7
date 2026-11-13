@@ -1382,7 +1382,7 @@
 
   @media (max-width: 640px) {
     .ct-row {
-      grid-template-columns: minmax(130px, 1fr) 56px minmax(100px, 130px);
+      grid-template-columns: minmax(0, 1fr) 44px minmax(84px, auto);
       gap: var(--space-2);
       padding: 10px 12px;
     }

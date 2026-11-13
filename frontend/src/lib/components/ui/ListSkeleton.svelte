@@ -15,7 +15,9 @@
   {#each Array(rows) as _, index (index)}
     <div class="row" aria-hidden="true">
       {#each widths as width, cell (cell)}
-        <Skeleton {width} height={cell === 1 ? '14px' : '12px'} />
+        <span class="cell" class:cell-extra={cell >= 2}>
+          <Skeleton {width} height={cell === 1 ? '14px' : '12px'} />
+        </span>
       {/each}
     </div>
   {/each}
@@ -54,5 +56,16 @@
     clip: rect(0 0 0 0);
     white-space: nowrap;
     border: 0;
+  }
+
+  /* Узкие экраны: меньше «колонок», чтобы скелетон не переносился лесенкой. */
+  @media (max-width: 480px) {
+    .row {
+      gap: var(--space-2) var(--space-3);
+    }
+
+    .cell-extra {
+      display: none;
+    }
   }
 </style>

@@ -224,14 +224,18 @@
   }
 
   h2 {
+    flex: 1 1 auto;
+    min-width: 0;
     margin: 0;
     font-size: 16px;
     font-weight: 600;
     line-height: 1.5;
     color: var(--text);
+    overflow-wrap: anywhere;
   }
 
   .close {
+    flex: 0 0 auto;
     display: inline-flex;
     align-items: center;
     justify-content: center;

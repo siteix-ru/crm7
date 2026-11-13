@@ -92,7 +92,7 @@
     .cookie {
       flex-direction: column;
       align-items: stretch;
-      bottom: 84px;
+      bottom: calc(84px + env(safe-area-inset-bottom));
     }
   }
 </style>

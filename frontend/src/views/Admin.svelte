@@ -2257,4 +2257,11 @@ let usersPerPage = $state(20);
     padding: var(--space-6);
   }
 
+  /* Телефон: панель сохранения держим над нижней навигацией. */
+  @media (max-width: 720px) {
+    .module-footer {
+      bottom: calc(60px + env(safe-area-inset-bottom));
+    }
+  }
+
 </style>
