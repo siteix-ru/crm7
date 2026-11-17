@@ -366,7 +366,7 @@
     font-size: 13px;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .row {
       flex-wrap: wrap;
     }

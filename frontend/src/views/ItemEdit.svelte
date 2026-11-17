@@ -1393,7 +1393,7 @@
     margin-left: auto;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .head-actions {
       width: 100%;
       margin-left: 0;
@@ -1759,7 +1759,7 @@
     background: var(--focus-ring);
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .level-row {
       flex-wrap: wrap;
     }

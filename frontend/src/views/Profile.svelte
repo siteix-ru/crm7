@@ -998,7 +998,7 @@
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .tabs {
       width: 100%;
       margin-left: 0;

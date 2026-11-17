@@ -995,7 +995,7 @@
     color: var(--text-description);
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .head-actions {
       width: 100%;
       margin-left: 0;

@@ -1068,7 +1068,7 @@ const scenarios = [
     }
   },
   {
-    name: 'склады: вид и фильтры',
+    name: 'склады: список и шапка',
     role: 'admin',
     async run(page) {
       await page.goto(`${BASE}/#/stocks`, { waitUntil: 'domcontentloaded' });
@@ -1097,17 +1097,23 @@ const scenarios = [
         'нет возврата к номенклатуре'
       );
       await expectVisible(page.locator('.levels .level').first(), 'не загрузился список складов');
+      await expectVisible(
+        page.locator('.levels-head .levels-head-cell').first(),
+        'не показана шапка списка складов'
+      );
 
-      await page.getByRole('button', { name: /^Вид/ }).click();
-
-      const dialog = page.getByRole('dialog');
-      await dialog.getByRole('radio', { name: 'Плитка', exact: true }).check();
-      await dialog.getByRole('button', { name: 'Статусы' }).click();
-      await dialog.getByRole('checkbox', { name: 'Деактивированные', exact: true }).uncheck();
-      await dialog.getByRole('button', { name: 'Статусы' }).click();
-      await dialog.getByRole('button', { name: 'Применить' }).click();
-
-      await expectVisible(page.locator('.levels.tiles'), 'не переключился вид на плитку');
+      assert(
+        (await page.locator('form.search input[type="search"]').count()) === 0,
+        'на странице складов остался поиск'
+      );
+      assert(
+        (await page.getByRole('button', { name: 'Сортировка' }).count()) === 0,
+        'на странице складов осталась сортировка'
+      );
+      assert(
+        (await page.getByRole('button', { name: /^Вид/ }).count()) === 0,
+        'на странице складов осталась настройка вида'
+      );
     }
   },
   {
@@ -1140,7 +1146,7 @@ const scenarios = [
       await expectVisible(page.getByText(title), 'созданный тип не появился в списке');
 
       const row = page.locator('tr', { hasText: title });
-      await row.getByRole('button', { name: 'Редактировать тип' }).click();
+      await row.getByRole('link', { name: title }).click();
       await expectVisible(
         page.getByRole('heading', { name: 'Редактировать тип номенклатуры' }),
         'не открылась страница редактирования типа'
@@ -1191,7 +1197,7 @@ const scenarios = [
 
       const row = page.locator('tr', { hasText: title });
       assert((await row.locator('code').count()) === 1, 'в строке типа цен нет кода');
-      await row.getByRole('button', { name: 'Редактировать тип цен' }).click();
+      await row.getByRole('link', { name: title }).click();
       await expectVisible(
         page.getByRole('heading', { name: 'Редактирование типа цен' }),
         'не открылась форма редактирования типа цен'

@@ -839,7 +839,7 @@
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .page {
       gap: var(--space-3);
     }

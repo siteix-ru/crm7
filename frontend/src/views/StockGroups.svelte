@@ -101,7 +101,7 @@
               <tr>
                 <th>Название</th>
                 <th class="count-head">Номенклатуры</th>
-                <th class="actions-head">Действия</th>
+                <th class="state-head">Доступен</th>
               </tr>
             </thead>
             <tbody>
@@ -109,7 +109,7 @@
                 <tr>
                   <td>
                     <div class="name">
-                      <span class="title">{group.title}</span>
+                      <a class="title" href={`#/stocks/groups/${group.id}`}>{group.title}</a>
                       {#if group.description}
                         <span class="desc">{group.description}</span>
                       {/if}
@@ -117,17 +117,9 @@
                   </td>
                   <td class="count">{group.positions_count ?? 0}</td>
                   <td>
-                    <div class="actions">
-                      <button
-                        type="button"
-                        class="icon-btn"
-                        title="Редактировать группу"
-                        aria-label="Редактировать группу"
-                        onclick={() => router.navigate(`/stocks/groups/${group.id}`)}
-                      >
-                        <Icon name="edit" size={16} />
-                      </button>
-                    </div>
+                    <span class="state" class:on={group.enabled !== false}>
+                      {group.enabled === false ? 'Выключен' : 'Доступен'}
+                    </span>
                   </td>
                 </tr>
               {/each}
@@ -258,8 +250,8 @@
     width: 120px;
   }
 
-  th.actions-head {
-    text-align: right;
+  th.state-head {
+    width: 120px;
   }
 
   td {
@@ -286,7 +278,14 @@
 
   .title {
     font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
     overflow-wrap: anywhere;
+  }
+
+  .title:hover {
+    color: var(--primary);
+    text-decoration: underline;
   }
 
   .desc {
@@ -300,11 +299,14 @@
     white-space: nowrap;
   }
 
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--space-2);
+  .state {
+    color: var(--text-description);
+    font-size: 13px;
     white-space: nowrap;
+  }
+
+  .state.on {
+    color: var(--success-text);
   }
 
   .empty {

@@ -87,8 +87,7 @@
                 <th>Название</th>
                 <th>Код</th>
                 <th class="count-head">Позиции</th>
-                <th class="state-head">Состояние</th>
-                <th class="actions-head">Действия</th>
+                <th class="state-head">Доступен</th>
               </tr>
             </thead>
             <tbody>
@@ -96,7 +95,7 @@
                 <tr>
                   <td>
                     <div class="name">
-                      <span class="title">{type.title}</span>
+                      <a class="title" href={`#/stocks/types/${type.id}`}>{type.title}</a>
                       {#if type.description}
                         <span class="desc">{type.description}</span>
                       {/if}
@@ -106,21 +105,8 @@
                   <td class="count">{type.positions_count}</td>
                   <td>
                     <span class="state" class:on={type.enabled}>
-                      {type.enabled ? 'Включён' : 'Выключен'}
+                      {type.enabled ? 'Доступен' : 'Выключен'}
                     </span>
-                  </td>
-                  <td>
-                    <div class="actions">
-                      <button
-                        type="button"
-                        class="icon-btn"
-                        title="Редактировать тип"
-                        aria-label="Редактировать тип"
-                        onclick={() => router.navigate(`/stocks/types/${type.id}`)}
-                      >
-                        <Icon name="edit" size={16} />
-                      </button>
-                    </div>
                   </td>
                 </tr>
               {/each}
@@ -280,10 +266,6 @@
     width: 120px;
   }
 
-  th.actions-head {
-    text-align: right;
-  }
-
   td {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
@@ -308,7 +290,14 @@
 
   .title {
     font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
     overflow-wrap: anywhere;
+  }
+
+  .title:hover {
+    color: var(--primary);
+    text-decoration: underline;
   }
 
   .desc {
@@ -340,18 +329,13 @@
     color: var(--success-text);
   }
 
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-  }
-
   .empty {
     padding: var(--space-6);
     color: var(--text-description);
     text-align: center;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .page {
       gap: var(--space-3);
     }
@@ -412,7 +396,7 @@
       content: 'Позиции: ';
     }
 
-    td:nth-child(5) {
+    td:nth-child(4) {
       margin-left: auto;
     }
   }

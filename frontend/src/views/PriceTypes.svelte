@@ -90,7 +90,6 @@
                 <th class="num-head">Пользователи</th>
                 <th class="num-head">Цены</th>
                 <th class="state-head">Доступен</th>
-                <th class="actions-head">Действия</th>
               </tr>
             </thead>
             <tbody>
@@ -98,7 +97,7 @@
                 <tr>
                   <td>
                     <div class="name">
-                      <span class="title">{type.title}</span>
+                      <a class="title" href={`#/stocks/price-types/${type.id}`}>{type.title}</a>
                       {#if type.description}
                         <span class="desc">{type.description}</span>
                       {/if}
@@ -111,19 +110,6 @@
                     <span class="state" class:on={type.enabled !== false}>
                       {type.enabled === false ? 'Выключен' : 'Доступен'}
                     </span>
-                  </td>
-                  <td>
-                    <div class="actions">
-                      <button
-                        type="button"
-                        class="icon-btn"
-                        title="Редактировать тип цен"
-                        aria-label="Редактировать тип цен"
-                        onclick={() => router.navigate(`/stocks/price-types/${type.id}`)}
-                      >
-                        <Icon name="edit" size={16} />
-                      </button>
-                    </div>
                   </td>
                 </tr>
               {/each}
@@ -283,10 +269,6 @@
     width: 120px;
   }
 
-  th.actions-head {
-    text-align: right;
-  }
-
   td {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
@@ -311,7 +293,14 @@
 
   .title {
     font-weight: 500;
+    color: var(--text);
+    text-decoration: none;
     overflow-wrap: anywhere;
+  }
+
+  .title:hover {
+    color: var(--primary);
+    text-decoration: underline;
   }
 
   .desc {
@@ -343,18 +332,13 @@
     color: var(--success-text);
   }
 
-  .actions {
-    display: flex;
-    justify-content: flex-end;
-  }
-
   .empty {
     padding: var(--space-6);
     color: var(--text-description);
     text-align: center;
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .page {
       gap: var(--space-3);
     }
@@ -420,7 +404,7 @@
       content: 'Цены: ';
     }
 
-    td:nth-child(6) {
+    td:nth-child(5) {
       margin-left: auto;
     }
   }

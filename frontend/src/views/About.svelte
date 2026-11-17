@@ -374,7 +374,7 @@
     gap: var(--space-4);
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .intro {
       flex-direction: column;
       align-items: flex-start;

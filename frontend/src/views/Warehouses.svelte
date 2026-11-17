@@ -8,14 +8,10 @@
   } from '../lib/api/stocks';
   import { config } from '../lib/config';
   import { loadFilters, saveFilters } from '../lib/filters';
-  import { addHistory } from '../lib/search-history';
   import { router } from '../lib/router.svelte';
-  import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
-  import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
-  import Modal from '../lib/components/ui/Modal.svelte';
-  import SearchInput from '../lib/components/ui/SearchInput.svelte';
+  import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import EmptyState from '../lib/components/ui/EmptyState.svelte';
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
@@ -35,142 +31,29 @@
     return typeTitles[value] ?? value;
   }
 
-  const sortFields = [
+  const columns = [
     { field: 'name', label: 'Название' },
     { field: 'address', label: 'Адрес' },
     { field: 'positions', label: 'Остаток' },
-    { field: 'active', label: 'Статус' }
+    { field: 'active', label: 'Доступен' }
   ];
 
   let items = $state<WarehouseDirectoryItem[]>([]);
   let loading = $state(true);
-  let busy = $state(false);
   let error = $state('');
   let message = $state('');
   let loadSeq = 0;
-  const warehouseFilterDefaults = {
-    sort: 'name_asc',
-    view: 'list',
-    per_page: 20,
-    query: '',
-    page: 1,
-    active: 'all'
-  };
-  const initialWarehouseFilters = loadFilters('warehouses', warehouseFilterDefaults);
+  const initialFilters = loadFilters('warehouses', { per_page: 20, page: 1 });
 
-  const initialStatus = String(initialWarehouseFilters.active ?? 'all');
-  let statusActive = $state(initialStatus !== 'inactive');
-  let statusInactive = $state(initialStatus !== 'active');
-  const activeFilter = $derived(
-    statusActive && !statusInactive ? 'active' : statusInactive && !statusActive ? 'inactive' : 'all'
-  );
-  const statusOptions = [
-    { value: 'active', label: 'Активированные' },
-    { value: 'inactive', label: 'Деактивированные' }
-  ];
-  let statusDraft = $state<string[]>([]);
-
-  let query = $state(String(initialWarehouseFilters.query));
-  let searchInput = $state(String(initialWarehouseFilters.query));
-  let searchTimer: ReturnType<typeof setTimeout> | undefined;
-
-  $effect(() => {
-    const term = searchInput.trim();
-    clearTimeout(searchTimer);
-
-    if (term === query) {
-      return;
-    }
-
-    searchTimer = setTimeout(() => {
-      query = term;
-      page = 1;
-      addHistory('warehouses', term);
-      persist();
-    }, 400);
-
-    return () => clearTimeout(searchTimer);
-  });
-
-  let viewMode = $state<'list' | 'tiles'>(initialWarehouseFilters.view === 'tiles' ? 'tiles' : 'list');
-  let sort = $state<string>(initialWarehouseFilters.sort);
-  let page = $state<number>(typeof initialWarehouseFilters.page === 'number' ? initialWarehouseFilters.page : 1);
+  let page = $state<number>(typeof initialFilters.page === 'number' ? initialFilters.page : 1);
   let perPage = $state<number>(
-    [10, 20, 50, 100].includes(Number(initialWarehouseFilters.per_page)) ||
-      Number(initialWarehouseFilters.per_page) === 0
-      ? Number(initialWarehouseFilters.per_page)
+    [10, 20, 50, 100].includes(Number(initialFilters.per_page)) ||
+      Number(initialFilters.per_page) === 0
+      ? Number(initialFilters.per_page)
       : 20
   );
 
-  let sortOpen = $state(false);
-  let sortDraft = $state<string[]>(['name_asc']);
-  let dragSortField = $state<string | null>(null);
-  let dragSortOver = $state<string | null>(null);
-  const sortRows = $derived.by(() => {
-    const activeRows = sortDraft
-      .map((term) => sortFields.find((item) => term.startsWith(`${item.field}_`)))
-      .filter((item): item is (typeof sortFields)[number] => item !== undefined);
-    const inactiveRows = sortFields.filter((item) => sortDraftIndex(item.field) === 0);
-
-    return [...activeRows, ...inactiveRows];
-  });
-  let viewOpen = $state(false);
-  let viewDraft = $state<'list' | 'tiles'>('list');
-
-  const filtered = $derived.by(() => {
-    const term = query.trim().toLowerCase();
-
-    return items.filter((item) => {
-      if (activeFilter === 'active' && !item.active) {
-        return false;
-      }
-
-      if (activeFilter === 'inactive' && item.active) {
-        return false;
-      }
-
-      if (term === '') {
-        return true;
-      }
-
-      return `${item.name} ${item.address ?? ''}`.toLowerCase().includes(term);
-    });
-  });
-
-  const sorted = $derived.by(() => {
-    const terms = sort.split(',').filter((term) => term !== '');
-
-    return [...filtered].sort((a, b) => {
-      for (const term of terms) {
-        const [field, dir] = term.split('_');
-        let result = 0;
-
-        switch (field) {
-          case 'name':
-            result = a.name.localeCompare(b.name, 'ru');
-            break;
-          case 'address':
-            result = (a.address ?? '').localeCompare(b.address ?? '', 'ru');
-            break;
-          case 'positions':
-            result = a.positions - b.positions;
-            break;
-          case 'users':
-            result = a.users - b.users;
-            break;
-          case 'active':
-            result = Number(a.active) - Number(b.active);
-            break;
-        }
-
-        if (result !== 0) {
-          return dir === 'desc' ? -result : result;
-        }
-      }
-
-      return 0;
-    });
-  });
+  const sorted = $derived([...items].sort((a, b) => a.name.localeCompare(b.name, 'ru')));
 
   const pages = $derived(perPage <= 0 ? 1 : Math.max(1, Math.ceil(sorted.length / perPage)));
   const paged = $derived(
@@ -224,156 +107,7 @@
   }
 
   function persist(): void {
-    saveFilters('warehouses', {
-      sort,
-      view: viewMode,
-      per_page: perPage,
-      query,
-      page,
-      active: activeFilter
-    });
-  }
-
-  function sortTerm(field: string): 'asc' | 'desc' | null {
-    const terms = sort.split(',');
-
-    if (terms.includes(`${field}_asc`)) {
-      return 'asc';
-    }
-
-    if (terms.includes(`${field}_desc`)) {
-      return 'desc';
-    }
-
-    return null;
-  }
-
-  function sortIndex(field: string): number {
-    return sort.split(',').findIndex((term) => term.startsWith(`${field}_`)) + 1;
-  }
-
-  function sortDraftIndex(field: string): number {
-    return sortDraft.findIndex((term) => term.startsWith(`${field}_`)) + 1;
-  }
-
-  function moveSortDraft(fromField: string, toField: string): void {
-    const fromIndex = sortDraft.findIndex((term) => term.startsWith(`${fromField}_`));
-    const toIndex = sortDraft.findIndex((term) => term.startsWith(`${toField}_`));
-
-    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
-      return;
-    }
-
-    const next = [...sortDraft];
-    const [moved] = next.splice(fromIndex, 1);
-    const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
-    next.splice(insertAt, 0, moved);
-    sortDraft = next;
-  }
-
-  function startSortDrag(event: DragEvent, field: string): void {
-    dragSortField = field;
-
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', field);
-    }
-  }
-
-  function overSortRow(event: DragEvent, field: string): void {
-    if (dragSortField === null || sortDraftIndex(field) === 0) {
-      return;
-    }
-
-    event.preventDefault();
-    dragSortOver = field;
-  }
-
-  function dropSortRow(event: DragEvent, field: string): void {
-    event.preventDefault();
-
-    if (dragSortField !== null && sortDraftIndex(field) > 0) {
-      moveSortDraft(dragSortField, field);
-    }
-
-    dragSortField = null;
-    dragSortOver = null;
-  }
-
-  function endSortDrag(): void {
-    dragSortField = null;
-    dragSortOver = null;
-  }
-
-  function headerSort(field: string): void {
-    const terms = sort.split(',').filter((term) => term !== '');
-    const asc = `${field}_asc`;
-    const desc = `${field}_desc`;
-    let next: string[];
-
-    if (terms.includes(asc)) {
-      next = terms.map((term) => (term === asc ? desc : term));
-    } else if (terms.includes(desc)) {
-      next = terms.filter((term) => term !== desc);
-    } else {
-      next = [...terms, asc];
-    }
-
-    sort = next.length > 0 ? next.join(',') : 'name_asc';
-    page = 1;
-    persist();
-  }
-
-  function openSort(): void {
-    sortDraft = sort.split(',').filter((term) => term !== '');
-    sortOpen = true;
-  }
-
-  function applySort(): void {
-    sortOpen = false;
-    sort = sortDraft.length > 0 ? sortDraft.join(',') : 'name_asc';
-    page = 1;
-    persist();
-  }
-
-  function toggleSortDir(field: string, dir: 'asc' | 'desc'): void {
-    const term = `${field}_${dir}`;
-
-    sortDraft = sortDraft.includes(term)
-      ? sortDraft.filter((item) => item !== term)
-      : [...sortDraft.filter((item) => !item.startsWith(`${field}_`)), term];
-  }
-
-  function openView(): void {
-    viewDraft = viewMode;
-    statusDraft = [
-      ...(statusActive ? ['active'] : []),
-      ...(statusInactive ? ['inactive'] : [])
-    ];
-    viewOpen = true;
-  }
-
-  function resetView(): void {
-    viewDraft = 'list';
-    statusDraft = ['active', 'inactive'];
-  }
-
-  function applyView(): void {
-    const nextStatusActive = statusDraft.length === 0 || statusDraft.includes('active');
-    const nextStatusInactive = statusDraft.length === 0 || statusDraft.includes('inactive');
-    const statusChanged =
-      nextStatusActive !== statusActive || nextStatusInactive !== statusInactive;
-
-    viewMode = viewDraft;
-    viewOpen = false;
-
-    if (statusChanged) {
-      statusActive = nextStatusActive;
-      statusInactive = nextStatusInactive;
-      page = 1;
-    }
-
-    persist();
+    saveFilters('warehouses', { per_page: perPage, page });
   }
 
   function goToPage(next: number): void {
@@ -387,13 +121,6 @@
 
   function changePerPage(): void {
     page = 1;
-    persist();
-  }
-
-  function applySearch(): void {
-    query = searchInput.trim();
-    page = 1;
-    addHistory('warehouses', query);
     persist();
   }
 
@@ -413,8 +140,7 @@
     </div>
   {/if}
 
-  <div class="page-hero">
-  <div class="filters">
+  <div class="hero page-hero">
     <div class="head">
       <button
         type="button"
@@ -425,96 +151,49 @@
       >
         <Icon name="arrow-left" size={16} />
       </button>
-      <h1>Управление складами</h1>
-    </div>
-
-    {#if !loading}
-      <form
-        class="search"
-        onsubmit={(event) => {
-          event.preventDefault();
-          applySearch();
-        }}
-      >
-        <SearchInput
-          bind:value={searchInput}
-          historyKey="warehouses"
-          placeholder="Поиск склада"
-          onclear={applySearch}
-          onpick={applySearch}
-        />
-      </form>
-
-      <div class="filter-icons">
-        <button
-          type="button"
-          class="sort-button"
-          class:active={sort !== 'name_asc'}
-          title="Сортировка"
-          aria-label="Сортировка"
-          onclick={openSort}
-        >
-          <Icon name="sort" size={16} />
-        </button>
-
-        <button
-          type="button"
-          class="sort-button"
-          class:active={viewMode === 'tiles'}
-          title="Вид"
-          aria-label="Вид: списком или плитками"
-          onclick={openView}
-        >
-          <Icon name="view" size={16} />
-        </button>
-
-        {#if canCreateWarehouse}
-          <span class="toolbar-divider" aria-hidden="true"></span>
-
+      <div class="head-text">
+        <h1>
+          <HelpTip
+            text="Склады хранят остатки и используются в заказах. Скрытый склад не показывается в остатках, заказы и отчёты отключаются отдельно."
+          >
+            {#snippet trigger()}
+              Управление складами
+            {/snippet}
+          </HelpTip>
+        </h1>
+      </div>
+      {#if canCreateWarehouse}
+        <div class="head-actions">
           <button
             type="button"
-            class="create-button"
+            class="icon-btn"
             title="Новый склад"
             aria-label="Новый склад"
             onclick={() => router.navigate('/stocks/warehouses/new')}
           >
-            <Icon name="plus" size={14} />
-            Новый склад
+            <Icon name="plus" size={16} />
           </button>
-        {/if}
-      </div>
-    {/if}
-  </div>
+        </div>
+      {/if}
+    </div>
   </div>
 
   {#if loading}
     <ListSkeleton rows={5} />
   {:else}
     {#if sorted.length === 0}
-      <EmptyState icon="warehouse" title="Склады не найдены" description="Измените поиск." />
+      <EmptyState icon="warehouse" title="Складов пока нет" description="Добавьте первый склад." />
     {:else}
       <div class="levels-wrap">
-        {#if viewMode === 'list'}
-          <div class="levels-head">
-            {#each sortFields as column (column.field)}
-              <button
-                type="button"
-                class="levels-head-cell col-{column.field}"
-                onclick={() => headerSort(column.field)}
-              >
-                <span class="levels-head-label">{column.label}</span>
-                {#if sortIndex(column.field) > 0}
-                  <span class="sort-badge">
-                    <Icon name={sortTerm(column.field) === 'desc' ? 'arrow-down' : 'arrow-up'} size={12} />
-                    <span class="sort-num">{sortIndex(column.field)}</span>
-                  </span>
-                {/if}
-              </button>
-            {/each}
-          </div>
-        {/if}
+        <div class="levels-head">
+          {#each columns as column (column.field)}
+            <div class="levels-head-cell col-{column.field}">
+              <span class="levels-head-label">{column.label}</span>
+            </div>
+          {/each}
+        </div>
 
-        <div class="levels" class:tiles={viewMode === 'tiles'}>
+        <div class="levels">
           {#each paged as item (item.id)}
             <!-- svelte-ignore a11y_click_events_have_key_events -->
             <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -546,8 +225,10 @@
                   <span class="value">{item.positions}</span>
                 </div>
                 <div class="stat col-active">
-                  <span class="stat-label">Статус</span>
-                  <span class="tag" class:on={item.active}>{item.active ? 'активен' : 'скрыт'}</span>
+                  <span class="stat-label">Доступен</span>
+                  <span class="state" class:on={item.active}>
+                    {item.active ? 'Доступен' : 'Выключен'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -570,116 +251,6 @@
   {/if}
 </section>
 
-<Modal open={sortOpen} title="Сортировка" onclose={() => (sortOpen = false)}>
-  <p class="sort-hint">
-    Можно задать несколько условий — они применяются сверху вниз. Нажмите стрелку, чтобы добавить
-    условие, и повторно — чтобы убрать.
-  </p>
-  <div class="sort-list" role="list">
-    {#each sortRows as column (column.field)}
-      {@const active = sortDraftIndex(column.field) > 0}
-      <div
-        class="sort-row"
-        class:active
-        class:drag-over={dragSortOver === column.field && dragSortField !== column.field}
-        role="listitem"
-        ondragover={(event) => overSortRow(event, column.field)}
-        ondragleave={() => {
-          if (dragSortOver === column.field) {
-            dragSortOver = null;
-          }
-        }}
-        ondrop={(event) => dropSortRow(event, column.field)}
-      >
-        <span
-          class="sort-drag"
-          class:off={!active}
-          draggable={active}
-          title={active ? 'Перетащите, чтобы изменить порядок' : undefined}
-          aria-hidden="true"
-          ondragstart={(event) => startSortDrag(event, column.field)}
-          ondragend={endSortDrag}
-        >
-          <Icon name="holder" size={14} />
-        </span>
-        {#if active}
-          <span class="sort-order">{sortDraftIndex(column.field)}</span>
-        {/if}
-        <span class="sort-row-label">{column.label}</span>
-        <button
-          type="button"
-          class="dir-btn"
-          class:on={sortDraft.includes(`${column.field}_asc`)}
-          title="По возрастанию"
-          aria-label={`${column.label}: по возрастанию`}
-          onclick={() => toggleSortDir(column.field, 'asc')}
-        >
-          <Icon name="arrow-up" size={16} />
-        </button>
-        <button
-          type="button"
-          class="dir-btn"
-          class:on={sortDraft.includes(`${column.field}_desc`)}
-          title="По убыванию"
-          aria-label={`${column.label}: по убыванию`}
-          onclick={() => toggleSortDir(column.field, 'desc')}
-        >
-          <Icon name="arrow-down" size={16} />
-        </button>
-      </div>
-    {/each}
-  </div>
-  <div class="modal-actions">
-    <Button variant="ghost" onclick={() => (sortDraft = ['name_asc'])}>Сбросить</Button>
-    <div class="modal-buttons">
-      <Button variant="ghost" onclick={() => (sortOpen = false)}>Отмена</Button>
-      <Button onclick={applySort}>Применить</Button>
-    </div>
-  </div>
-</Modal>
-
-<Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
-  <div class="filters-form view-modal">
-      <div class="view-filters-body">
-              <div class="filter-group view-mode-group">
-          <span class="filter-label">Вид</span>
-          <div class="view-mode-grid">
-            <label class="view-mode-card" class:active={viewDraft === 'list'}>
-              <input type="radio" name="wh-view" value="list" bind:group={viewDraft} />
-              <Icon name="list" size={18} />
-              <span>Список</span>
-            </label>
-            <label class="view-mode-card" class:active={viewDraft === 'tiles'}>
-              <input type="radio" name="wh-view" value="tiles" bind:group={viewDraft} />
-              <Icon name="tiles" size={18} />
-              <span>Плитки</span>
-            </label>
-          </div>
-        </div>
-
-    <div class="filter-group">
-      <span class="filter-label" title="Если ничего не выбрано — показываются все">Статусы</span>
-      <MultiSelect
-        label="Статусы"
-        options={statusOptions}
-        bind:values={statusDraft}
-        allLabel="Все статусы"
-      />
-    </div>
-
-                </div>
-
-      <div class="modal-actions">
-      <Button variant="ghost" onclick={resetView}>Сбросить</Button>
-      <div class="modal-buttons">
-        <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-        <Button onclick={applyView}>Применить</Button>
-      </div>
-    </div>
-  </div>
-</Modal>
-
-
 <style>
   .page {
     display: flex;
@@ -690,15 +261,19 @@
     margin-inline: auto;
   }
 
-  .page:has(.levels.tiles) {
-    max-width: 1600px;
+  .hero {
+    padding: var(--space-4);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: var(--surface);
+    box-shadow: var(--shadow-sm);
   }
 
   .head {
     display: flex;
-    flex-direction: row;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--space-2);
+    gap: var(--space-3);
   }
 
   .back {
@@ -721,6 +296,13 @@
     color: var(--primary-hover);
   }
 
+  .head-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
   h1 {
     margin: 0;
     font-size: 20px;
@@ -729,63 +311,15 @@
     color: var(--text);
   }
 
-
-  .filters {
+  .head-actions {
     display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    align-items: center;
-    justify-content: flex-start;
-  }
-
-  .search {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    flex: 1 1 220px;
-    max-width: 360px;
-    min-width: 0;
-  }
-
-  .filter-icons {
-    display: flex;
-    flex-wrap: wrap;
     align-items: center;
     gap: var(--space-2);
+    flex: 0 0 auto;
     margin-left: auto;
   }
 
-  .create-button {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    height: var(--control-height);
-    padding: 0 var(--space-3);
-    border: none;
-    border-radius: var(--radius-sm);
-    background: var(--primary);
-    color: #fff;
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .create-button:hover {
-    background: var(--primary-hover);
-  }
-
-  .create-button:active {
-    background: var(--primary-active);
-  }
-
-  .create-button:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
-
-  .sort-button {
+  .icon-btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -795,31 +329,14 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--surface);
-    color: var(--text);
+    color: var(--text-description);
     cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
+    transition: color 0.12s ease, border-color 0.12s ease;
   }
 
-  .sort-button:hover:not(:disabled) {
+  .icon-btn:hover {
     border-color: var(--primary-hover);
     color: var(--primary-hover);
-  }
-
-  .sort-button:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .sort-button.active {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .toolbar-divider {
-    width: 1px;
-    height: 24px;
-    margin: 0 var(--space-1);
-    background: var(--border-secondary);
   }
 
   .levels-wrap {
@@ -921,20 +438,14 @@
     color: var(--text);
   }
 
-  .tag {
+  .state {
     align-self: flex-start;
-    font-size: 12px;
-    line-height: 20px;
-    padding: 0 7px;
-    border-radius: 4px;
-    border: 1px solid var(--border);
-    background: var(--fill-tertiary);
     color: var(--text-description);
+    font-size: 13px;
+    white-space: nowrap;
   }
 
-  .tag.on {
-    border-color: var(--success-border);
-    background: var(--success-bg);
+  .state.on {
     color: var(--success-text);
   }
 
@@ -948,40 +459,12 @@
     gap: 4px;
     min-width: 0;
     padding: 0;
-    border: none;
-    background: none;
-    font: inherit;
-    color: inherit;
     text-align: left;
-    cursor: pointer;
-  }
-
-  .levels-head-cell:hover {
-    color: var(--primary);
   }
 
   .levels-head-label {
     min-width: 0;
     line-height: 1.25;
-  }
-
-  .sort-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
-    flex: 0 0 auto;
-    color: var(--primary);
-  }
-
-  .sort-num {
-    min-width: 15px;
-    height: 15px;
-    padding: 0 4px;
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--primary) 14%, white);
-    font-size: 10px;
-    line-height: 15px;
-    text-align: center;
   }
 
   @media (min-width: 720px) {
@@ -1021,273 +504,87 @@
       justify-content: flex-end;
     }
 
-    .levels-head .col-positions .sort-badge {
-      order: -1;
-    }
-
-    .levels:not(.tiles) {
+    .levels {
       border-top: none;
       border-radius: 0 0 var(--radius-md) var(--radius-md);
     }
 
-    .levels:not(.tiles) .level {
+    .levels .level {
       display: grid;
       grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.2fr) 140px 110px;
       align-items: center;
       padding: 0;
     }
 
-    .levels:not(.tiles) .level > .name-col,
-    .levels:not(.tiles) .level > .level-bottom > .stat {
+    .levels .level > .name-col,
+    .levels .level > .level-bottom > .stat {
       padding: 12px var(--space-4);
     }
 
-    .levels:not(.tiles) .level-bottom {
+    .levels .level-bottom {
       display: contents;
     }
 
-    .levels:not(.tiles) .stat-label {
+    .levels .stat-label {
       display: none;
     }
 
-    .levels:not(.tiles) .meta {
+    .levels .meta {
       display: none;
     }
 
-    .levels:not(.tiles) .col-positions {
+    .levels .col-positions {
       align-items: flex-end;
       text-align: right;
     }
   }
 
   @media (max-width: 719.98px) {
-    .toolbar-divider {
-      display: none;
-    }
-
-    .levels:not(.tiles) .level {
+    .levels .level {
       flex-wrap: wrap;
       row-gap: 6px;
       column-gap: var(--space-3);
     }
 
-    .levels:not(.tiles) .name-col {
+    .levels .name-col {
       flex: 1 1 100%;
     }
 
-    .levels:not(.tiles) .level-bottom {
+    .levels .level-bottom {
       display: contents;
     }
 
-    .levels:not(.tiles) .stat {
+    .levels .stat {
       flex-direction: row;
       align-items: baseline;
       gap: 4px;
     }
 
-    .levels:not(.tiles) .stat-label::after {
+    .levels .stat-label::after {
       content: ':';
     }
 
-    .levels:not(.tiles) .stat.col-address {
+    .levels .stat.col-address {
       flex: 1 1 auto;
       min-width: 0;
     }
 
-    .levels:not(.tiles) .stat.col-address .value {
+    .levels .stat.col-address .value {
       overflow-wrap: anywhere;
     }
 
-    .levels:not(.tiles) .stat.col-positions {
+    .levels .stat.col-positions {
       align-items: baseline;
       text-align: left;
     }
 
-    .levels:not(.tiles) .stat.col-active {
+    .levels .stat.col-active {
       margin-left: auto;
     }
 
-    .levels:not(.tiles) .stat.col-active .stat-label {
+    .levels .stat.col-active .stat-label {
       display: none;
     }
-
-    .levels:not(.tiles) .tag {
-      align-self: center;
-    }
-  }
-
-  .levels.tiles {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: var(--space-4);
-    background: none;
-    border: none;
-    border-radius: 0;
-    overflow: visible;
-  }
-
-  .levels.tiles .level {
-    flex-direction: column;
-    align-items: stretch;
-    justify-content: flex-start;
-    gap: var(--space-2);
-    padding: var(--space-3);
-    border: 1px solid var(--border-secondary);
-    border-radius: var(--radius-md);
-    background: var(--surface);
-  }
-
-  .levels.tiles .level:hover {
-    box-shadow: var(--shadow-md);
-  }
-
-  .levels.tiles .level:last-child {
-    border-bottom: 1px solid var(--border-secondary);
-  }
-
-  .levels.tiles .level-bottom {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-2) var(--space-3);
-  }
-
-  .levels.tiles .col-address {
-    grid-column: 1 / -1;
-  }
-
-  .sort-hint {
-    margin: 0 0 var(--space-2);
-    font-size: 13px;
-    color: var(--text-description);
-  }
-
-  .sort-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 340px;
-    overflow-y: auto;
-  }
-
-  .sort-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: 6px 8px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-  }
-
-  .sort-row.active {
-    border-color: var(--primary-border);
-    background: var(--primary-bg);
-  }
-
-  .sort-row.active .sort-row-label {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .sort-row.drag-over {
-    border-color: var(--primary);
-    box-shadow: inset 0 2px 0 var(--primary);
-  }
-
-  .sort-drag {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-    width: 18px;
-    height: 24px;
-    color: var(--text-description);
-    cursor: grab;
-  }
-
-  .sort-drag:active {
-    cursor: grabbing;
-  }
-
-  .sort-drag.off {
-    visibility: hidden;
-    cursor: default;
-  }
-
-  .sort-row-label {
-    flex: 1;
-    min-width: 0;
-    font-size: 14px;
-  }
-
-  .sort-order {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: var(--primary);
-    color: #fff;
-    font-size: 11px;
-    font-weight: 600;
-  }
-
-  .dir-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-  }
-
-  .dir-btn:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .dir-btn.on {
-    border-color: var(--primary);
-    color: var(--primary);
-    background: var(--primary-bg);
-  }
-
-  .checkbox {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text);
-    cursor: pointer;
-  }
-
-  .hint {
-    margin: 0;
-    font-size: 13px;
-    color: var(--text-description);
-  }
-
-  .modal-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-2);
-    margin-top: var(--space-4);
-  }
-
-  .modal-buttons {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    margin-left: auto;
   }
 
   .alert,
@@ -1341,49 +638,4 @@
     padding: var(--space-6);
   }
 
-  /* Плитки на телефоне: подписи в строку, адрес отдельной строкой. */
-  @media (max-width: 719.98px) {
-    .levels.tiles .level-bottom {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 4px var(--space-3);
-    }
-
-    .levels.tiles .stat {
-      flex-direction: row;
-      align-items: baseline;
-      gap: 4px;
-    }
-
-    .levels.tiles .stat-label::after {
-      content: ':';
-    }
-
-    .levels.tiles .stat.col-address {
-      flex: 1 1 auto;
-      min-width: 0;
-    }
-
-    .levels.tiles .stat.col-address .value {
-      overflow-wrap: anywhere;
-    }
-
-    .levels.tiles .stat.col-positions {
-      align-items: baseline;
-      text-align: left;
-    }
-
-    .levels.tiles .stat.col-active {
-      margin-left: auto;
-    }
-
-    .levels.tiles .stat.col-active .stat-label {
-      display: none;
-    }
-
-    .levels.tiles .tag {
-      align-self: center;
-    }
-  }
 </style>

@@ -1380,7 +1380,7 @@
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .ct-row {
       grid-template-columns: minmax(0, 1fr) 44px minmax(84px, auto);
       gap: var(--space-2);

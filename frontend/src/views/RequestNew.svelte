@@ -1839,7 +1839,7 @@ let paramsOpen = $state(true);
     }
   }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .item-head {
       display: none;
     }
