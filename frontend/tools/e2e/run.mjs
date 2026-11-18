@@ -2249,7 +2249,9 @@ const scenarios = [
       const diag = {
         startedAt: new Date().toISOString(),
         browser: {},
-        serviceWorker: { beforeLoad: null, beforeError: null, beforeRetry: null, rightAfterRetry: null, afterRetry: null, workers: [] },
+        serviceWorker: { beforeLoad: null, beforeError: null, beforeRetry: null, rightAfterRetry: null, afterRetry: null, workers: [], cachedChunk: null },
+        reload: null,
+        chunkPathname: null,
         stages: [],
         network: { beforeRetry: [], afterRetry: [], blocked: 0, afterRetryBlocked: 0, firstAfterRetryAt: null },
         errors: { page: [], console: [], requestFailed: [], serviceWorker: [] },
@@ -2301,9 +2303,15 @@ const scenarios = [
           return;
         }
 
+        const pathname = new URL(request.url()).pathname;
+
+        if (diag.chunkPathname === null) {
+          diag.chunkPathname = pathname;
+        }
+
         diag.network[phase].push(
           event('request', {
-            pathname: new URL(request.url()).pathname,
+            pathname,
             method: request.method(),
             resourceType: request.resourceType()
           })
@@ -2385,18 +2393,70 @@ const scenarios = [
         mark('after-error-state');
         assert(blocked > 0, 'перехват чанка Reports не сработал — ошибка не была вызвана загрузкой чанка');
         await expectVisible(page.getByRole('button', { name: 'Повторить' }), 'нет кнопки «Повторить»');
+        assert(
+          (await page.getByRole('button', { name: 'Перезагрузить страницу' }).count()) === 0,
+          'осталась дублирующая кнопка перезагрузки'
+        );
 
         mark('before-retry-click');
         diag.serviceWorker.beforeRetry = await swState();
+
+        const hashBefore = await page.evaluate(() => location.hash);
+
+        diag.reload = { hashBefore, hashAfter: null, markerCleared: false };
+
+        // Маркер живёт только в текущем документе: его исчезновение
+        // подтверждает полноценную перезагрузку страницы.
+        await page.evaluate(() => {
+          window.__lazyReloadMarker = 'before-retry';
+        });
 
         await context.unroute(isReportsChunk);
         await page.getByRole('button', { name: 'Повторить' }).click();
         phase = 'afterRetry';
         mark('after-retry-click');
+
+        await page.waitForFunction(
+          () => typeof window.__lazyReloadMarker === 'undefined',
+          undefined,
+          { timeout: 20000, polling: 100 }
+        );
+        diag.reload.markerCleared = true;
+        mark('page-reloaded');
+
+        const hashAfter = await page.evaluate(() => location.hash);
+
+        diag.reload.hashAfter = hashAfter;
+        assert(hashAfter === hashBefore, `hash-маршрут не сохранён после Retry: ${hashAfter}`);
         diag.serviceWorker.rightAfterRetry = await swState();
 
         await expectVisible(page.getByText('Создано за период'), 'повтор не загрузил раздел', 20000);
         assert((await page.getByRole('alert').count()) === 0, 'состояние ошибки не сбросилось');
+
+        if (diag.chunkPathname !== null) {
+          diag.serviceWorker.cachedChunk = await page.evaluate(async (path) => {
+            if (!('caches' in window)) {
+              return null;
+            }
+
+            const url = new URL(path, location.origin).href;
+
+            for (const name of await caches.keys()) {
+              const response = await (await caches.open(name)).match(url);
+
+              if (response) {
+                return { cache: name, status: response.status };
+              }
+            }
+
+            return null;
+          }, diag.chunkPathname);
+          assert(
+            diag.serviceWorker.cachedChunk === null || diag.serviceWorker.cachedChunk.status === 200,
+            'в Cache Storage сохранён ошибочный ответ чанка'
+          );
+        }
+
         mark('section-loaded');
         diag.outcome = 'success';
       } catch (cause) {
