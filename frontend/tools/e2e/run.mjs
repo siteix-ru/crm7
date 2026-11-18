@@ -2747,6 +2747,131 @@ const scenarios = [
         assert(status === 403, `${path}: ожидался 403 без прав, а не ${status}`);
       }
     }
+  },
+  {
+    name: 'permissions UI: Mail при уровне 90 доступны все разделы',
+    role: 'admin',
+    smoke: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/settings/mail`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(
+        page.locator('.settings-nav-item', { hasText: 'Почта' }),
+        'уровень 90 не видит вкладку «Почта»'
+      );
+
+      const tabs = await page.locator('.settings-nav-child').allTextContents();
+
+      for (const title of ['SMTP', 'Шаблоны писем', 'Расписание отчётов', 'Очередь отправки']) {
+        assert(tabs.some((item) => item.includes(title)), `уровень 90 не видит раздел «${title}»`);
+      }
+
+      await page.goto(`${BASE}/#/settings/mail/smtp`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.getByRole('heading', { name: 'SMTP' }), 'SMTP-форма не открылась');
+    }
+  },
+  {
+    name: 'permissions UI: Mail при уровне 50 без SMTP',
+    role: 'administrator',
+    smoke: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/settings/mail/templates`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(
+        page.locator('.settings-nav-item', { hasText: 'Почта' }),
+        'уровень 50 не видит вкладку «Почта»'
+      );
+      assert(
+        (await page.getByText('Нет доступных настроек').count()) === 0,
+        'уровень 50 видит пустой экран настроек'
+      );
+
+      const tabs = await page.locator('.settings-nav-child').allTextContents();
+
+      assert(!tabs.some((item) => item.includes('SMTP')), 'уровень 50 видит SMTP без mail.manage');
+
+      for (const title of ['Шаблоны писем', 'Расписание отчётов', 'Очередь отправки']) {
+        assert(tabs.some((item) => item.includes(title)), `уровень 50 не видит раздел «${title}»`);
+      }
+
+      await expectVisible(
+        page.getByRole('heading', { name: 'Шаблоны писем' }),
+        'уровень 50 не открыл шаблоны писем'
+      );
+    }
+  },
+  {
+    name: 'permissions UI: уровень 10 не видит административные разделы',
+    role: 'manager',
+    smoke: true,
+    async run(page) {
+      for (const route of ['/settings', '/admin/audit']) {
+        await page.goto(`${BASE}/#${route}`, { waitUntil: 'domcontentloaded' });
+        await expectVisible(
+          page.getByRole('heading', { name: 'Страница не найдена' }),
+          `уровень 10 получил доступ к ${route}`
+        );
+      }
+
+      assert(
+        (await page.getByRole('button', { name: 'Журнал' }).count()) === 0,
+        'менеджер видит ссылку на аудит'
+      );
+      assert(
+        (await page.locator('.settings-nav-item', { hasText: 'Почта' }).count()) === 0,
+        'менеджер видит вкладку «Почта»'
+      );
+    }
+  },
+  {
+    name: 'audit UI: уровень 90 с audit.view открывает журнал',
+    role: 'admin',
+    smoke: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(
+        page.getByRole('button', { name: 'Журнал' }),
+        'у тех. администратора нет ссылки на журнал'
+      );
+      await page.goto(`${BASE}/#/admin/audit`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.getByRole('heading', { name: 'Журнал' }), 'журнал не открылся');
+    }
+  },
+  {
+    name: 'audit UI: уровень 50 с audit.view открывает журнал',
+    role: 'administrator',
+    smoke: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(
+        page.getByRole('button', { name: 'Журнал' }),
+        'у администратора нет ссылки на журнал'
+      );
+      await page.goto(`${BASE}/#/admin/audit`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.getByRole('heading', { name: 'Журнал' }), 'журнал не открылся у уровня 50');
+    }
+  },
+  {
+    name: 'admin: модули и документы после удаления legacy-панелей',
+    role: 'admin',
+    smoke: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/settings/modules/requests`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(
+        page.getByRole('heading', { name: 'Группы доступа' }),
+        'управление модулями не загрузилось'
+      );
+      assert(
+        (await page.getByRole('button', { name: 'Роли', exact: true }).count()) === 0,
+        'устаревшая вкладка «Роли» осталась'
+      );
+      assert(
+        (await page.getByRole('button', { name: 'Пользователи', exact: true }).count()) === 0,
+        'устаревшая вкладка «Пользователи» осталась'
+      );
+
+      await page.goto(`${BASE}/#/settings/docs`, { waitUntil: 'domcontentloaded' });
+      await expectVisible(page.locator('.docs .doc-tabs button').first(), 'документы не загрузились');
+      await expectVisible(page.getByLabel('Заголовок'), 'редактор документа не открылся');
+    }
   }
 ];
 
