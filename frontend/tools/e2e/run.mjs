@@ -2245,30 +2245,177 @@ const scenarios = [
         }
       };
 
-      let blocked = 0;
+      const started = Date.now();
+      const diag = {
+        startedAt: new Date().toISOString(),
+        browser: {},
+        serviceWorker: { beforeLoad: null, beforeError: null, beforeRetry: null, rightAfterRetry: null, afterRetry: null, workers: [] },
+        stages: [],
+        network: { beforeRetry: [], afterRetry: [], blocked: 0, afterRetryBlocked: 0, firstAfterRetryAt: null },
+        errors: { page: [], console: [], requestFailed: [], serviceWorker: [] },
+        outcome: 'unknown',
+        failure: null
+      };
+      let currentStage = 'init';
+      let phase = 'beforeRetry';
+      let failure = null;
+
+      const mark = (stage) => {
+        currentStage = stage;
+        diag.stages.push({ stage, t: Date.now() - started });
+      };
+      const swState = async () => {
+        try {
+          return await page.evaluate(async () => ({
+            controller: Boolean(navigator.serviceWorker?.controller),
+            registrations: navigator.serviceWorker
+              ? (await navigator.serviceWorker.getRegistrations()).length
+              : 0,
+            url: location.href
+          }));
+        } catch (cause) {
+          return { error: String(cause?.message ?? cause) };
+        }
+      };
+      const event = (kind, extra) => ({
+        kind,
+        t: Date.now() - started,
+        stage: currentStage,
+        ...extra
+      });
 
       // Service worker включается только в production и перехватывает .js,
       // поэтому перехват должен быть на уровне контекста, а не страницы.
       const context = page.context();
+      const browser = context.browser();
+
+      diag.browser = {
+        name: browser ? browser.browserType().name() : null,
+        version: browser ? browser.version() : null,
+        userAgent: await page.evaluate(() => navigator.userAgent).catch(() => null),
+        pageUrl: page.url()
+      };
+
+      context.on('request', (request) => {
+        if (!isReportsChunk(request.url())) {
+          return;
+        }
+
+        diag.network[phase].push(
+          event('request', {
+            pathname: new URL(request.url()).pathname,
+            method: request.method(),
+            resourceType: request.resourceType()
+          })
+        );
+
+        if (phase === 'afterRetry' && diag.network.firstAfterRetryAt === null) {
+          diag.network.firstAfterRetryAt = Date.now() - started;
+          mark('first-new-chunk-request-after-retry');
+        }
+      });
+      context.on('response', (response) => {
+        if (isReportsChunk(response.url())) {
+          diag.network[phase].push(
+            event('response', {
+              pathname: new URL(response.url()).pathname,
+              status: response.status()
+            })
+          );
+
+          if (phase === 'afterRetry' && diag.network.firstAfterRetryAt === null) {
+            diag.network.firstAfterRetryAt = Date.now() - started;
+            mark('first-new-chunk-response-after-retry');
+          }
+        }
+      });
+      context.on('requestfailed', (request) => {
+        if (isReportsChunk(request.url())) {
+          const info = event('requestfailed', {
+            pathname: new URL(request.url()).pathname,
+            error: request.failure()?.errorText ?? null
+          });
+
+          diag.network[phase].push(info);
+          diag.errors.requestFailed.push(info);
+        }
+      });
+      context.on('serviceworker', (worker) => {
+        const info = event('serviceworker', { url: worker.url() });
+
+        diag.serviceWorker.workers.push(info);
+        diag.errors.serviceWorker.push({ ...info, kind: 'registered' });
+      });
+      page.on('pageerror', (error) => {
+        diag.errors.page.push(event('pageerror', { message: String(error.message ?? error).slice(0, 500) }));
+      });
+      page.on('console', (message) => {
+        if (message.type() === 'error') {
+          diag.errors.console.push(event('console', { message: message.text().slice(0, 500) }));
+        }
+      });
+
+      let blocked = 0;
+
+      mark('before-first-load');
+      diag.serviceWorker.beforeLoad = await swState();
 
       await context.route(isReportsChunk, async (route) => {
-        blocked += 1;
+        if (phase === 'beforeRetry') {
+          blocked += 1;
+          diag.network.blocked += 1;
+        } else {
+          diag.network.afterRetryBlocked += 1;
+        }
+
         await route.abort('failed');
       });
-      await page.goto(`${BASE}/#/reports`, { waitUntil: 'domcontentloaded' });
+      mark('after-chunk-block-registered');
 
-      await expectVisible(
-        page.getByRole('alert').getByText('Не удалось загрузить раздел'),
-        'после трёх неудач нет сообщения об ошибке',
-        20000
-      );
-      assert(blocked > 0, 'перехват чанка Reports не сработал — ошибка не была вызвана загрузкой чанка');
-      await expectVisible(page.getByRole('button', { name: 'Повторить' }), 'нет кнопки «Повторить»');
+      try {
+        await page.goto(`${BASE}/#/reports`, { waitUntil: 'domcontentloaded' });
+        diag.browser.pageUrl = page.url();
+        diag.serviceWorker.beforeError = await swState();
 
-      await context.unroute(isReportsChunk);
-      await page.getByRole('button', { name: 'Повторить' }).click();
-      await expectVisible(page.getByText('Создано за период'), 'повтор не загрузил раздел', 20000);
-      assert((await page.getByRole('alert').count()) === 0, 'состояние ошибки не сбросилось');
+        await expectVisible(
+          page.getByRole('alert').getByText('Не удалось загрузить раздел'),
+          'после трёх неудач нет сообщения об ошибке',
+          20000
+        );
+        mark('after-error-state');
+        assert(blocked > 0, 'перехват чанка Reports не сработал — ошибка не была вызвана загрузкой чанка');
+        await expectVisible(page.getByRole('button', { name: 'Повторить' }), 'нет кнопки «Повторить»');
+
+        mark('before-retry-click');
+        diag.serviceWorker.beforeRetry = await swState();
+
+        await context.unroute(isReportsChunk);
+        await page.getByRole('button', { name: 'Повторить' }).click();
+        phase = 'afterRetry';
+        mark('after-retry-click');
+        diag.serviceWorker.rightAfterRetry = await swState();
+
+        await expectVisible(page.getByText('Создано за период'), 'повтор не загрузил раздел', 20000);
+        assert((await page.getByRole('alert').count()) === 0, 'состояние ошибки не сбросилось');
+        mark('section-loaded');
+        diag.outcome = 'success';
+      } catch (cause) {
+        failure = cause;
+        diag.outcome = 'failure';
+        diag.failure = String(cause?.message ?? cause);
+        mark('retry-timeout-or-failure');
+        diag.serviceWorker.afterRetry = await swState();
+      } finally {
+        diag.finishedAt = new Date().toISOString();
+        diag.durationMs = Date.now() - started;
+        diag.network.beforeRetryCount = diag.network.beforeRetry.length;
+        diag.network.afterRetryCount = diag.network.afterRetry.length;
+        console.log(`\nLAZYVIEW_RETRY_DIAGNOSTICS\n${JSON.stringify(diag, null, 2)}\n`);
+      }
+
+      if (failure !== null) {
+        throw failure;
+      }
     }
   },
   {
