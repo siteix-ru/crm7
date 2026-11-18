@@ -1,3 +1,5 @@
+import { cartItemKey, type CartPriceUpdate } from '../cart-prices';
+
 export interface CartItem {
   warehouseId: number;
   warehouseName: string;
@@ -80,12 +82,37 @@ class CartStore {
     this.persist();
   }
 
-  applyPrices(prices: Array<number | null>): void {
-    if (prices.length !== this.items.length) {
+  applyPrices(updates: CartPriceUpdate[]): void {
+    const byKey = new Map(updates.map((update) => [update.key, update.price]));
+
+    if (byKey.size === 0) {
       return;
     }
 
-    this.items = this.items.map((item, index) => ({ ...item, price: prices[index] ?? null }));
+    let changed = false;
+    const items = this.items.map((item) => {
+      const key = cartItemKey(item);
+
+      if (!byKey.has(key)) {
+        return item;
+      }
+
+      const price = byKey.get(key) ?? null;
+
+      if (item.price === price) {
+        return item;
+      }
+
+      changed = true;
+
+      return { ...item, price };
+    });
+
+    if (!changed) {
+      return;
+    }
+
+    this.items = items;
     this.persist();
   }
 

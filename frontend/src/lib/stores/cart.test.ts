@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { cartItemKey } from '../cart-prices';
 import { cart } from './cart.svelte';
 
 const item = {
@@ -85,26 +86,47 @@ describe('cart store', () => {
     expect(cart.total).toBe(360);
   });
 
-  it('applies refreshed prices by index', () => {
+  it('applies refreshed prices by stable cart key', () => {
     cart.add({ ...item, price: 100 });
     cart.add({ ...item, warehouseId: 2, price: null });
 
     expect(cart.missingPriceCount).toBe(1);
 
-    cart.applyPrices([150, 200]);
+    cart.applyPrices([
+      { key: cartItemKey(item), price: 150 },
+      { key: cartItemKey({ ...item, warehouseId: 2 }), price: 200 }
+    ]);
+
     expect(cart.items[0].price).toBe(150);
     expect(cart.items[1].price).toBe(200);
     expect(cart.total).toBe(350);
     expect(cart.missingPriceCount).toBe(0);
   });
 
-  it('ignores a price list of a different length', () => {
-    cart.add(item);
-    cart.add({ ...item, warehouseId: 2, warehouseName: 'Склад Белореченск' });
-    cart.applyPrices([10]);
+  it('ignores prices for rows that are no longer in the cart', () => {
+    cart.add({ ...item, price: 100 });
+    cart.add({ ...item, warehouseId: 2, warehouseName: 'Склад Белореченск', price: 120 });
 
-    expect(cart.items[0].price).toBeUndefined();
-    expect(cart.items[1].price).toBeUndefined();
-    expect(cart.missingPriceCount).toBe(2);
+    cart.remove(0);
+    cart.applyPrices([
+      { key: cartItemKey(item), price: 999 },
+      { key: cartItemKey({ ...item, warehouseId: 2 }), price: 250 }
+    ]);
+
+    expect(cart.items).toHaveLength(1);
+    expect(cart.items[0].price).toBe(250);
+    expect(cart.total).toBe(250);
+  });
+
+  it('keeps existing prices when updates contain unknown keys', () => {
+    cart.add({ ...item, price: 100 });
+    cart.applyPrices([{ key: '3|Другой товар', price: 500 }]);
+
+    expect(cart.items[0].price).toBe(100);
+  });
+
+  it('tolerates price updates for an empty cart', () => {
+    expect(() => cart.applyPrices([{ key: cartItemKey(item), price: 100 }])).not.toThrow();
+    expect(cart.count).toBe(0);
   });
 });

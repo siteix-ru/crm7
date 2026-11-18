@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
+  import { Sequence } from '../lib/async-sequence';
   import { searchLog } from '../lib/api/admin';
   import {
     getReportSummary,
@@ -71,7 +72,11 @@
   let warehousesBusy = $state(false);
   let searchesBusy = $state(false);
   let searchesLoaded = $state(false);
-  let error = $state('');
+  let errors = $state({ summary: '', leads: '', warehouses: '', searches: '' });
+  const visibleError = $derived(
+    errors.summary || errors.leads || errors.warehouses || errors.searches
+  );
+  const loadSequence = new Sequence();
 
   let tab = $state<ReportTab>('statuses');
 
@@ -112,81 +117,123 @@
     return total > 0 ? Math.round((count / total) * 100) : 0;
   }
 
-  async function loadSummary(): Promise<void> {
+  async function loadSummary(token = loadSequence.next()): Promise<void> {
     summaryBusy = true;
-    error = '';
+    errors.summary = '';
 
     try {
-      summary = await getReportSummary(reportFilters.from, reportFilters.to);
+      const data = await getReportSummary(reportFilters.from, reportFilters.to);
+
+      if (!loadSequence.isCurrent(token)) {
+        return;
+      }
+
+      summary = data;
       resetPages();
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить отчёт';
+      if (loadSequence.isCurrent(token)) {
+        errors.summary = cause instanceof ApiError ? cause.message : 'Не удалось загрузить отчёт';
+      }
     } finally {
       summaryBusy = false;
-      loading = false;
     }
   }
 
-  async function loadLeads(): Promise<void> {
+  async function loadLeads(token = loadSequence.next()): Promise<void> {
     leadsBusy = true;
-    error = '';
+    errors.leads = '';
 
     try {
-      leads = await getSalesLeads(reportFilters.from, reportFilters.to);
+      const data = await getSalesLeads(reportFilters.from, reportFilters.to);
+
+      if (!loadSequence.isCurrent(token)) {
+        return;
+      }
+
+      leads = data;
       queriesPage = 1;
       leadClientsPage = 1;
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить целевые продажи';
+      if (loadSequence.isCurrent(token)) {
+        errors.leads =
+          cause instanceof ApiError ? cause.message : 'Не удалось загрузить целевые продажи';
+      }
     } finally {
       leadsBusy = false;
     }
   }
 
-  async function loadWarehouseReport(): Promise<void> {
+  async function loadWarehouseReport(token = loadSequence.next()): Promise<void> {
     warehousesBusy = true;
-    error = '';
+    errors.warehouses = '';
 
     try {
-      warehouseReport = await getWarehouseReport(reportFilters.from, reportFilters.to);
+      const data = await getWarehouseReport(reportFilters.from, reportFilters.to);
+
+      if (!loadSequence.isCurrent(token)) {
+        return;
+      }
+
+      warehouseReport = data;
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить отчёт по складам';
+      if (loadSequence.isCurrent(token)) {
+        errors.warehouses =
+          cause instanceof ApiError ? cause.message : 'Не удалось загрузить отчёт по складам';
+      }
     } finally {
       warehousesBusy = false;
     }
   }
 
-  async function loadSearches(): Promise<void> {
+  async function loadSearches(token = loadSequence.next()): Promise<void> {
     searchesBusy = true;
-    error = '';
+    errors.searches = '';
 
     try {
       const data = await searchLog();
+
+      if (!loadSequence.isCurrent(token)) {
+        return;
+      }
+
       searchStats = data.stats;
       searchTop = data.top;
       searchRecent = data.recent;
       searchesLoaded = true;
     } catch (cause) {
-      error =
-        cause instanceof ApiError ? cause.message : 'Не удалось загрузить поиски номенклатуры';
+      if (loadSequence.isCurrent(token)) {
+        errors.searches =
+          cause instanceof ApiError ? cause.message : 'Не удалось загрузить поиски номенклатуры';
+      }
     } finally {
       searchesBusy = false;
     }
   }
 
   async function load(): Promise<void> {
+    const token = loadSequence.next();
+
     loading = true;
-    await loadSummary();
+    resetPages();
+
+    const jobs: Promise<void>[] = [loadSummary(token)];
 
     if (leads !== null) {
-      await loadLeads();
+      jobs.push(loadLeads(token));
     }
 
     if (warehouseReport !== null) {
-      await loadWarehouseReport();
+      jobs.push(loadWarehouseReport(token));
     }
 
     if (searchesLoaded) {
-      await loadSearches();
+      jobs.push(loadSearches(token));
+    }
+
+    await Promise.all(jobs);
+
+    if (loadSequence.isCurrent(token)) {
+      loading = false;
     }
   }
 
@@ -311,8 +358,8 @@
     </div>
   </div>
 
-  {#if error}
-    <div class="alert">{error}</div>
+  {#if visibleError}
+    <div class="alert">{visibleError}</div>
   {/if}
 
   {#if loading}

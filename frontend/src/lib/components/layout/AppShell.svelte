@@ -325,12 +325,28 @@
     return () => clearInterval(timer);
   });
 
+  /**
+   * Обычный якорь в hash-роутере трактуется как маршрут. Оставляем ссылку
+   * семантической, но не меняем hash: фокус и прокрутку выполняем явно.
+   */
+  function skipToContent(event: MouseEvent): void {
+    event.preventDefault();
+    const main = document.getElementById('main-content');
+
+    if (main === null) {
+      return;
+    }
+
+    main.focus();
+    main.scrollIntoView();
+  }
+
 </script>
 
 <svelte:window onkeydown={onGlobalKeydown} />
 
 <div class="shell" class:demo={appSettings.demoMode} use:swipeBack>
-  <a class="skip-link" href="#main-content">К содержимому</a>
+  <a class="skip-link" href="#main-content" onclick={skipToContent}>К содержимому</a>
   <header>
     <div class="left">
       <a class="brand" href="#/requests" title={brandHint}>
@@ -524,7 +540,7 @@
     </div>
   {/if}
 
-<main id="main-content">
+<main id="main-content" tabindex="-1">
   {@render children?.()}
 </main>
 

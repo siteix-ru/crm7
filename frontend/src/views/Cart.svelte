@@ -1,6 +1,9 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { ApiError } from '../lib/api/client';
   import { previewRequestPrices, type CreateRequestItem } from '../lib/api/requests';
+  import { Sequence } from '../lib/async-sequence';
+  import { buildPriceUpdates, cartItemKey } from '../lib/cart-prices';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { cart } from '../lib/stores/cart.svelte';
   import { router } from '../lib/router.svelte';
@@ -13,6 +16,13 @@
   let error = $state('');
 
   const pricesEnabled = $derived(appSettings.pricesEnabled);
+  const priceSequence = new Sequence();
+
+  // Состав корзины, влияющий на цены. Цены не входят в подпись — иначе
+  // применение ответа запускало бы новый запрос.
+  const cartSignature = $derived(
+    cart.items.map((item) => `${cartItemKey(item)}:${item.quantity}`).join('|')
+  );
 
   function payload(): CreateRequestItem[] {
     return cart.items.map((item) => ({
@@ -26,32 +36,67 @@
   }
 
   async function refreshPrices(): Promise<void> {
+    const token = priceSequence.next();
+
     if (!pricesEnabled || cart.items.length === 0) {
+      error = '';
+      priceType = null;
+      refreshing = false;
+
       return;
     }
+
+    // Ключи фиксируются до запроса: ответ сопоставляется с отправленным
+    // снимком, а не с текущим (возможно, уже изменённым) составом корзины.
+    const keys = cart.items.map(cartItemKey);
+    const snapshot = payload();
 
     refreshing = true;
     error = '';
 
     try {
-      const preview = await previewRequestPrices(payload());
+      const preview = await previewRequestPrices(snapshot);
 
-      if (preview.enabled) {
-        priceType = preview.type;
-        cart.applyPrices(preview.items.map((row) => row.price));
+      if (!priceSequence.isCurrent(token)) {
+        return;
       }
+
+      if (!preview.enabled) {
+        priceType = null;
+
+        return;
+      }
+
+      const updates = buildPriceUpdates(keys, preview.items.map((row) => row.price));
+
+      if (updates === null) {
+        error = 'Не удалось обновить цены: неполный ответ сервера';
+
+        return;
+      }
+
+      priceType = preview.type;
+      cart.applyPrices(updates);
     } catch (cause) {
+      if (!priceSequence.isCurrent(token)) {
+        return;
+      }
+
       error = cause instanceof ApiError ? cause.message : 'Не удалось обновить цены';
     } finally {
-      refreshing = false;
+      if (priceSequence.isCurrent(token)) {
+        refreshing = false;
+      }
     }
   }
 
   $effect(() => {
     void appSettings.pricesEnabled;
-    void cart.items.length;
+    void cartSignature;
 
-    void refreshPrices();
+    untrack(() => {
+      void refreshPrices();
+    });
   });
 
   function rowSum(index: number): number | null {
