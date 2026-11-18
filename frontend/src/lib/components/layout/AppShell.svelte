@@ -80,7 +80,7 @@
 
   const showStaff = $derived(appSettings.staffEnabled && auth.can('users.manage'));
 
-  const showAudit = $derived(auth.level >= 90);
+  const showAudit = $derived(auth.can('audit.view'));
 
   const canViewReports = $derived(auth.can('reports.view.all') || auth.can('reports.view.own'));
 

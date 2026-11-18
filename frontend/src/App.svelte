@@ -211,7 +211,7 @@
     {:else if legalMatch}
       <Legal code={legalMatch.code} />
     {:else if route === '/admin/audit'}
-      {#if auth.level >= 90}
+      {#if auth.can('audit.view')}
         <LazyView load={views.audit} />
       {:else}
         <NotFound />

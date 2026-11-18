@@ -82,12 +82,11 @@ const roleDefs = {
   admin: {
     login: 'admin',
     routes: (ctx) => [
-      { name: '01-admin-users', path: '/admin' },
-      { name: '02-admin-audit', path: '/admin', clicks: ['Журнал аудита'] },
-      { name: '03-admin-roles', path: '/admin', clicks: ['Роли'] },
-      { name: '04-admin-refs', path: '/admin', clicks: ['Справочники'] },
-      { name: '05-admin-docs', path: '/admin', clicks: ['Документы'] },
-      { name: '06-settings', path: '/settings' },
+      { name: '01-admin-staff', path: '/staff' },
+      { name: '02-admin-audit', path: '/admin/audit' },
+      { name: '03-admin-modules', path: '/settings/modules/requests' },
+      { name: '04-admin-docs', path: '/settings/docs' },
+      { name: '05-settings', path: '/settings' },
       { name: '07-requests', path: '/requests' },
       { name: '08-request-card', path: ctx.requestId ? `/requests/${ctx.requestId}` : null },
       { name: '09-clients', path: '/clients' },

@@ -140,9 +140,10 @@
   const canManageSettings = $derived(auth.can('settings.manage'));
   const canManageTech = $derived(auth.can('roles.manage'));
   const canManageMail = $derived(auth.can('mail.manage'));
+  const canManageMailSend = $derived(auth.can('mail.send'));
 
   const visibleMailTabs = $derived(
-    mailTabs.filter((item) => (item.code === 'smtp' ? canManageMail : canManageTech))
+    mailTabs.filter((item) => (item.code === 'smtp' ? canManageMail : canManageMailSend))
   );
 
   const visibleSettingsTabs = $derived(
@@ -152,7 +153,7 @@
       }
 
       if (item.code === 'mail') {
-        return mailEnabled && (canManageMail || canManageTech);
+        return mailEnabled && (canManageMail || canManageMailSend);
       }
 
       return canManageSettings;
@@ -362,7 +363,7 @@
     try {
       const canSettings = auth.can('settings.manage');
       const canSmtp = auth.can('mail.manage');
-      const canMailAdmin = auth.can('roles.manage');
+      const canMailAdmin = auth.can('mail.send');
 
       if (canSettings) {
         system = await getSystemSettings();
@@ -469,7 +470,7 @@
         portInput = String(settings.port);
       }
 
-      if (auth.can('roles.manage')) {
+      if (auth.can('mail.send')) {
         templates = await listTemplates();
         queue = await listQueue();
         schedules = await listSchedules();
@@ -1148,7 +1149,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'mail' && mailTab === 'templates' && canManageTech}
+    {#if tab === 'mail' && mailTab === 'templates' && canManageMailSend}
       <div class="card">
         <h2>Шаблоны писем</h2>
       <p class="hint">Подстановки: {'{title}'}, {'{body}'}, {'{request_number}'}, {'{link}'}</p>
@@ -1180,7 +1181,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'mail' && mailTab === 'schedules' && canManageTech}
+    {#if tab === 'mail' && mailTab === 'schedules' && canManageMailSend}
       <div class="card">
         <h2>Расписание отчётов</h2>
       <p class="hint">
@@ -1310,7 +1311,7 @@ async function saveSettings(): Promise<void> {
       </div>
     {/if}
 
-    {#if tab === 'mail' && mailTab === 'queue' && canManageTech}
+    {#if tab === 'mail' && mailTab === 'queue' && canManageMailSend}
       <div class="card">
         <div class="queue-head">
           <div>
