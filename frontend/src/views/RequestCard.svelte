@@ -34,6 +34,7 @@
     uploadAttachment
   } from '../lib/api/attachments';
   import { router } from '../lib/router.svelte';
+  import { tablist } from '../lib/a11y/tablist';
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import StatusBadge from '../lib/components/StatusBadge.svelte';
@@ -70,6 +71,15 @@
   let targetStatus = $state('');
   let transitionComment = $state('');
   let cardTab = $state<CardTab>('request');
+
+  // ID уникальны для каждого экземпляра карточки на странице.
+  const uid =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? `request-card-${crypto.randomUUID()}`
+      : `request-card-${Math.random().toString(36).slice(2)}`;
+  const panelId = `${uid}-panel`;
+  const tabId = (tab: CardTab): string => `${uid}-tab-${tab}`;
+
   let helperOpen = $state(false);
   let helperToggleEl = $state<HTMLButtonElement | null>(null);
   let helperEl = $state<HTMLDivElement | null>(null);
@@ -1350,11 +1360,16 @@
             {detail.request.status.title}
           </span>
 
-          <div class="hero-tabs" aria-label="Разделы заявки">
+          <div class="hero-tabs" role="tablist" aria-label="Разделы заявки" use:tablist>
             <button
               type="button"
               class="hero-tab"
               class:active={cardTab === 'request'}
+              role="tab"
+              id={tabId('request')}
+              aria-controls={panelId}
+              aria-selected={cardTab === 'request'}
+              tabindex={cardTab === 'request' ? 0 : -1}
               title={`Заявка${detail.items.length > 0 ? `: ${detail.items.length} поз.` : ''}`}
               aria-label={`Заявка${detail.items.length > 0 ? `, позиций: ${detail.items.length}` : ''}`}
               onclick={() => void openCardTab('request')}
@@ -1370,6 +1385,11 @@
                 type="button"
                 class="hero-tab"
                 class:active={cardTab === 'client'}
+                role="tab"
+                id={tabId('client')}
+                aria-controls={panelId}
+                aria-selected={cardTab === 'client'}
+                tabindex={cardTab === 'client' ? 0 : -1}
                 title="Клиент"
                 aria-label="Клиент"
                 onclick={() => void openCardTab('client')}
@@ -1383,6 +1403,11 @@
                 type="button"
                 class="hero-tab"
                 class:active={cardTab === 'comments'}
+                role="tab"
+                id={tabId('comments')}
+                aria-controls={panelId}
+                aria-selected={cardTab === 'comments'}
+                tabindex={cardTab === 'comments' ? 0 : -1}
                 title={`История${historyCount > 0 ? `: ${historyCount}` : ''}`}
                 aria-label={`История${historyCount > 0 ? `, ${historyCount}` : ''}`}
                 onclick={() => void openCardTab('comments')}
@@ -1401,6 +1426,11 @@
               class="hero-tab"
               class:active={cardTab === 'chat'}
               class:unread={chatUnread > 0}
+              role="tab"
+              id={tabId('chat')}
+              aria-controls={panelId}
+              aria-selected={cardTab === 'chat'}
+              tabindex={cardTab === 'chat' ? 0 : -1}
               title="Чат по заявке"
               aria-label="Чат по заявке"
               onclick={() => void openCardTab('chat')}
@@ -1415,6 +1445,11 @@
               type="button"
               class="hero-tab"
               class:active={cardTab === 'files'}
+              role="tab"
+              id={tabId('files')}
+              aria-controls={panelId}
+              aria-selected={cardTab === 'files'}
+              tabindex={cardTab === 'files' ? 0 : -1}
               title={`Файлы${attachments.length > 0 ? `: ${attachments.length}` : ''}`}
               aria-label={`Файлы${attachments.length > 0 ? `, ${attachments.length}` : ''}`}
               onclick={() => void openCardTab('files')}
@@ -1767,7 +1802,14 @@
       {/if}
     {/snippet}
 
-    <div class="layout" class:single={cardTab === 'chat' || cardTab === 'client' || cardTab === 'files'}>
+    <div
+      class="layout"
+      class:single={cardTab === 'chat' || cardTab === 'client' || cardTab === 'files'}
+      role="tabpanel"
+      id={panelId}
+      aria-labelledby={tabId(cardTab)}
+      tabindex="0"
+    >
       <div class="main">
     {#if cardTab === 'client'}
       <div class="client-tab">

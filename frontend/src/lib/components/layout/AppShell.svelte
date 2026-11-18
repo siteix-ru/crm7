@@ -683,8 +683,8 @@
 
   .demo-banner {
     padding: var(--space-2) var(--space-5);
-    background: var(--warning-bg, #fff4d6);
-    color: var(--warning, #8a6d00);
+    background: var(--warning-bg);
+    color: var(--warning-text);
     border-bottom: 1px solid var(--border);
     font-size: 13px;
     text-align: center;

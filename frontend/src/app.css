@@ -308,13 +308,16 @@ main > .page > .levels-wrap {
   pointer-events: none;
 }
 
+/* --cookie-space выставляется CookieNotice по фактической высоте баннера. */
 html.cookie-visible main {
-  padding-bottom: 110px;
+  padding-bottom: calc(var(--cookie-space, 67px) + 48px);
 }
 
 @media (max-width: 720px) {
   html.cookie-visible main {
-    padding-bottom: 260px;
+    padding-bottom: calc(
+      var(--cookie-space, 160px) + 84px + env(safe-area-inset-bottom)
+    );
   }
 }
 

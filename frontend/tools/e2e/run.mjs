@@ -241,8 +241,8 @@ const scenarios = [
       await expectVisible(card, 'нет заявки с позициями в списке');
       await card.click();
 
-      await expectVisible(page.getByRole('button', { name: /^Заявка/ }), 'нет вкладки «Заявка»');
-      await expectVisible(page.getByRole('button', { name: /^История/ }), 'нет вкладки «Активность»');
+      await expectVisible(page.getByRole('tab', { name: /^Заявка/ }), 'нет вкладки «Заявка»');
+      await expectVisible(page.getByRole('tab', { name: /^История/ }), 'нет вкладки «Активность»');
       await expectVisible(page.locator('.main .items-card'), 'состав заявки не в основной колонке');
       await expectVisible(
         page.locator('.side .side-description-card'),
@@ -253,7 +253,7 @@ const scenarios = [
         'блок «Итого» не удалён'
       );
 
-      await page.getByRole('button', { name: /^История/ }).click();
+      await page.getByRole('tab', { name: /^История/ }).click();
       await expectVisible(
         page.getByRole('heading', { name: 'Новое событие' }),
         'нет формы добавления события'
@@ -325,7 +325,7 @@ const scenarios = [
         );
       }
 
-      await page.getByRole('button', { name: /^Файлы/ }).click();
+      await page.getByRole('tab', { name: /^Файлы/ }).click();
       await expectVisible(
         page.getByRole('heading', { name: 'Файлы заявки' }),
         'нет вкладки «Файлы заявки»'
@@ -362,7 +362,7 @@ const scenarios = [
         'на вкладке чата виден блок «Итого»'
       );
 
-      await page.getByRole('button', { name: 'Клиент', exact: true }).click();
+      await page.getByRole('tab', { name: 'Клиент', exact: true }).click();
       await expectVisible(page.locator('.client-tab'), 'нет вкладки «Клиент»');
       await expectVisible(page.locator('.client-tab .client-facts').first(), 'нет данных клиента');
       await expectVisible(
@@ -374,12 +374,85 @@ const scenarios = [
         'на вкладке клиента осталась боковая колонка'
       );
 
-      await page.getByRole('button', { name: /^Заявка/ }).click();
+      await page.getByRole('tab', { name: /^Заявка/ }).click();
       await expectVisible(page.locator('.it-row:not(.it-head)').first(), 'в составе нет позиций');
       assert(
         (await page.locator('.side-client-card').count()) === 0,
         'в боковой колонке остался блок клиента'
       );
+    }
+  },
+  {
+    name: 'заявка: ARIA и клавиатурная навигация по вкладкам',
+    role: 'manager',
+    smoke: true,
+    async run(page, ctx) {
+      const response = await fetch(`${API}/requests?per_page=1`, {
+        headers: { Authorization: `Bearer ${ctx.session.token}` }
+      });
+
+      assert(response.ok, `не удалось получить заявку: HTTP ${response.status}`);
+
+      const requestId = (await response.json()).data.items[0]?.id;
+
+      assert(requestId, 'нет заявки для проверки вкладок');
+      await page.goto(`${BASE}/#/requests/${requestId}`, { waitUntil: 'domcontentloaded' });
+
+      const list = page.getByRole('tablist', { name: 'Разделы заявки' });
+
+      await expectVisible(list, 'нет tablist в карточке заявки');
+      await expectVisible(page.locator('[role="tabpanel"]'), 'нет панели вкладок');
+
+      const tabs = list.getByRole('tab');
+      const count = await tabs.count();
+
+      assert(count >= 4, `ожидалось не менее 4 вкладок, а не ${count}`);
+
+      const snapshot = () =>
+        page.evaluate(() => {
+          const elements = Array.from(document.querySelectorAll('[role="tab"]'));
+          const panel = document.querySelector('[role="tabpanel"][id^="request-card-"]');
+          const selected = elements.find((tab) => tab.getAttribute('aria-selected') === 'true');
+
+          return {
+            ids: elements.map((tab) => tab.id),
+            controls: elements.map((tab) => tab.getAttribute('aria-controls')),
+            selected: selected?.id ?? null,
+            tabIndexes: elements.map((tab) => tab.tabIndex),
+            focused: document.activeElement?.id ?? null,
+            panelId: panel?.id ?? null,
+            panelLabelledBy: panel?.getAttribute('aria-labelledby') ?? null
+          };
+        });
+
+      let state = await snapshot();
+
+      assert(new Set(state.ids).size === state.ids.length, 'ID вкладок не уникальны');
+      assert(state.controls.every((value) => value === state.panelId), 'aria-controls не указывает на панель');
+      assert(state.selected !== null, 'нет вкладки с aria-selected="true"');
+      assert(state.panelLabelledBy === state.selected, 'панель не связана с активной вкладкой');
+      assert(
+        state.tabIndexes.filter((value) => value === 0).length === 1,
+        'должна быть только одна вкладка в tab-порядке'
+      );
+
+      await tabs.first().focus();
+      const firstSelected = state.selected;
+
+      await page.keyboard.press('ArrowRight');
+      state = await snapshot();
+      assert(state.selected !== firstSelected, 'ArrowRight не переключил вкладку');
+      assert(state.focused === state.selected, 'фокус не последовал за активной вкладкой');
+
+      await page.keyboard.press('End');
+      state = await snapshot();
+      assert(state.selected === state.ids[state.ids.length - 1], 'End не выбрал последнюю вкладку');
+      assert(state.panelLabelledBy === state.selected, 'панель не обновила aria-labelledby');
+
+      await page.keyboard.press('Home');
+      state = await snapshot();
+      assert(state.selected === state.ids[0], 'Home не выбрал первую вкладку');
+      assert(state.focused === state.selected, 'фокус остался не на первой вкладке');
     }
   },
   {
