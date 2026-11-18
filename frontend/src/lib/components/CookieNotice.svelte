@@ -4,6 +4,7 @@
   const STORAGE_KEY = 'crm.cookie.accepted';
 
   let visible = $state(false);
+  let bannerEl = $state<HTMLDivElement | null>(null);
 
   $effect(() => {
     try {
@@ -11,6 +12,38 @@
     } catch {
       visible = true;
     }
+  });
+
+  // Резервируем фактическую высоту баннера в layout, чтобы прокрутка
+  // могла поднять любой элемент выше него на всех размерах экрана.
+  $effect(() => {
+    const element = bannerEl;
+
+    if (!visible || element === null) {
+      document.documentElement.style.setProperty('--cookie-space', '0px');
+
+      return;
+    }
+
+    const update = (): void => {
+      document.documentElement.style.setProperty(
+        '--cookie-space',
+        `${Math.ceil(element.getBoundingClientRect().height)}px`
+      );
+    };
+
+    update();
+
+    const observer = new ResizeObserver(update);
+
+    observer.observe(element);
+    window.addEventListener('resize', update);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+      document.documentElement.style.setProperty('--cookie-space', '0px');
+    };
   });
 
   $effect(() => {
@@ -31,7 +64,7 @@
 </script>
 
 {#if visible}
-  <div class="cookie" role="dialog" aria-label="Использование cookie">
+  <div class="cookie" role="dialog" aria-label="Использование cookie" bind:this={bannerEl}>
     <p>
       Мы используем cookie, чтобы сохранять сессию и настройки. Продолжая работу, вы соглашаетесь
       с <button type="button" class="link" onclick={() => router.navigate('/legal/privacy')}>политикой обработки персональных данных</button>
