@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
+  import { Sequence } from '../lib/async-sequence';
   import {
     blockUser,
     createUser,
@@ -108,8 +109,15 @@ let usersPerPage = $state(20);
   let docNotice = $state('');
 
   let error = $state('');
+  let usersError = $state('');
+  let docsError = $state('');
   let message = $state('');
   let busy = $state(false);
+
+  const usersSequence = new Sequence();
+  const modulesSequence = new Sequence();
+  const rolesSequence = new Sequence();
+  const docsSequence = new Sequence();
 
   let modules = $state<ModuleItem[]>([]);
   let moduleRoles = $state<ModuleRole[]>([]);
@@ -173,8 +181,10 @@ let usersPerPage = $state(20);
   });
 
   async function loadUsers(): Promise<void> {
+    const token = usersSequence.next();
+
     usersLoading = true;
-    error = '';
+    usersError = '';
 
     try {
       const data = await listUsers({
@@ -185,10 +195,16 @@ let usersPerPage = $state(20);
         per_page: usersPerPage
       });
 
+      if (!usersSequence.isCurrent(token)) {
+        return;
+      }
+
       users = data.items;
       usersTotal = data.total;
     } catch (cause) {
-      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить пользователей';
+      if (usersSequence.isCurrent(token)) {
+        usersError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить пользователей';
+      }
     } finally {
       usersLoading = false;
     }
@@ -365,14 +381,26 @@ let usersPerPage = $state(20);
     }
 
     if (next === 'docs' && docs.length === 0) {
+      const token = docsSequence.next();
+
+      docsError = '';
+
       try {
-        docs = (await listLegalDocuments()).items;
+        const result = await listLegalDocuments();
+
+        if (!docsSequence.isCurrent(token)) {
+          return;
+        }
+
+        docs = result.items;
 
         if (docs.length > 0) {
           selectDoc(docs[0]);
         }
       } catch {
-        // некритично
+        if (docsSequence.isCurrent(token)) {
+          docsError = 'Не удалось загрузить документы';
+        }
       }
     }
 
@@ -382,6 +410,8 @@ let usersPerPage = $state(20);
   }
 
   async function loadModules(): Promise<void> {
+    const token = modulesSequence.next();
+
     modulesLoading = true;
     modulesError = '';
     modulesNotice = '';
@@ -389,12 +419,19 @@ let usersPerPage = $state(20);
 
     try {
       const data = await listModules();
+
+      if (!modulesSequence.isCurrent(token)) {
+        return;
+      }
+
       modules = data.modules;
       moduleRoles = data.roles;
       modulesBaseline = JSON.stringify(data.modules);
       onmoduleschange?.(data.modules);
     } catch (cause) {
-      modulesError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить модули';
+      if (modulesSequence.isCurrent(token)) {
+        modulesError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить модули';
+      }
     } finally {
       modulesLoading = false;
     }
@@ -533,16 +570,25 @@ let usersPerPage = $state(20);
   }
 
   async function loadRoles(): Promise<void> {
+    const token = rolesSequence.next();
+
     roleError = '';
     roleNotice = '';
 
     try {
       const data = await listRoles();
+
+      if (!rolesSequence.isCurrent(token)) {
+        return;
+      }
+
       roles = data.items;
       roleCatalog = data.catalog;
       roleDraft = Object.fromEntries(data.items.map((role) => [role.level, [...role.capabilities]]));
     } catch (cause) {
-      roleError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить роли';
+      if (rolesSequence.isCurrent(token)) {
+        roleError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить роли';
+      }
     }
   }
 
@@ -689,6 +735,8 @@ let usersPerPage = $state(20);
   {/if}
 
   {#if error}<div class="alert">{error}</div>{/if}
+  {#if usersError}<div class="alert">{usersError}</div>{/if}
+  {#if docsError}<div class="alert">{docsError}</div>{/if}
   {#if message}<div class="notice">{message}</div>{/if}
 
   {#if tab === 'modules'}

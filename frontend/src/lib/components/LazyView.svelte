@@ -1,5 +1,8 @@
 <script lang="ts">
   import type { Component } from 'svelte';
+  import { ChunkLoader, type ChunkStatus } from '../chunk-loader';
+  import Button from './ui/Button.svelte';
+  import EmptyState from './ui/EmptyState.svelte';
   import Spinner from './ui/Spinner.svelte';
 
   interface Props {
@@ -10,36 +13,46 @@
   let { load, props = {} }: Props = $props();
 
   let View = $state<Component<any> | null>(null);
+  let status = $state<ChunkStatus>('loading');
 
   $effect(() => {
-    let cancelled = false;
-    let retry: ReturnType<typeof setTimeout> | undefined;
-    const loader = load;
+    const loaderFn = load;
+    const loader = new ChunkLoader(loaderFn, (next, value) => {
+      status = next;
+      View = next === 'ready' ? (value as { default: Component<any> }).default : null;
+    });
 
-    const run = (attempt: number): void => {
-      loader()
-        .then((module) => {
-          if (!cancelled) {
-            View = module.default;
-          }
-        })
-        .catch(() => {
-          if (!cancelled && attempt < 2) {
-            retry = setTimeout(() => run(attempt + 1), 1200);
-          }
-        });
-    };
+    loader.start();
 
-    run(0);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(retry);
-    };
+    return () => loader.cancel();
   });
+
+  /**
+   * Повторный dynamic import того же URL после ошибки загрузки чанка
+   * ненадёжен: браузер может переиспользовать уже отклонённый промис.
+   * Полная перезагрузка документа гарантирует новый модульный граф и
+   * сохраняет текущий hash-маршрут.
+   */
+  function retry(): void {
+    window.location.reload();
+  }
 </script>
 
-{#if View}
+{#if status === 'error'}
+  <div role="alert">
+    <EmptyState
+      icon="info"
+      title="Не удалось загрузить раздел"
+      description="Проверьте соединение и попробуйте ещё раз — страница будет перезагружена."
+    >
+      {#snippet action()}
+        <div class="lazy-actions">
+          <Button onclick={retry}>Повторить</Button>
+        </div>
+      {/snippet}
+    </EmptyState>
+  </div>
+{:else if View}
   {@const ViewComponent = View}
   <ViewComponent {...props} />
 {:else}
@@ -51,5 +64,12 @@
     display: grid;
     place-items: center;
     padding: var(--space-6);
+  }
+
+  .lazy-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-2);
   }
 </style>
