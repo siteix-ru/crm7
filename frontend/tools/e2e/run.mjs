@@ -2233,9 +2233,28 @@ const scenarios = [
     role: 'manager',
     smoke: true,
     async run(page) {
-      const pattern = '**/Reports.svelte*';
+      // Vite dev отдаёт /src/views/Reports.svelte, production preview —
+      // assets/Reports-<hash>.js. Перехватываем чанк по pathname в обоих режимах.
+      const isReportsChunk = (url) => {
+        try {
+          const pathname = new URL(url).pathname;
 
-      await page.route(pattern, (route) => route.abort('failed'));
+          return pathname.endsWith('/Reports.svelte') || /\/assets\/Reports-[^/]+\.js$/.test(pathname);
+        } catch {
+          return false;
+        }
+      };
+
+      let blocked = 0;
+
+      // Service worker включается только в production и перехватывает .js,
+      // поэтому перехват должен быть на уровне контекста, а не страницы.
+      const context = page.context();
+
+      await context.route(isReportsChunk, async (route) => {
+        blocked += 1;
+        await route.abort('failed');
+      });
       await page.goto(`${BASE}/#/reports`, { waitUntil: 'domcontentloaded' });
 
       await expectVisible(
@@ -2243,9 +2262,10 @@ const scenarios = [
         'после трёх неудач нет сообщения об ошибке',
         20000
       );
+      assert(blocked > 0, 'перехват чанка Reports не сработал — ошибка не была вызвана загрузкой чанка');
       await expectVisible(page.getByRole('button', { name: 'Повторить' }), 'нет кнопки «Повторить»');
 
-      await page.unroute(pattern);
+      await context.unroute(isReportsChunk);
       await page.getByRole('button', { name: 'Повторить' }).click();
       await expectVisible(page.getByText('Создано за период'), 'повтор не загрузил раздел', 20000);
       assert((await page.getByRole('alert').count()) === 0, 'состояние ошибки не сбросилось');
