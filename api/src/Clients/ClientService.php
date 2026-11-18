@@ -831,6 +831,8 @@ final class ClientService
 
     private function assertCanView(array $actor, array $capabilities, int $clientId): void
     {
+        // Политика 3.4.1: все сотрудники просматривают всех клиентов.
+        // clients.view.own/all не ограничивают доступ к карточке.
         if ((int) $actor['LEVEL'] >= 10) {
             return;
         }

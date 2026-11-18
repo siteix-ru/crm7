@@ -33,16 +33,16 @@ final class Modules
                 'groups' => [
                     [
                         'code' => 'view_all',
-                        'title' => 'Просмотр всех заявок',
-                        'description' => 'Все заявки компании, включая заявки других сотрудников. Роль видит полный список, карточки и историю обращений.',
+                        'title' => 'Замещения и управление чужими заявками',
+                        'description' => 'Все сотрудники видят все заявки компании. Право requests.view.all дополнительно разрешает работу с замещениями и управление чужими заявками; на просмотр списка и карточек оно не влияет.',
                         'capabilities' => ['requests.view.all', 'requests.view.own'],
                         'access' => ['requests.view.all'],
                         'grant' => ['requests.view.all', 'requests.view.own'],
                     ],
                     [
                         'code' => 'view_own',
-                        'title' => 'Просмотр только своих заявок',
-                        'description' => 'Только заявки, назначенные на сотрудника. Доступны карточки и история по своим обращениям.',
+                        'title' => 'Просмотр заявок (устаревшая группа)',
+                        'description' => 'Право requests.view.own сохраняется для совместимости и не ограничивает просмотр: все сотрудники видят все заявки компании.',
                         'capabilities' => ['requests.view.own'],
                         'access' => ['requests.view.own'],
                         'grant' => ['requests.view.own'],
@@ -93,16 +93,16 @@ final class Modules
                 'groups' => [
                     [
                         'code' => 'view_all',
-                        'title' => 'Просмотр всех клиентов',
-                        'description' => 'Все клиенты компании и их карточки. Доступны контакты, реквизиты, история заявок и закреплённые менеджеры.',
+                        'title' => 'Доступ ко всем чатам',
+                        'description' => 'Все сотрудники видят всех клиентов компании. Право clients.view.all дополнительно открывает все клиентские чаты; на просмотр карточек оно не влияет.',
                         'capabilities' => ['clients.view.all', 'clients.view.own'],
                         'access' => ['clients.view.all'],
                         'grant' => ['clients.view.all', 'clients.view.own'],
                     ],
                     [
                         'code' => 'view_own',
-                        'title' => 'Просмотр только своих клиентов',
-                        'description' => 'Только клиенты, закреплённые за сотрудником. Доступны карточки и история по своим клиентам.',
+                        'title' => 'Просмотр клиентов (устаревшая группа)',
+                        'description' => 'Право clients.view.own сохраняется для совместимости и не ограничивает просмотр: все сотрудники видят всех клиентов компании.',
                         'capabilities' => ['clients.view.own'],
                         'access' => ['clients.view.own'],
                         'grant' => ['clients.view.own'],

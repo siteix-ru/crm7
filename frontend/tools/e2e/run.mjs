@@ -1620,7 +1620,10 @@ const scenarios = [
 
       const card = page.locator('.module-card').filter({ hasText: 'Заявки' }).first();
       await expectVisible(card, 'нет карточки модуля «Заявки»');
-      await expectVisible(card.getByText('Просмотр всех заявок', { exact: true }), 'нет группы просмотра');
+      await expectVisible(
+        card.getByText('Замещения и управление чужими заявками', { exact: true }),
+        'нет группы замещений и управления чужими заявками'
+      );
       await expectVisible(card.getByText('Создание заявок', { exact: true }), 'нет группы создания');
       assert(
         (await card.getByRole('button', { name: 'Создание заявок' }).count()) > 0,
@@ -2871,6 +2874,159 @@ const scenarios = [
       await page.goto(`${BASE}/#/settings/docs`, { waitUntil: 'domcontentloaded' });
       await expectVisible(page.locator('.docs .doc-tabs button').first(), 'документы не загрузились');
       await expectVisible(page.getByLabel('Заголовок'), 'редактор документа не открылся');
+    }
+  },
+  {
+    name: 'permissions: сотрудник видит всех клиентов и заявки, экспорт не ограничен',
+    role: 'manager',
+    smoke: true,
+    async run(page, ctx) {
+      const token = ctx.session.token;
+      const api = async (path) => {
+        const response = await fetch(`${API}${path}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const text = await response.text();
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          // экспорт возвращает не JSON
+        }
+        return { status: response.status, json, text, headers: response.headers };
+      };
+
+      const clients = await api('/clients?manager=none&state=active&per_page=100');
+
+      assert(clients.status === 200, `список клиентов без менеджера: HTTP ${clients.status}`);
+      const clientItems = clients.json?.data?.items;
+
+      assert(Array.isArray(clientItems), 'список клиентов без менеджера не содержит data.items');
+      const clientId = clientItems[0]?.id;
+
+      assert(clientId > 0, 'нет клиента без менеджера для проверки доступа');
+      const clientCard = await api(`/clients/${clientId}`);
+
+      assert(clientCard.status === 200, `карточка чужого клиента: HTTP ${clientCard.status}`);
+
+      const requests = await api('/requests?per_page=100');
+
+      assert(requests.status === 200, `список заявок: HTTP ${requests.status}`);
+      const items = requests.json?.data?.items ?? [];
+      const unassigned = items.find((item) => item.manager === null);
+
+      assert(
+        unassigned && unassigned.id > 0,
+        'нет незакреплённой заявки для проверки доступа'
+      );
+      const detail = await api(`/requests/${unassigned.id}`);
+
+      assert(detail.status === 200, `карточка незакреплённой заявки: HTTP ${detail.status}`);
+      const exported = await api('/requests?export=csv&per_page=100');
+      const contentType = exported.headers.get('content-type') ?? '';
+
+      assert(exported.status === 200, `экспорт заявок: HTTP ${exported.status}`);
+      assert(contentType.includes('text/csv'), `экспорт должен быть CSV, а не ${contentType}`);
+      assert(exported.text.includes('Номер'), 'в CSV нет заголовка «Номер»');
+      assert(
+        typeof unassigned.number === 'string' && unassigned.number.length > 0,
+        'у выбранной заявки нет номера для проверки экспорта'
+      );
+      assert(
+        exported.text.includes(unassigned.number),
+        'экспорт не содержит незакреплённую заявку, выбранную для проверки'
+      );
+    }
+  },
+  {
+    name: 'permissions: просмотр всех клиентов не даёт права на изменение',
+    role: 'manager',
+    smoke: true,
+    async run(page, ctx) {
+      const token = ctx.session.token;
+      const api = async (method, path, body) => {
+        const response = await fetch(`${API}${path}`, {
+          method,
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: body ? JSON.stringify(body) : undefined
+        });
+        const text = await response.text();
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          // пустое тело при 403
+        }
+        return { status: response.status, json };
+      };
+
+      const clients = await api('GET', '/clients?manager=none&state=active&per_page=100');
+
+      assert(clients.status === 200, `клиенты без менеджера: HTTP ${clients.status}`);
+      const list = clients.json?.data?.items;
+
+      assert(Array.isArray(list), 'клиенты без менеджера не содержат data.items');
+      const target = list[0];
+
+      assert(
+        target && target.id > 0 && target.reg_state === 'active',
+        'нет активного клиента без менеджера для проверки прав на изменение'
+      );
+      const originalName = String(target.name ?? '');
+
+      assert(originalName.length > 0, 'у выбранного клиента нет имени для readback-проверки');
+      const updated = await api('PATCH', `/clients/${target.id}`, { name: 'E2E-denied' });
+
+      assert(
+        updated.status === 403,
+        `изменение чужого клиента должно быть запрещено, а не ${updated.status}`
+      );
+
+      const readback = await api('GET', `/clients/${target.id}`);
+
+      assert(readback.status === 200, `повторное чтение клиента: HTTP ${readback.status}`);
+      const currentName = String(readback.json?.data?.client?.name ?? '');
+
+      assert(
+        currentName === originalName && currentName !== 'E2E-denied',
+        `имя клиента изменилось после отклонённого PATCH: ${currentName}`
+      );
+    }
+  },
+  {
+    name: 'permissions: клиент не видит чужих клиентов и заявки',
+    role: 'client',
+    smoke: true,
+    async run(page, ctx) {
+      const token = ctx.session.token;
+      const api = async (path) => {
+        const response = await fetch(`${API}${path}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const text = await response.text();
+        let json = null;
+        try {
+          json = JSON.parse(text);
+        } catch {
+          // не JSON — не важно
+        }
+        return { status: response.status, json, text };
+      };
+
+      const clients = await api('/clients?per_page=20');
+
+      assert(clients.status === 403, `клиент получил список клиентов: HTTP ${clients.status}`);
+      const requests = await api('/requests?per_page=100');
+
+      assert(requests.status === 200, `свои заявки клиента: HTTP ${requests.status}`);
+      const items = requests.json?.data?.items ?? [];
+      const ownId = Number(ctx.session.user.id);
+
+      assert(items.length > 0, 'у клиента нет заявки для проверки');
+      assert(
+        items.every((item) => Number(item.client?.id) === ownId),
+        'клиенту показана заявка другого клиента'
+      );
     }
   }
 ];
