@@ -67,6 +67,14 @@ async function apiLogin(login, password) {
   return (await response.json()).data;
 }
 
+async function apiGetStatus(path, token) {
+  const response = await fetch(`${API}${path}`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+
+  return response.status;
+}
+
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
@@ -2647,6 +2655,97 @@ const scenarios = [
 
       assert(!text.includes('STALE-МОДУЛЬ'), 'устаревшие модули перезаписали свежие');
       assert(text.includes('FRESH-МОДУЛЬ'), 'актуальные модули потеряны');
+    }
+  },
+  {
+    name: 'permissions: techadmin — SMTP, почтовые операции и аудит',
+    role: 'admin',
+    smoke: true,
+    async run(page, ctx) {
+      const token = ctx.session.token;
+
+      for (const path of [
+        '/admin/settings/email',
+        '/admin/templates',
+        '/admin/queue',
+        '/admin/report-schedules',
+        '/admin/audit',
+        '/admin/audit/actions'
+      ]) {
+        const status = await apiGetStatus(path, token);
+
+        assert(status === 200, `${path}: ожидался 200 для тех. администратора, а не ${status}`);
+      }
+    }
+  },
+  {
+    name: 'permissions: admin — mail.send без mail.manage и доступ к аудиту',
+    role: 'administrator',
+    smoke: true,
+    async run(page, ctx) {
+      const token = ctx.session.token;
+      const me = await fetch(`${API}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      assert(me.ok, `не удалось получить /auth/me: HTTP ${me.status}`);
+
+      const capabilities = (await me.json()).data.capabilities;
+
+      assert(capabilities.includes('mail.send'), 'у уровня 50 должен быть mail.send');
+      assert(!capabilities.includes('mail.manage'), 'у уровня 50 не должно быть mail.manage');
+      assert(!capabilities.includes('roles.manage'), 'у уровня 50 не должно быть roles.manage');
+      assert(capabilities.includes('mail.recovery'), 'mail.recovery не должен зависеть от mail.send');
+      assert(capabilities.includes('audit.view'), 'у уровня 50 должен быть audit.view');
+
+      const smtp = await apiGetStatus('/admin/settings/email', token);
+
+      assert(smtp === 403, `SMTP без mail.manage должен быть закрыт, а не ${smtp}`);
+
+      for (const path of ['/admin/templates', '/admin/queue', '/admin/report-schedules']) {
+        const status = await apiGetStatus(path, token);
+
+        assert(status === 200, `${path}: ожидался 200 по mail.send, а не ${status}`);
+      }
+
+      for (const path of ['/admin/audit', '/admin/audit/actions']) {
+        const status = await apiGetStatus(path, token);
+
+        assert(status === 200, `${path}: ожидался 200 по audit.view, а не ${status}`);
+      }
+    }
+  },
+  {
+    name: 'permissions: manager — отказ в почтовых и аудит-эндпоинтах',
+    role: 'manager',
+    smoke: true,
+    async run(page, ctx) {
+      const token = ctx.session.token;
+      const me = await fetch(`${API}/auth/me`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+
+      assert(me.ok, `не удалось получить /auth/me: HTTP ${me.status}`);
+
+      const capabilities = (await me.json()).data.capabilities;
+
+      assert(capabilities.includes('mail.recovery'), 'уровень 10 должен сохранить mail.recovery');
+      assert(!capabilities.includes('mail.send'), 'уровень 10 не должен получать mail.send');
+      assert(!capabilities.includes('mail.manage'), 'уровень 10 не должен получать mail.manage');
+      assert(!capabilities.includes('audit.view'), 'уровень 10 не должен получать audit.view');
+
+      for (const path of [
+        '/admin/settings/email',
+        '/admin/templates',
+        '/admin/queue',
+        '/admin/report-schedules',
+        '/admin/audit',
+        '/admin/audit/actions'
+      ]) {
+        const status = await apiGetStatus(path, token);
+
+        assert(status === 403, `${path}: ожидался 403 без прав, а не ${status}`);
+      }
     }
   }
 ];

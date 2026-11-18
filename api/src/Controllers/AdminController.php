@@ -299,14 +299,14 @@ final class AdminController extends ApiController
 
     public function templates(Request $request): Response
     {
-        $this->requireTechAdmin($request);
+        $this->requireMailSend($request);
 
         return Response::ok($this->mail->templates());
     }
 
     public function saveTemplate(Request $request, array $params): Response
     {
-        $this->requireTechAdmin($request);
+        $this->requireMailSend($request);
 
         return Response::ok($this->mail->saveTemplate(
             (string) ($params['code'] ?? ''),
@@ -317,14 +317,14 @@ final class AdminController extends ApiController
 
     public function queue(Request $request): Response
     {
-        $this->requireTechAdmin($request);
+        $this->requireMailSend($request);
 
         return Response::ok($this->mail->queueRecent((int) $request->queryParam('limit', '30')));
     }
 
     public function clearQueue(Request $request): Response
     {
-        [$user] = $this->requireTechAdmin($request);
+        [$user] = $this->requireMailSend($request);
         $cleared = $this->mail->clearQueue();
 
         $this->audit($request, $user, 'admin.queue.clear', 'email_queue', null, [
@@ -351,6 +351,21 @@ final class AdminController extends ApiController
 
         if (!in_array('mail.manage', $capabilities, true)) {
             throw new HttpException(403, 'forbidden', 'Недостаточно прав для настройки почты');
+        }
+
+        return [$user, $capabilities];
+    }
+
+    private function requireMailSend(Request $request): array
+    {
+        [$user, $capabilities] = $this->context($request);
+
+        if (!in_array('mail.send', $capabilities, true)) {
+            throw new HttpException(
+                403,
+                'forbidden',
+                'Недостаточно прав для работы с почтой'
+            );
         }
 
         return [$user, $capabilities];
