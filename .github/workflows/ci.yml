@@ -87,7 +87,7 @@ jobs:
       - name: Install test dependencies
         # deploy/tests импортируют deploy_crm7/release_crm7 (lock-path tests),
         # а эти модули требуют paramiko уже при импорте.
-        run: python -m pip install --disable-pip-version-check paramiko
+        run: python -m pip install --disable-pip-version-check -r deploy/requirements-test.txt
       - name: Compile Python sources and tests
         run: |
           python -m py_compile \

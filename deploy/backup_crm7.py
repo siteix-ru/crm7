@@ -11,6 +11,7 @@ import argparse
 import contextlib
 import datetime as dt
 import hashlib
+import io
 import json
 import os
 import pathlib
@@ -23,7 +24,11 @@ import tarfile
 import tempfile
 import uuid
 
-from update_lock import LockBusy, fsync_directory, require_lock, update_lock
+import update_lock as lock_api
+
+from update_lock import (
+    LockBusy, fsync_directory, require_lock, run_cleanup, update_lock,
+)
 
 try:
     import fcntl
@@ -42,6 +47,17 @@ OPTIONAL_CONFIG_FILES = (
 )
 COMPOSE_NAMES = ("compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml")
 EXCLUDED_NAME_PARTS = (".cfg-", ".tmp", ".lock")
+MARKER_RE = re.compile(r"^crm7-([0-9A-Za-zT\-]+)\.id\.lock$")
+
+
+def _marker_path(db_dir: pathlib.Path, backup_id: str) -> pathlib.Path:
+    return db_dir / f"crm7-{backup_id}.id.lock"
+
+
+def _format_mtime(timestamp: float) -> str:
+    return dt.datetime.fromtimestamp(timestamp, dt.timezone.utc).isoformat(
+        timespec="seconds"
+    ).replace("+00:00", "Z")
 
 
 class BackupError(RuntimeError):
@@ -75,10 +91,10 @@ def _interrupt_guard():
         yield
     finally:
         if previous is not None:
-            try:
-                signal.signal(signal.SIGTERM, previous)
-            except (ValueError, OSError):
-                pass
+            run_cleanup(
+                "SIGTERM handler restore",
+                lambda: signal.signal(signal.SIGTERM, previous),
+            )
 
 
 def _utc_now() -> str:
@@ -156,13 +172,13 @@ def _atomic_bytes(path: pathlib.Path, payload: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
     except Exception:
-        temporary.unlink(missing_ok=True)
+        run_cleanup("atomic write temp", lambda: temporary.unlink(missing_ok=True))
         raise
 
     try:
         os.replace(temporary, path)
     except Exception:
-        temporary.unlink(missing_ok=True)
+        run_cleanup("atomic replace temp", lambda: temporary.unlink(missing_ok=True))
         raise
 
     os.chmod(path, 0o600)
@@ -232,7 +248,10 @@ def _shared_config_lock(lock_path: pathlib.Path | None):
             try:
                 yield
             finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                run_cleanup(
+                    "config lock release",
+                    lambda: fcntl.flock(handle.fileno(), fcntl.LOCK_UN),
+                )
 
             return
 
@@ -246,10 +265,10 @@ def _shared_config_lock(lock_path: pathlib.Path | None):
         try:
             yield
         finally:
-            try:
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-            except Exception:
-                pass
+            run_cleanup(
+                "config lock release",
+                lambda: msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1),
+            )
 
 
 def _stat_signature(path: pathlib.Path) -> tuple[int, int, int] | None:
@@ -262,19 +281,34 @@ def _stat_signature(path: pathlib.Path) -> tuple[int, int, int] | None:
 @contextlib.contextmanager
 def _backup_id_claim(db_dir: pathlib.Path, backup_id: str):
     """Эксклюзивное право на backup_id; lock удаляется только владельцем."""
-    lock_path = db_dir / f"crm7-{backup_id}.id.lock"
+    marker = _marker_path(db_dir, backup_id)
 
     try:
-        descriptor = os.open(lock_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        descriptor = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError as error:
-        raise BackupError("backup_id is already in use") from error
+        mtime = ""
+        try:
+            mtime = f", mtime={_format_mtime(marker.stat().st_mtime)}"
+        except OSError:
+            pass
+        raise BackupError(
+            f"backup_id is already in use: marker exists at {marker}{mtime} "
+            f"for backup_id {backup_id!r}. "
+            "A marker alone does not prove that Backup is no longer active; "
+            "run read-only diagnostics: "
+            "python deploy/backup_crm7.py markers --db-backup-dir <dir> "
+            "--secrets-dir <dir> (project-dir optional for lock status)"
+        ) from error
 
     os.close(descriptor)
 
     try:
         yield
     finally:
-        lock_path.unlink(missing_ok=True)
+        run_cleanup(
+            "backup ID marker",
+            lambda: marker.unlink(missing_ok=True),
+        )
 
 
 def _validate_tar_members(members, expected_names: list[str] | None = None) -> list[str]:
@@ -347,13 +381,13 @@ def _secret_bundle(
             if changed:
                 raise BackupError("configuration changed during backup")
         except Exception:
-            temporary.unlink(missing_ok=True)
+            run_cleanup("secret bundle write temp", lambda: temporary.unlink(missing_ok=True))
             raise
 
     try:
         os.replace(temporary, target)
     except Exception:
-        temporary.unlink(missing_ok=True)
+        run_cleanup("secret bundle publish temp", lambda: temporary.unlink(missing_ok=True))
         raise
 
     os.chmod(target, 0o600)
@@ -364,7 +398,7 @@ def _secret_bundle(
     try:
         return _validate_tar_members(members, names)
     except BackupError:
-        target.unlink(missing_ok=True)
+        run_cleanup("secret bundle validation", lambda: target.unlink(missing_ok=True))
         raise
 
 
@@ -471,8 +505,18 @@ def create_backup(
             )
 
             with _backup_id_claim(db_dir, backup_id):
-                if sql_path.exists() or bundle_path.exists() or manifest_path.exists():
-                    raise BackupError("backup_id is already in use")
+                existing = [
+                    str(path) for path in (sql_path, bundle_path, manifest_path)
+                    if path.exists()
+                ]
+                if existing:
+                    raise BackupError(
+                        f"backup_id is already in use: artifacts exist for backup_id "
+                        f"{backup_id!r} ({', '.join(existing)}). "
+                        "Existing backups are never overwritten; run read-only "
+                        "diagnostics with the 'markers' subcommand before considering "
+                        "any manual action"
+                    )
 
                 _sql_dump(project, sql_path, runner)
                 members = _secret_bundle(
@@ -622,13 +666,275 @@ def verify(manifest_path: pathlib.Path, secrets_dir: pathlib.Path) -> None:
     print("backup verified")
 
 
+def _probe_project_lock(project: pathlib.Path | None) -> str:
+    """Только проверить состояние общего lock, не создавая файлов.
+
+    Возвращает available / busy / unavailable / unknown. При busy не ждёт и не
+    мешает production: transient flock снимается сразу после проверки.
+    """
+    if project is None:
+        return "unknown"
+
+    path = lock_api.lock_path(project)
+
+    # Симлинк не разыменовываем: иначе можно заблокировать внешний файл.
+    try:
+        if path.is_symlink():
+            return "unknown"
+        if not path.exists():
+            return "unknown"
+    except OSError:
+        return "unavailable"
+    if lock_api.fcntl is None:
+        return "unavailable"
+
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+    except OSError:
+        return "unavailable"
+
+    try:
+        try:
+            lock_api.fcntl.flock(descriptor, lock_api.fcntl.LOCK_EX | lock_api.fcntl.LOCK_NB)
+        except OSError:
+            return "busy"
+        run_cleanup("lock probe unlock", lambda: lock_api.fcntl.flock(
+            descriptor, lock_api.fcntl.LOCK_UN
+        ))
+        return "available"
+    finally:
+        run_cleanup("lock probe descriptor", lambda: os.close(descriptor))
+
+
+def collect_marker_diagnostics(
+    db_dir: pathlib.Path,
+    secrets_dir: pathlib.Path,
+    project: pathlib.Path | None = None,
+) -> dict:
+    """Собрать read-only диагностику ID-маркеров. Ничего не удаляет и не создаёт."""
+    db_dir = pathlib.Path(db_dir).resolve()
+    secrets_dir = pathlib.Path(secrets_dir).resolve()
+    result: dict = {
+        "db_dir": str(db_dir),
+        "secrets_dir": str(secrets_dir),
+        "lock_status": _probe_project_lock(project),
+        "markers": [],
+        "warnings": [],
+        "error": None,
+    }
+
+    if project is not None:
+        try:
+            if lock_api.lock_path(project).is_symlink():
+                result["warnings"].append(
+                    "project lock path is a symlink; not opened or locked"
+                )
+        except OSError as error:
+            result["warnings"].append(
+                f"project lock path stat failed: {type(error).__name__}"
+            )
+
+    try:
+        candidates = sorted(db_dir.iterdir(), key=lambda item: item.name)
+    except OSError as error:
+        result["error"] = f"cannot list backup directory: {type(error).__name__}"
+        return result
+
+    for marker in candidates:
+        match = MARKER_RE.fullmatch(marker.name)
+        if match is None:
+            continue
+
+        backup_id = match.group(1)
+        entry: dict = {
+            "backup_id": backup_id,
+            "marker_path": str(marker),
+            "marker_mtime": None,
+            "marker_size": None,
+            "marker_empty": None,
+            "marker_is_symlink": None,
+            "sql_present": None,
+            "bundle_present": None,
+            "manifest_present": None,
+            "sql_is_symlink": None,
+            "bundle_is_symlink": None,
+            "manifest_is_symlink": None,
+            "status": "unknown",
+            "verify": "not available",
+            "warnings": [],
+        }
+        result["markers"].append(entry)
+
+        suspicious = False
+
+        try:
+            info = marker.lstat()
+        except OSError as error:
+            entry["warnings"].append(f"marker stat failed: {type(error).__name__}")
+            continue
+
+        entry["marker_mtime"] = _format_mtime(info.st_mtime)
+        entry["marker_size"] = info.st_size
+        entry["marker_is_symlink"] = marker.is_symlink()
+        if entry["marker_is_symlink"]:
+            entry["warnings"].append("marker is a symlink; not inspected")
+            suspicious = True
+        if info.st_size == 0:
+            entry["marker_empty"] = True
+        else:
+            entry["marker_empty"] = False
+            entry["warnings"].append("marker is not empty; contents not inspected")
+
+        sql_path = db_dir / f"crm7-{backup_id}.sql"
+        bundle_path = secrets_dir / f"crm7-{backup_id}.secrets.tar"
+        manifest_path = db_dir / f"crm7-{backup_id}.manifest.json"
+        artifacts = (
+            ("sql", sql_path),
+            ("bundle", bundle_path),
+            ("manifest", manifest_path),
+        )
+        before: dict = {}
+
+        try:
+            for key, path in artifacts:
+                is_link = path.is_symlink()
+                entry[f"{key}_is_symlink"] = is_link
+                present = path.is_file() and not is_link
+                entry[f"{key}_present"] = present
+
+                if is_link:
+                    entry["warnings"].append(
+                        f"{key} is a symlink; not treated as a regular artifact"
+                    )
+                    suspicious = True
+                elif present:
+                    stat_info = path.lstat()
+                    before[key] = (stat_info.st_ino, stat_info.st_size, stat_info.st_mtime_ns)
+        except OSError as error:
+            entry["warnings"].append(f"artifact stat failed: {type(error).__name__}")
+            suspicious = True
+
+        if suspicious:
+            entry["status"] = "unknown"
+            continue
+
+        if not entry["manifest_present"]:
+            entry["status"] = "incomplete"
+            continue
+        if not (entry["sql_present"] and entry["bundle_present"]):
+            entry["status"] = "incomplete"
+            continue
+
+        verify_error = None
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                verify(manifest_path, secrets_dir)
+        except (BackupError, OSError, ValueError, tarfile.TarError) as error:
+            verify_error = error
+
+        # Отличаем реальную порчу от изменения файлов параллельным Backup.
+        after = None
+        try:
+            after = {}
+            for key, path in artifacts:
+                if path.is_file() and not path.is_symlink():
+                    stat_info = path.lstat()
+                    after[key] = (
+                        stat_info.st_ino, stat_info.st_size, stat_info.st_mtime_ns
+                    )
+        except OSError:
+            after = None
+
+        if after is None or after != before:
+            entry["status"] = "unknown"
+            entry["verify"] = "not available"
+            entry["warnings"].append(
+                "artifacts changed or became unreadable during verification"
+            )
+            continue
+
+        if verify_error is None:
+            entry["verify"] = "passed"
+            entry["status"] = "complete"
+        else:
+            entry["verify"] = f"failed: {verify_error}"
+            entry["status"] = "invalid"
+
+    return result
+
+
+def print_marker_diagnostics(result: dict) -> None:
+    print(f"db-backup-dir: {result['db_dir']}")
+    print(f"secrets-dir: {result['secrets_dir']}")
+    print(f"project lock: {result['lock_status']}")
+    for warning in result.get("warnings", []):
+        print(f"warning: {warning}")
+
+    lock_status = result["lock_status"]
+    if lock_status == "available":
+        print(
+            "note: lock probe succeeded only at one moment; files may still change "
+            "during verification (best-effort snapshot)"
+        )
+    else:
+        print(
+            "warning: project lock is not confirmed free; snapshot is not guaranteed "
+            "to be consistent"
+        )
+    if result["error"]:
+        print(f"error: {result['error']}")
+
+    markers = result["markers"]
+    if not markers:
+        print("no backup ID markers found")
+        print(
+            "marker presence does not prove that a Backup process is gone; "
+            "no files were removed or modified"
+        )
+        return
+
+    for entry in markers:
+        print(f"backup_id: {entry['backup_id']}")
+        print(f"  marker: {entry['marker_path']}")
+        print(f"  mtime: {entry['marker_mtime']}")
+        print(f"  size: {entry['marker_size']}")
+        print(f"  marker empty: {entry['marker_empty']}")
+        print(f"  symlink: {entry['marker_is_symlink']}")
+        print(f"  sql: {entry['sql_present']} (symlink: {entry['sql_is_symlink']})")
+        print(f"  secret bundle: {entry['bundle_present']} "
+              f"(symlink: {entry['bundle_is_symlink']})")
+        print(f"  manifest: {entry['manifest_present']} "
+              f"(symlink: {entry['manifest_is_symlink']})")
+        print(f"  status: {entry['status']}")
+        print(f"  verify: {entry['verify']}")
+        for warning in entry["warnings"]:
+            print(f"  warning: {warning}")
+
+    summary = {"complete": 0, "incomplete": 0, "invalid": 0, "unknown": 0}
+    for entry in markers:
+        summary[entry["status"]] = summary.get(entry["status"], 0) + 1
+    print(
+        f"summary: markers found={len(markers)}, complete={summary['complete']}, "
+        f"incomplete={summary['incomplete']}, invalid={summary['invalid']}, "
+        f"unknown={summary['unknown']}"
+    )
+    print(
+        "exit code 0 means diagnostics ran successfully, not that all backups are valid"
+    )
+    print(
+        "marker presence does not prove that a Backup process is gone; "
+        "no files were removed or modified"
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="CRM7 backup (DB + protected configuration).",
         epilog=(
             "Preflight проверяет только наличие APP_KEY/DB_CONFIG_KEY, не их валидность. "
             "verify проверяет целостность файлов и структуру комплекта, но не расшифровку "
-            "и не возможность восстановления."
+            "и не возможность восстановления. Подкоманда markers read-only; exit code 0 "
+            "означает успешное выполнение диагностики, а не валидность всех backup."
         ),
     )
     parser.add_argument("--project-dir")
@@ -643,6 +949,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     verify_parser.add_argument("--manifest", required=True)
     verify_parser.add_argument("--secrets-dir", default=argparse.SUPPRESS)
+    markers_parser = subparsers.add_parser(
+        "markers",
+        help="read-only диагностика Backup ID markers (ничего не удаляет)",
+    )
+    markers_parser.add_argument("--db-backup-dir", default=argparse.SUPPRESS)
+    markers_parser.add_argument("--secrets-dir", default=argparse.SUPPRESS)
+    markers_parser.add_argument("--project-dir", default=argparse.SUPPRESS)
     return parser
 
 
@@ -656,6 +969,22 @@ def main(argv: list[str] | None = None) -> int:
             if not secrets_dir:
                 raise BackupError("--secrets-dir is required for verify")
             verify(pathlib.Path(args.manifest), pathlib.Path(secrets_dir))
+            return 0
+
+        if args.command == "markers":
+            marker_db = getattr(args, "db_backup_dir", None)
+            marker_secrets = getattr(args, "secrets_dir", None)
+            marker_project = getattr(args, "project_dir", None)
+
+            if not marker_db or not marker_secrets:
+                raise BackupError(
+                    "markers requires --db-backup-dir and --secrets-dir"
+                )
+            print_marker_diagnostics(collect_marker_diagnostics(
+                pathlib.Path(marker_db),
+                pathlib.Path(marker_secrets),
+                pathlib.Path(marker_project) if marker_project else None,
+            ))
             return 0
 
         if not args.project_dir or not args.db_backup_dir or not secrets_dir:

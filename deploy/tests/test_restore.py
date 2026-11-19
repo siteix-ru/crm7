@@ -1781,25 +1781,50 @@ class D1ConcurrencyTest(RestoreFixture):
         if os.name == "nt":
             self.skipTest("POSIX flock is not available on Windows")
 
-        from update_lock import lock_path
+        import select
+        from update_lock import LockBusy, acquire_update_lock, lock_path
 
+        def read_ready_line(proc, timeout: float = 10) -> str:
+            """Ждать готовность ребёнка с жёстким timeout, без sleep."""
+            deadline = time.monotonic() + timeout
+            data = b""
+            while b"\n" not in data:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise AssertionError("child did not signal READY within 10s")
+                readable, _, _ = select.select([proc.stdout], [], [], remaining)
+                if not readable:
+                    continue
+                chunk = os.read(proc.stdout.fileno(), 1)
+                if not chunk:
+                    stderr = proc.stderr.read().decode("utf-8", "replace")
+                    raise AssertionError(f"child exited before READY: {stderr}")
+                data += chunk
+            return data.decode("utf-8", "replace").strip()
+
+        # Ребёнок захватывает project lock штатным API и сообщает READY
+        # внутри критической секции; удерживает его до явной команды.
         code = (
-            "import sys,time;"
+            "import sys; from pathlib import Path;"
             "sys.path.insert(0, r'" + str(ROOT / "deploy") + "');"
             "from update_lock import update_lock;"
-            "from pathlib import Path;"
-            "ctx=update_lock(Path(sys.argv[1]));"
+            "ctx = update_lock(Path(sys.argv[1]));"
             "ctx.__enter__();"
-            "time.sleep(1.5)"
+            "print('READY', flush=True);"
+            "sys.stdin.readline();"
+            "ctx.__exit__(None, None, None)"
         )
-        # update_lock() ожидает каталог проекта, а не путь к lock-файлу.
         process = subprocess.Popen(
             [sys.executable, "-c", code, str(self.project)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
 
         try:
-            time.sleep(0.35)
+            self.assertEqual(read_ready_line(process), "READY")
+            # Сигнал означает, что lock реально удерживается ребёнком.
+            self.assertTrue(lock_path(self.project).exists())
+            with self.assertRaises(LockBusy):
+                acquire_update_lock(self.project)
 
             with self.assertRaisesRegex(restore.RestoreError, "lock is busy"):
                 self.do_restore()
@@ -1807,8 +1832,21 @@ class D1ConcurrencyTest(RestoreFixture):
             self.assertFalse((self.db_dir / restore.STATE_NAME).exists())
             self.assertFalse((self.db_dir / restore.HISTORY_DIR).exists())
         finally:
-            process.terminate()
-            process.wait(timeout=10)
+            try:
+                process.stdin.write(b"go\n")
+                process.stdin.flush()
+            except (OSError, ValueError):
+                pass
+            try:
+                self.assertEqual(process.wait(timeout=10), 0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+            for stream in (process.stdin, process.stdout, process.stderr):
+                try:
+                    stream.close()
+                except OSError:
+                    pass
 
         self.do_restore()
         state = self.journal()

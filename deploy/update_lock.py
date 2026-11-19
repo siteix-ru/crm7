@@ -17,6 +17,7 @@ import contextlib
 import os
 import pathlib
 import posixpath
+import sys
 
 try:
     import fcntl
@@ -31,6 +32,29 @@ LOCK_SUPPORTED = fcntl is not None
 
 class LockBusy(RuntimeError):
     """Lock уже занят другой операцией."""
+
+
+def run_cleanup(label: str, operation) -> None:
+    """Выполнить вторичную очистку, не подменяя первичное исключение.
+
+    Вызывается только из cleanup-путей (finally /except). Если в момент вызова
+    уже распространяется исключение основной операции, ошибка очистки
+    диагностируется в stderr и подавляется; иначе она поднимается дальше.
+    В диагностику намеренно попадает только тип ошибки и метка — без путей,
+    содержимого конфигурации и секретов.
+    """
+    primary = sys.exc_info()[1]
+    try:
+        operation()
+    except BaseException as error:
+        if primary is None:
+            raise
+        # Диагностика не должна подменять первичное исключение: сбой вывода
+        # (закрытый stderr и т.п.) подавляется только внутри этого блока.
+        try:
+            print(f"cleanup failed ({label}): {type(error).__name__}", file=sys.stderr)
+        except BaseException:
+            pass
 
 
 def fsync_directory(directory: pathlib.Path) -> bool:
@@ -114,4 +138,5 @@ def update_lock(project: pathlib.Path):
     try:
         yield handle
     finally:
-        release_update_lock(handle)
+        # deallocate fd внутри release_update_lock сохраняется его собственным finally.
+        run_cleanup("project lock release", lambda: release_update_lock(handle))
