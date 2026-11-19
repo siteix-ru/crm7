@@ -19,7 +19,7 @@ import time
 import tarfile
 import tempfile
 import unittest
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import ExitStack, nullcontext, redirect_stdout, redirect_stderr
 from unittest import mock
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
@@ -191,7 +191,13 @@ class RestoreFixture(unittest.TestCase):
         self.db_dir.mkdir()
         self.secrets_dir.mkdir()
 
-        (self.project / "api" / "config").mkdir(parents=True)
+        config_dir = self.project / "api" / "config"
+        config_dir.mkdir(parents=True)
+        # _check_project на POSIX отклоняет каталог с битами "other" (umask 0022
+        # даёт 0755). Fixture должен создавать безопасные права контракта,
+        # не меняя umask процесса и не ослабляя production-проверку.
+        if os.name != "nt":
+            os.chmod(config_dir, 0o750)
         (self.project / "frontend").mkdir()
         (self.project / ".env").write_bytes(ROOT_ENV_DATA)
         (self.project / "compose.yaml").write_bytes(COMPOSE_DATA)
@@ -284,6 +290,18 @@ class RestoreFixture(unittest.TestCase):
         return {path.relative_to(self.project).as_posix(): path.read_bytes()
                 for path in sorted(self.project.rglob("*")) if path.is_file()}
 
+    def project_state(self) -> dict[str, bytes]:
+        """Состояние конфигурации без постоянного runtime-артефакта блокировки.
+
+        update_lock.py создаёт <project>/update-crm-7/update.lock на POSIX и
+        намеренно не удаляет его. Это не часть проверяемой конфигурации.
+        Исключается только этот точный путь: всё остальное (включая другие
+        lock-файлы и каталог update-crm-7) продолжает сравниваться.
+        """
+        state = self.snapshot()
+        state.pop("update-crm-7/update.lock", None)
+        return state
+
     def journal(self) -> dict:
         return json.loads((self.db_dir / restore.JOURNAL_NAME).read_text(encoding="utf-8"))
 
@@ -306,13 +324,13 @@ class ContainerPhpTest(RestoreFixture):
                 self.assertNotIn("DatabaseSettings", command[2])
 
     def test_compose_php_failure_rolls_back_before_sql(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         self.runner.post_apply_db_ok = False
 
         with self.assertRaisesRegex(restore.RestoreError, "cannot connect"):
             self.do_restore()
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertFalse(any("MYSQL_PWD" in " ".join(cmd) for cmd in self.runner.calls))
         self.assertEqual(self.journal()["status"], "rolled_back")
 
@@ -393,7 +411,7 @@ class TargetIdentityTest(RestoreFixture):
 
 class InterruptionTest(RestoreFixture):
     def test_keyboard_interrupt_during_first_config_file(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         original = restore._apply_one
         counter = {"n": 0}
 
@@ -408,12 +426,12 @@ class InterruptionTest(RestoreFixture):
             with self.assertRaises(KeyboardInterrupt):
                 self.do_restore()
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertEqual(self.journal()["status"], "rolled_back")
         self.assertEqual(list(self.secrets_dir.glob(".restore-stage-*")), [])
 
     def test_keyboard_interrupt_during_third_config_file(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         original = restore._apply_one
         counter = {"n": 0}
 
@@ -428,11 +446,11 @@ class InterruptionTest(RestoreFixture):
             with self.assertRaises(KeyboardInterrupt):
                 self.do_restore()
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertEqual(self.journal()["status"], "rolled_back")
 
     def test_sigterm_during_config_apply(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         original = restore._apply_one
         counter = {"n": 0}
 
@@ -447,7 +465,7 @@ class InterruptionTest(RestoreFixture):
             with self.assertRaises(restore.RestoreInterrupted):
                 self.do_restore()
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertEqual(self.journal()["status"], "rolled_back")
 
     def test_keyboard_interrupt_during_sql_import(self) -> None:
@@ -582,19 +600,17 @@ class LockTest(RestoreFixture):
         if os.name == "nt":
             self.skipTest("POSIX flock is not available on Windows")
 
-        import fcntl
-        from update_lock import lock_path
+        # Штатный API сам создаёт каталог и lock-файл; прямое open(path)
+        # до mkdir не соответствует контракту update_lock.py.
+        from update_lock import acquire_update_lock, release_update_lock
 
-        path = lock_path(self.project)
-        handle = path.open("a+b")
-        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        handle = acquire_update_lock(self.project)
 
         try:
             with self.assertRaisesRegex(restore.RestoreError, "restore lock is busy"):
                 self.do_restore()
         finally:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
-            handle.close()
+            release_update_lock(handle)
 
         self.assertEqual(self.snapshot()["api/config/.env"], PHP_ENV_DATA)
 
@@ -616,7 +632,9 @@ class LockTest(RestoreFixture):
                 release_update_lock(handle)
 
         with mock.patch.object(restore, "_sql_import", side_effect=try_updater):
-            with self.assertRaises(LockBusy):
+            # LockBusy возникает в try_updater, но Restore превращает его
+            # в RestoreError на внешней границе (restore.py:1352-1354).
+            with self.assertRaisesRegex(restore.RestoreError, "restore lock is busy"):
                 self.do_restore()
 
         self.assertTrue(observed.get("blocked"))
@@ -665,11 +683,28 @@ class SafetyTest(RestoreFixture):
         self.assertIn(b"# marker", (self.project / "compose.yaml").read_bytes())
 
     def test_restore_accepts_bundle_created_by_backup_command(self) -> None:
-        manifest = backup_crm7.create_backup(
-            self.project, self.db_dir, self.secrets_dir,
-            runner=lambda command, cwd: FAKE_SQL,
-            backup_id="20260101T000001Z-abcdef12", require_docker=False,
-        )
+        # На POSIX проверяется настоящий Backup с общим project lock.
+        # На Windows нет fcntl и Backup корректно refuse (fail-closed):
+        # подменяем только lock API, чтобы проверить совместимость
+        # созданного bundle с Restore, не меняя формат и содержимое.
+        lock_patches = ()
+        if not restore.LOCK_SUPPORTED:
+            lock_patches = (
+                mock.patch.object(backup_crm7, "require_lock"),
+                mock.patch.object(
+                    backup_crm7, "update_lock",
+                    side_effect=lambda project: nullcontext(),
+                ),
+            )
+
+        with ExitStack() as stack:
+            for patcher in lock_patches:
+                stack.enter_context(patcher)
+            manifest = backup_crm7.create_backup(
+                self.project, self.db_dir, self.secrets_dir,
+                runner=lambda command, cwd: FAKE_SQL,
+                backup_id="20260101T000001Z-abcdef12", require_docker=False,
+            )
 
         self.do_restore(dry_run=True, manifest=manifest,
                         confirm="20260101T000001Z-abcdef12")
@@ -697,10 +732,10 @@ class SafetyTest(RestoreFixture):
             self.do_restore(confirm="wrong-id")
 
     def test_dry_run_does_not_change_project(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         self.do_restore(dry_run=True)
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertEqual(list(self.db_dir.glob("crm7-restore-*.lock")), [])
 
     def test_dry_run_does_not_import_sql(self) -> None:
@@ -753,13 +788,13 @@ class SafetyTest(RestoreFixture):
                     self.do_restore(dry_run=True, manifest=manifest)
 
     def test_wrong_db_config_key_stops_before_changes(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         self.runner.php_decrypt_ok = False
 
         with self.assertRaisesRegex(restore.RestoreError, "decrypt"):
             self.do_restore()
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
 
     def test_missing_required_keys(self) -> None:
         files = dict(DEFAULT_FILES)
@@ -817,13 +852,13 @@ class SafetyTest(RestoreFixture):
         self.assertTrue(list(self.secrets_dir.glob(".restore-stage-*")))
 
     def test_config_rollback_before_sql_import(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         self.runner.post_apply_db_ok = False
 
         with self.assertRaisesRegex(restore.RestoreError, "cannot connect"):
             self.do_restore()
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertEqual(list(self.secrets_dir.glob(".restore-stage-*")), [])
 
     def test_staging_permissions_and_cleanup(self) -> None:
@@ -913,26 +948,54 @@ class CanonicalLockTest(RestoreFixture):
         if os.name == "nt":
             self.skipTest("POSIX flock is not available on Windows")
 
-        import subprocess
-        import time
-        from update_lock import LockBusy, acquire_update_lock, lock_path
-
-        code = (
-            "import fcntl,sys,time;"
-            "f=open(sys.argv[1],'a+b');"
-            "fcntl.flock(f.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB);"
-            "time.sleep(1.5)"
+        from update_lock import (
+            LockBusy, acquire_update_lock, lock_path, release_update_lock,
         )
-        process = subprocess.Popen([sys.executable, "-c", code, str(lock_path(self.project))])
 
+        # Ребёнок использует штатный API и подтверждает канонический путь
+        # через stdout; синхронизация — pipe, без time.sleep.
+        code = (
+            "import sys; from pathlib import Path;"
+            "sys.path.insert(0, r'" + str(ROOT / "deploy") + "');"
+            "from update_lock import acquire_update_lock, release_update_lock, lock_path;"
+            "project = Path(sys.argv[1]);"
+            "handle = acquire_update_lock(project);"
+            "print('READY ' + str(lock_path(project)), flush=True);"
+            "sys.stdin.readline();"
+            "release_update_lock(handle)"
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-c", code, str(self.project)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True,
+        )
         try:
-            time.sleep(0.3)
+            line = process.stdout.readline().strip()
+            self.assertTrue(line.startswith("READY "), line)
+            self.assertEqual(line[len("READY "):], str(lock_path(self.project)))
 
             with self.assertRaises(LockBusy):
                 acquire_update_lock(self.project)
         finally:
-            process.terminate()
-            process.wait(timeout=10)
+            try:
+                process.stdin.write("go\n")
+                process.stdin.flush()
+            except (OSError, ValueError):
+                pass
+            try:
+                self.assertEqual(process.wait(timeout=10), 0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+            for stream in (process.stdin, process.stdout, process.stderr):
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+        handle = acquire_update_lock(self.project)
+        self.assertIsNotNone(handle)
+        release_update_lock(handle)
 
     def test_updater_without_backup_dir_blocks_restore_with_external_backup_dir(self) -> None:
         if os.name == "nt":
@@ -980,7 +1043,7 @@ class InterruptionRegressionTest(RestoreFixture):
         self.assertEqual(self.snapshot()[".env"], ROOT_ENV_DATA)
 
     def test_failure_while_creating_rollback_copy_keeps_project_unchanged(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
 
         def fail(*args, **kwargs):
             raise OSError("rollback copy failed")
@@ -989,11 +1052,11 @@ class InterruptionRegressionTest(RestoreFixture):
             with self.assertRaises(OSError):
                 self.do_restore()
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertEqual(list(self.secrets_dir.glob(".restore-stage-*")), [])
 
     def test_rollback_failure_on_first_file_keeps_staging(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         original_journal = restore._write_journal
 
         def fail_after_apply(db_dir, state):
@@ -1180,7 +1243,7 @@ class TargetRegressionTest(RestoreFixture):
             self.do_restore(dry_run=True)
 
     def test_target_change_after_lock_aborts_before_config(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         first = self.target_id()
         changed = {
             "container": "fedcba987654",
@@ -1203,7 +1266,7 @@ class TargetRegressionTest(RestoreFixture):
             with self.assertRaisesRegex(restore.RestoreError, "changed before configuration"):
                 self.do_restore(confirm_target=first)
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertEqual(self.journal()["status"], "failed_before_changes")
 
     def test_target_change_before_sql_import_keeps_rollback(self) -> None:
@@ -1358,7 +1421,7 @@ class RollbackMetadataTest(RestoreFixture):
         self.assertNotIn(".env", names)
 
     def test_rollback_metadata_has_uid_gid_mode(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         self.runner.sql_ok = False
 
         with self.assertRaises(restore.RestoreError):
@@ -1376,7 +1439,7 @@ class RollbackMetadataTest(RestoreFixture):
                 self.assertIsInstance(info.st_mode & 0o777, int)
 
     def test_manual_recovery_from_staging_is_possible(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         self.runner.sql_ok = False
 
         with self.assertRaises(restore.RestoreError):
@@ -1391,7 +1454,7 @@ class RollbackMetadataTest(RestoreFixture):
             if target.exists():
                 shutil.copyfile(item["path"], target)
 
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
 
 class SqlDiagnosticsTest(RestoreFixture):
     def test_sql_stderr_with_secrets_is_not_logged(self) -> None:
@@ -1418,7 +1481,7 @@ class SqlDiagnosticsTest(RestoreFixture):
 
 class DefectRegressionTest(RestoreFixture):
     def test_hash_failure_after_replace_is_rolled_back(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
         real_hash = restore._sha256
         flags = {"armed": False}
 
@@ -1442,10 +1505,10 @@ class DefectRegressionTest(RestoreFixture):
         self.assertIn(".env", state["files_attempted"])
         self.assertIn(".env", state["files_restored"])
         self.assertEqual(state["status"], "rolled_back")
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
 
     def test_failure_before_replace_records_attempt_only(self) -> None:
-        before = self.snapshot()
+        before = self.project_state()
 
         def fail(*args, **kwargs):
             raise restore.RestoreError("failed before replace")
@@ -1458,7 +1521,7 @@ class DefectRegressionTest(RestoreFixture):
         self.assertTrue(state["files_attempted"])
         self.assertEqual(state["files_changed"], [])
         self.assertEqual(state["status"], "rolled_back")
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
 
     def test_new_file_created_then_removed_on_rollback(self) -> None:
         (self.project / "api" / "config" / "database.json").unlink()
@@ -1490,9 +1553,14 @@ class DefectRegressionTest(RestoreFixture):
 
             return original_journal(db_dir, state)
 
+        real_ownership = restore._restore_ownership
+
         def fail_first(record, target):
             if target == self.project / ".env":
                 raise OSError("chown failed")
+            # Остальным файлам сохраняем реальное восстановление режима:
+            # иначе POSIX _verify_restored закономерно даст лишние отказы.
+            return real_ownership(record, target)
 
         with mock.patch.object(restore, "_write_journal", side_effect=fail_after_apply):
             with mock.patch.object(restore, "_restore_ownership", side_effect=fail_first):
@@ -1522,12 +1590,12 @@ class DefectRegressionTest(RestoreFixture):
         }
 
         first = restore._rollback_files(records, state)
-        content_after_first = self.snapshot()
+        content_after_first = self.project_state()
         second = restore._rollback_files(records, state)
 
         self.assertEqual(first, [])
         self.assertEqual(second, [])
-        self.assertEqual(self.snapshot(), content_after_first)
+        self.assertEqual(self.project_state(), content_after_first)
 
     def test_sql_nonzero_exit_marks_failed_phase(self) -> None:
         self.runner.sql_ok = False
@@ -1724,8 +1792,9 @@ class D1ConcurrencyTest(RestoreFixture):
             "ctx.__enter__();"
             "time.sleep(1.5)"
         )
+        # update_lock() ожидает каталог проекта, а не путь к lock-файлу.
         process = subprocess.Popen(
-            [sys.executable, "-c", code, str(lock_path(self.project))],
+            [sys.executable, "-c", code, str(self.project)],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )
 
@@ -1781,8 +1850,6 @@ class D1ConcurrencyTest(RestoreFixture):
         if os.name == "nt":
             self.skipTest("POSIX flock is not available on Windows")
 
-        from update_lock import lock_path
-
         key = hashlib.sha256(str(self.project.resolve()).encode("utf-8")).hexdigest()[:12]
         (self.db_dir / f"crm7-restore-project-{key}.lock").write_bytes(b"")
 
@@ -1792,7 +1859,7 @@ class D1ConcurrencyTest(RestoreFixture):
                 self.fail("must not acquire both locks")
 
         result = subprocess.run(
-            [sys.executable, "-c", self._lock_probe_code(), str(lock_path(self.project))],
+            [sys.executable, "-c", self._lock_probe_code(), str(self.project)],
             capture_output=True, text=True, timeout=15,
         )
         self.assertEqual(result.stdout.strip(), "ok")
@@ -1800,7 +1867,7 @@ class D1ConcurrencyTest(RestoreFixture):
     def test_archive_failure_preserves_previous_journal(self) -> None:
         self.do_restore()
         previous = (self.db_dir / restore.STATE_NAME).read_bytes()
-        before = self.snapshot()
+        before = self.project_state()
         original_replace = restore.os.replace
 
         def fail_archive(source, target):
@@ -1815,7 +1882,7 @@ class D1ConcurrencyTest(RestoreFixture):
                 self.do_restore()
 
         self.assertEqual((self.db_dir / restore.STATE_NAME).read_bytes(), previous)
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertEqual(
             list((self.db_dir / restore.HISTORY_DIR).glob("*.json")) if
             (self.db_dir / restore.HISTORY_DIR).exists() else [],
@@ -2131,30 +2198,44 @@ class D3HardeningTest(RestoreFixture):
         if os.name == "nt":
             self.skipTest("POSIX flock is not available on Windows")
 
-        import fcntl
-        from update_lock import acquire_update_lock, lock_path, release_update_lock
+        from update_lock import (
+            LockBusy, acquire_update_lock, lock_path, release_update_lock,
+        )
 
-        path = lock_path(self.project)
         code = (
-            "import fcntl,sys,time;"
-            "f=open(sys.argv[1],'a+b');"
-            "fcntl.flock(f.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB);"
-            "time.sleep(1.5)"
+            "import sys; from pathlib import Path;"
+            "sys.path.insert(0, r'" + str(ROOT / "deploy") + "');"
+            "from update_lock import acquire_update_lock, lock_path;"
+            "project = Path(sys.argv[1]);"
+            "handle = acquire_update_lock(project);"
+            "print('READY ' + str(lock_path(project)), flush=True);"
+            "sys.stdin.readline()"
         )
         process = subprocess.Popen(
-            [sys.executable, "-c", code, str(path)],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            [sys.executable, "-c", code, str(self.project)],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True,
         )
-
         try:
-            time.sleep(0.35)
+            line = process.stdout.readline().strip()
+            self.assertTrue(line.startswith("READY "), line)
+            self.assertEqual(line[len("READY "):], str(lock_path(self.project)))
 
-            with self.assertRaises(Exception):
+            with self.assertRaises(LockBusy):
                 acquire_update_lock(self.project)
         finally:
-            process.kill()
-            process.wait(timeout=10)
+            try:
+                process.kill()  # аварийное завершение владельца
+                process.wait(timeout=10)
+            except OSError:
+                pass
+            for stream in (process.stdin, process.stdout, process.stderr):
+                try:
+                    stream.close()
+                except OSError:
+                    pass
 
+        # Ядро сняло flock при гибели процесса — повторный захват возможен.
         handle = acquire_update_lock(self.project)
         self.assertIsNotNone(handle)
         release_update_lock(handle)
@@ -2366,13 +2447,13 @@ class FailurePathRestoreTest(RestoreFixture):
     def test_stale_id_lock_blocks_new_restore(self) -> None:
         lock = self.db_dir / f"crm7-restore-id-{DEFAULT_ID}.lock"
         lock.write_bytes(b"")
-        before = self.snapshot()
+        before = self.project_state()
 
         with self.assertRaisesRegex(restore.RestoreError, "lock is busy"):
             self.do_restore()
 
         self.assertEqual(lock.read_bytes(), b"")
-        self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.project_state(), before)
         self.assertFalse((self.db_dir / restore.STATE_NAME).exists())
 
     def test_pre_sql_signal_keeps_rolled_back_not_manual(self) -> None:

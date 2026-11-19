@@ -2,11 +2,13 @@
 """Тесты backup_crm7.py без Docker, реальной БД и реальных ключей."""
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import io
 import json
 import os
 import pathlib
+import signal
 import stat
 import sys
 import subprocess
@@ -20,6 +22,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT / "deploy"))
 
 import backup_crm7 as backup  # noqa: E402
+import update_lock as lock_api  # noqa: E402
 
 
 DEFAULT_ID = "20260101T000000Z-abcdef12"
@@ -70,6 +73,30 @@ class BackupFixture(unittest.TestCase):
         (self.project / "frontend" / "package.json").write_text(
             json.dumps({"version": "1.8.18"}), encoding="utf-8"
         )
+
+        # Обычные сценарии платформо-независимы: реальная lock-координация
+        # проверяется отдельными тестами ниже. Здесь она заменяется на no-op,
+        # чтобы fail-closed require_lock() на Windows не ломал эти сценарии.
+        self._require_patch = mock.patch.object(backup, "require_lock")
+        self._require_patch.start()
+        self.addCleanup(self._require_patch.stop)
+        self._lock_patch = mock.patch.object(
+            backup, "update_lock",
+            side_effect=lambda project: contextlib.nullcontext(),
+        )
+        self._lock_patch.start()
+        self.addCleanup(self._lock_patch.stop)
+
+    @contextlib.contextmanager
+    def real_locks(self):
+        """Вернуть реальную lock-реализацию на время одного теста."""
+        self._require_patch.stop()
+        self._lock_patch.stop()
+        try:
+            yield
+        finally:
+            self._require_patch.start()
+            self._lock_patch.start()
 
     def tearDown(self) -> None:
         self.tmp.cleanup()
@@ -875,6 +902,428 @@ class BackupFilesystemFaultTest(BackupFixture):
 
         self.assertFalse(target.exists())
         self.assertEqual(list(self.secrets_dir.glob(".*.tmp")), [])
+
+
+# --- Изолированные subprocess-помощники для реальной POSIX-блокировки ---
+# Скрипты работают только с путями из TemporaryDirectory и не трогают CRM7.
+
+LOCK_HOLDER_SCRIPT = r'''
+import pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+import fcntl
+with path.open("a+b") as handle:
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    print("READY", flush=True)
+    sys.stdin.readline()
+'''
+
+BACKUP_HOLDER_SCRIPT = r'''
+import pathlib, sys
+sys.path.insert(0, sys.argv[1])
+import backup_crm7 as b
+project = pathlib.Path(sys.argv[2])
+db = pathlib.Path(sys.argv[3])
+secrets = pathlib.Path(sys.argv[4])
+backup_id = sys.argv[5]
+def runner(command, cwd):
+    print("RUNNING", flush=True)
+    sys.stdin.readline()
+    return b"-- fake dump\nCREATE TABLE users (ID INT);\n"
+b.create_backup(project, db, secrets, runner=runner,
+                backup_id=backup_id, require_docker=False)
+print("DONE", flush=True)
+'''
+
+SIGKILL_HOLDER_SCRIPT = r'''
+import pathlib, sys
+lock = pathlib.Path(sys.argv[1])
+marker = pathlib.Path(sys.argv[2])
+lock.parent.mkdir(parents=True, exist_ok=True)
+marker.parent.mkdir(parents=True, exist_ok=True)
+import fcntl
+with lock.open("a+b") as handle:
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    marker.touch(mode=0o600)
+    print("READY", flush=True)
+    sys.stdin.readline()
+'''
+
+
+class SubprocessHolderMixin:
+    """Только тестовые Python-процессы; всегда завершаются в cleanup."""
+
+    def _start_process(self, script: str, *args) -> subprocess.Popen:
+        process = subprocess.Popen(
+            [sys.executable, "-c", script, *[str(arg) for arg in args]],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.addCleanup(self._stop_process, process)
+        return process
+
+    @staticmethod
+    def _ready(process: subprocess.Popen, expected: str = "READY") -> None:
+        line = process.stdout.readline().strip()
+        if line != expected:
+            raise AssertionError(f"expected {expected!r}, got {line!r}")
+
+    @staticmethod
+    def _release(process: subprocess.Popen) -> None:
+        process.stdin.write("go\n")
+        process.stdin.flush()
+
+    @staticmethod
+    def _stop_process(process: subprocess.Popen) -> None:
+        if process.poll() is None:
+            try:
+                process.stdin.write("go\n")
+                process.stdin.flush()
+            except (OSError, ValueError):
+                pass
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+        for stream in (process.stdin, process.stdout, process.stderr):
+            try:
+                stream.close()
+            except OSError:
+                pass
+
+
+def _recording_project_lock(events: list[str]):
+    """Контекстный менеджер, фиксирующий захват/освобождение project lock."""
+
+    @contextlib.contextmanager
+    def recorder(project):
+        events.append("project:enter")
+        try:
+            yield None
+        finally:
+            events.append("project:exit")
+
+    return recorder
+
+
+@unittest.skipUnless(lock_api.LOCK_SUPPORTED, "POSIX flock required")
+class ProjectLockIntegrationTest(SubprocessHolderMixin, BackupFixture):
+    """A/B/F/G — реальный flock в temp dir, только изолированные subprocess."""
+
+    def test_foreign_process_holding_lock_blocks_backup_and_no_artifacts(self) -> None:
+        holder = self._start_process(LOCK_HOLDER_SCRIPT, lock_api.lock_path(self.project))
+        self._ready(holder)
+
+        with self.real_locks():
+            with self.assertRaises(backup.LockBusy):
+                backup.create_backup(
+                    self.project, self.db_dir, self.secrets_dir,
+                    runner=lambda command, cwd: FAKE_SQL,
+                    backup_id=DEFAULT_ID, require_docker=False,
+                )
+
+        self.assertFalse((self.db_dir / f"crm7-{DEFAULT_ID}.id.lock").exists())
+        self.assertFalse(self.sql_path().exists())
+        self.assertFalse(self.bundle_path().exists())
+        self.assertEqual(list(self.db_dir.glob("*.manifest.json")), [])
+        self.assertEqual(list(self.db_dir.glob(".*.tmp")), [])
+        self.assertEqual(list(self.secrets_dir.glob(".*.tmp")), [])
+
+        self._release(holder)
+        self.assertEqual(holder.wait(timeout=10), 0)
+        with self.real_locks():
+            self.make_backup()
+        self.assertTrue(self.sql_path().exists())
+
+    def test_two_backups_different_ids_are_serialized(self) -> None:
+        second_id = "20260101T000001Z-abcdef13"
+        holder = self._start_process(
+            BACKUP_HOLDER_SCRIPT, str(ROOT / "deploy"),
+            self.project, self.db_dir, self.secrets_dir, DEFAULT_ID,
+        )
+        self._ready(holder, "RUNNING")
+
+        with self.real_locks():
+            with self.assertRaises(backup.LockBusy):
+                backup.create_backup(
+                    self.project, self.db_dir, self.secrets_dir,
+                    runner=lambda command, cwd: FAKE_SQL,
+                    backup_id=second_id, require_docker=False,
+                )
+
+        self.assertFalse((self.db_dir / f"crm7-{second_id}.id.lock").exists())
+        self.assertFalse(self.sql_path(second_id).exists())
+        self.assertTrue((self.db_dir / f"crm7-{DEFAULT_ID}.id.lock").exists())
+
+        self._release(holder)
+        # create_backup печатает 'backup ready' до нашего маркера DONE.
+        for line in holder.stdout:
+            if line.strip() == "DONE":
+                break
+        else:
+            self.fail("backup holder exited without DONE")
+        self.assertEqual(holder.wait(timeout=10), 0)
+        self.assertFalse((self.db_dir / f"crm7-{DEFAULT_ID}.id.lock").exists())
+
+        with self.real_locks():
+            self.make_backup(second_id)
+        self.assertTrue(self.sql_path(second_id).exists())
+
+    def test_sigkill_releases_flock_but_leaves_synthetic_marker(self) -> None:
+        marker = self.db_dir / f"crm7-{DEFAULT_ID}.id.lock"
+        holder = self._start_process(
+            SIGKILL_HOLDER_SCRIPT, lock_api.lock_path(self.project), marker
+        )
+        self._ready(holder)
+
+        holder.kill()
+        self.assertEqual(holder.wait(timeout=10), -signal.SIGKILL)
+        self.assertTrue(marker.exists())
+
+        # ОС освободила flock: тот же процесс может захватить lock повторно.
+        with self.real_locks():
+            handle = lock_api.acquire_update_lock(self.project)
+            self.assertIsNotNone(handle)
+            lock_api.release_update_lock(handle)
+
+            with self.assertRaisesRegex(backup.BackupError, "backup_id is already in use"):
+                backup.create_backup(
+                    self.project, self.db_dir, self.secrets_dir,
+                    runner=lambda command, cwd: FAKE_SQL,
+                    backup_id=DEFAULT_ID, require_docker=False,
+                )
+
+        # Ручная очистка только синтетического маркера и повтор с тем же ID.
+        marker.unlink()
+        with self.real_locks():
+            self.make_backup()
+        self.assertTrue(self.sql_path().exists())
+
+    def test_verify_works_while_project_lock_is_held(self) -> None:
+        manifest = self.make_backup()
+        handle = lock_api.acquire_update_lock(self.project)
+        try:
+            with redirect_stdout(io.StringIO()):
+                backup.verify(manifest, self.secrets_dir)
+        finally:
+            lock_api.release_update_lock(handle)
+
+
+class LockOrderTest(BackupFixture):
+    """C — порядок захвата проверяется поведением через моки, не текстом исходника."""
+
+    def test_project_lock_enters_first_and_exits_last(self) -> None:
+        events: list[str] = []
+        real_preflight = backup.preflight
+        real_claim = backup._backup_id_claim
+        real_sql = backup._sql_dump
+        real_config_lock = backup._shared_config_lock
+        real_atomic = backup._atomic_bytes
+
+        def preflight(*args, **kwargs):
+            events.append("preflight")
+            return real_preflight(*args, **kwargs)
+
+        @contextlib.contextmanager
+        def claim(*args, **kwargs):
+            events.append("claim:enter")
+            try:
+                with real_claim(*args, **kwargs):
+                    yield
+            finally:
+                events.append("claim:exit")
+
+        def sql(*args, **kwargs):
+            events.append("sql")
+            return real_sql(*args, **kwargs)
+
+        @contextlib.contextmanager
+        def config_lock(*args, **kwargs):
+            events.append("config:enter")
+            try:
+                with real_config_lock(*args, **kwargs):
+                    yield
+            finally:
+                events.append("config:exit")
+
+        def atomic(path, payload):
+            if path.name.endswith(".manifest.json"):
+                events.append("manifest")
+            return real_atomic(path, payload)
+
+        with mock.patch.object(backup, "update_lock",
+                               side_effect=_recording_project_lock(events)), \
+             mock.patch.object(backup, "preflight", side_effect=preflight), \
+             mock.patch.object(backup, "_backup_id_claim", side_effect=claim), \
+             mock.patch.object(backup, "_sql_dump", side_effect=sql), \
+             mock.patch.object(backup, "_shared_config_lock", side_effect=config_lock), \
+             mock.patch.object(backup, "_atomic_bytes", side_effect=atomic):
+            with redirect_stdout(io.StringIO()):
+                backup.create_backup(
+                    self.project, self.db_dir, self.secrets_dir,
+                    runner=lambda command, cwd: FAKE_SQL,
+                    backup_id=DEFAULT_ID, require_docker=False,
+                )
+
+        self.assertEqual(events[0], "project:enter")
+        self.assertLess(events.index("preflight"), events.index("claim:enter"))
+        self.assertLess(events.index("claim:enter"), events.index("sql"))
+        self.assertLess(events.index("sql"), events.index("config:enter"))
+        self.assertLess(events.index("config:enter"), events.index("config:exit"))
+        # Config lock снимается внутри _secret_bundle, до записи manifest;
+        # manifest и ID claim остаются внутри project lock.
+        self.assertLess(events.index("config:exit"), events.index("manifest"))
+        self.assertLess(events.index("claim:exit"), events.index("project:exit"))
+        self.assertEqual(events[-1], "project:exit")
+
+
+class LockCleanupTest(BackupFixture):
+    """D — освобождение project lock и маркера при исключениях."""
+
+    def _run_with_failure(self, failure_patch) -> list[str]:
+        events: list[str] = []
+        with mock.patch.object(backup, "update_lock",
+                               side_effect=_recording_project_lock(events)), \
+             failure_patch:
+            with self.assertRaises(RuntimeError):
+                with redirect_stdout(io.StringIO()):
+                    backup.create_backup(
+                        self.project, self.db_dir, self.secrets_dir,
+                        runner=lambda command, cwd: FAKE_SQL,
+                        backup_id=DEFAULT_ID, require_docker=False,
+                    )
+        return events
+
+    def _assert_cleanup(self, events: list[str]) -> None:
+        self.assertEqual(events, ["project:enter", "project:exit"])
+        self.assertFalse((self.db_dir / f"crm7-{DEFAULT_ID}.id.lock").exists())
+        self.assertEqual(list(self.db_dir.glob(".*.tmp")), [])
+        self.assertEqual(list(self.secrets_dir.glob(".*.tmp")), [])
+
+    def _retry_same_id(self) -> None:
+        # Удаляем только неполные артефакты неуспешной операции, как оператор.
+        self.sql_path().unlink(missing_ok=True)
+        self.bundle_path().unlink(missing_ok=True)
+        (self.db_dir / f"crm7-{DEFAULT_ID}.manifest.json").unlink(missing_ok=True)
+
+        with redirect_stdout(io.StringIO()):
+            backup.create_backup(
+                self.project, self.db_dir, self.secrets_dir,
+                runner=lambda command, cwd: FAKE_SQL,
+                backup_id=DEFAULT_ID, require_docker=False,
+            )
+        self.assertTrue(self.sql_path().exists())
+
+    def test_preflight_exception_releases_lock(self) -> None:
+        events = self._run_with_failure(
+            mock.patch.object(backup, "preflight",
+                              side_effect=RuntimeError("preflight failed"))
+        )
+        self._assert_cleanup(events)
+        self._retry_same_id()
+
+    def test_exception_after_id_claim_releases_marker(self) -> None:
+        events = self._run_with_failure(
+            mock.patch.object(backup, "_sql_dump",
+                              side_effect=RuntimeError("dump failed"))
+        )
+        self._assert_cleanup(events)
+        self._retry_same_id()
+
+    def test_sql_write_exception_releases_lock(self) -> None:
+        real_atomic = backup._atomic_bytes
+
+        def fail_sql(path, payload):
+            if path.name.endswith(".sql"):
+                raise RuntimeError("sql write failed")
+            return real_atomic(path, payload)
+
+        events = self._run_with_failure(
+            mock.patch.object(backup, "_atomic_bytes", side_effect=fail_sql)
+        )
+        self._assert_cleanup(events)
+        self._retry_same_id()
+
+    def test_secret_bundle_exception_releases_lock(self) -> None:
+        events = self._run_with_failure(
+            mock.patch.object(backup, "_secret_bundle",
+                              side_effect=RuntimeError("bundle failed"))
+        )
+        self._assert_cleanup(events)
+        self._retry_same_id()
+
+    def test_manifest_exception_releases_lock(self) -> None:
+        real_atomic = backup._atomic_bytes
+
+        def fail_manifest(path, payload):
+            if path.name.endswith(".manifest.json"):
+                raise RuntimeError("manifest failed")
+            return real_atomic(path, payload)
+
+        events = self._run_with_failure(
+            mock.patch.object(backup, "_atomic_bytes", side_effect=fail_manifest)
+        )
+        self._assert_cleanup(events)
+        self._retry_same_id()
+
+
+class SignalHandlingTest(BackupFixture):
+    """E/G — SIGTERM через контролируемое исключение и отсутствие сайд-эффектов verify."""
+
+    def test_sigterm_raises_backup_interrupted_and_cleans_up(self) -> None:
+        events: list[str] = []
+        handlers: dict[int, object] = {}
+
+        def fake_signal(signum, handler):
+            self.assertEqual(signum, signal.SIGTERM, "SIGINT handler must not be replaced")
+            handlers[signum] = handler
+            return signal.SIG_DFL
+
+        signal_mock = mock.Mock(side_effect=fake_signal)
+
+        def runner(command, cwd):
+            self.assertIn(signal.SIGTERM, handlers)
+            handlers[signal.SIGTERM](signal.SIGTERM, None)
+            return FAKE_SQL
+
+        with mock.patch.object(backup.signal, "signal", signal_mock), \
+             mock.patch.object(backup, "update_lock",
+                               side_effect=_recording_project_lock(events)):
+            with self.assertRaises(backup.BackupInterrupted):
+                with redirect_stdout(io.StringIO()):
+                    backup.create_backup(
+                        self.project, self.db_dir, self.secrets_dir,
+                        runner=runner, backup_id=DEFAULT_ID, require_docker=False,
+                    )
+
+        self.assertEqual(events, ["project:enter", "project:exit"])
+        self.assertEqual(signal_mock.call_count, 2)
+        self.assertEqual(signal_mock.call_args_list[1].args,
+                         (signal.SIGTERM, signal.SIG_DFL))
+        self.assertFalse((self.db_dir / f"crm7-{DEFAULT_ID}.id.lock").exists())
+        self.assertEqual(list(self.db_dir.glob(".*.tmp")), [])
+        self.assertEqual(list(self.secrets_dir.glob(".*.tmp")), [])
+
+        with redirect_stdout(io.StringIO()):
+            backup.create_backup(
+                self.project, self.db_dir, self.secrets_dir,
+                runner=lambda command, cwd: FAKE_SQL,
+                backup_id=DEFAULT_ID, require_docker=False,
+            )
+        self.assertTrue(self.sql_path().exists())
+
+    def test_verify_does_not_touch_project_lock_or_signal_handlers(self) -> None:
+        manifest = self.make_backup()
+
+        def forbid(*args, **kwargs):
+            raise AssertionError("verify must not touch lock or signals")
+
+        with mock.patch.object(backup, "update_lock", side_effect=forbid), \
+             mock.patch.object(backup, "require_lock", side_effect=forbid), \
+             mock.patch.object(backup.signal, "signal", side_effect=forbid):
+            with redirect_stdout(io.StringIO()):
+                backup.verify(manifest, self.secrets_dir)
 
 
 if __name__ == "__main__":

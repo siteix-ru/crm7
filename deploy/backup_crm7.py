@@ -16,13 +16,14 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tarfile
 import tempfile
 import uuid
 
-from update_lock import fsync_directory
+from update_lock import LockBusy, fsync_directory, require_lock, update_lock
 
 try:
     import fcntl
@@ -45,6 +46,39 @@ EXCLUDED_NAME_PARTS = (".cfg-", ".tmp", ".lock")
 
 class BackupError(RuntimeError):
     """Управляемая ошибка backup/verify."""
+
+
+class BackupInterrupted(BackupError):
+    """SIGTERM во время реального backup; cleanup выполняется через finally."""
+
+
+@contextlib.contextmanager
+def _interrupt_guard():
+    """Преобразовать SIGTERM в исключение только на время реального backup.
+
+    SIGINT намеренно не трогается: штатный KeyboardInterrupt уже проходит
+    через finally и сохраняет существующую семантику cleanup.
+    """
+    if not hasattr(signal, "SIGTERM"):
+        yield
+        return
+
+    def handler(signum, frame):
+        raise BackupInterrupted(f"interrupted by signal {signum}")
+
+    try:
+        previous = signal.signal(signal.SIGTERM, handler)
+    except (ValueError, OSError):
+        previous = None
+
+    try:
+        yield
+    finally:
+        if previous is not None:
+            try:
+                signal.signal(signal.SIGTERM, previous)
+            except (ValueError, OSError):
+                pass
 
 
 def _utc_now() -> str:
@@ -411,59 +445,68 @@ def create_backup(
     db_dir = pathlib.Path(db_dir).resolve()
     secrets_dir = pathlib.Path(secrets_dir).resolve()
 
-    compose, entries, missing_optional = preflight(project, db_dir, secrets_dir, require_docker)
-    backup_id = backup_id or new_backup_id()
+    # Fail-closed: реальный backup без POSIX flock не выполняется.
+    require_lock()
 
-    if not re.fullmatch(r"[0-9A-Za-zT\-]+", backup_id):
-        raise BackupError("invalid backup_id")
+    # Порядок захвата: update.lock (EX) -> backup ID claim (O_EXCL)
+    # -> database.json.lock (SH) -> артефакты -> освобождение в обратном порядке.
+    with _interrupt_guard():
+        with update_lock(project):
+            compose, entries, missing_optional = preflight(
+                project, db_dir, secrets_dir, require_docker
+            )
+            backup_id = backup_id or new_backup_id()
 
-    sql_path = db_dir / f"crm7-{backup_id}.sql"
-    bundle_path = secrets_dir / f"crm7-{backup_id}.secrets.tar"
-    manifest_path = db_dir / f"crm7-{backup_id}.manifest.json"
+            if not re.fullmatch(r"[0-9A-Za-zT\-]+", backup_id):
+                raise BackupError("invalid backup_id")
 
-    # тот же lock-файл, что использует SafeConfigFileWriter для database.json
-    config_lock = project / "api" / "config" / "database.json.lock"
-    watched = tuple(
-        source for relative, source in entries if relative in OPTIONAL_CONFIG_FILES
-    )
+            sql_path = db_dir / f"crm7-{backup_id}.sql"
+            bundle_path = secrets_dir / f"crm7-{backup_id}.secrets.tar"
+            manifest_path = db_dir / f"crm7-{backup_id}.manifest.json"
 
-    with _backup_id_claim(db_dir, backup_id):
-        if sql_path.exists() or bundle_path.exists() or manifest_path.exists():
-            raise BackupError("backup_id is already in use")
+            # тот же lock-файл, что использует SafeConfigFileWriter для database.json
+            config_lock = project / "api" / "config" / "database.json.lock"
+            watched = tuple(
+                source for relative, source in entries if relative in OPTIONAL_CONFIG_FILES
+            )
 
-        _sql_dump(project, sql_path, runner)
-        members = _secret_bundle(
-            project, bundle_path, entries,
-            lock_path=config_lock, watched_paths=watched,
-        )
+            with _backup_id_claim(db_dir, backup_id):
+                if sql_path.exists() or bundle_path.exists() or manifest_path.exists():
+                    raise BackupError("backup_id is already in use")
 
-        manifest = {
-            "format_version": MANIFEST_FORMAT,
-            "backup_id": backup_id,
-            "created_at": _utc_now(),
-            "crm7_version": _app_version(project),
-            "database_engine": "mariadb",
-            "database_schema_version": None,
-            "sql_dump": {
-                "path": sql_path.name,
-                "size": sql_path.stat().st_size,
-                "sha256": _sha256(sql_path),
-            },
-            "secret_bundle": {
-                "path": bundle_path.name,
-                "size": bundle_path.stat().st_size,
-                "sha256": _sha256(bundle_path),
-                "members": members,
-                "encrypted": False,
-            },
-            "included_components": list(members),
-            "missing_optional_components": missing_optional,
-        }
+                _sql_dump(project, sql_path, runner)
+                members = _secret_bundle(
+                    project, bundle_path, entries,
+                    lock_path=config_lock, watched_paths=watched,
+                )
 
-        _atomic_bytes(
-            manifest_path,
-            (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8"),
-        )
+                manifest = {
+                    "format_version": MANIFEST_FORMAT,
+                    "backup_id": backup_id,
+                    "created_at": _utc_now(),
+                    "crm7_version": _app_version(project),
+                    "database_engine": "mariadb",
+                    "database_schema_version": None,
+                    "sql_dump": {
+                        "path": sql_path.name,
+                        "size": sql_path.stat().st_size,
+                        "sha256": _sha256(sql_path),
+                    },
+                    "secret_bundle": {
+                        "path": bundle_path.name,
+                        "size": bundle_path.stat().st_size,
+                        "sha256": _sha256(bundle_path),
+                        "members": members,
+                        "encrypted": False,
+                    },
+                    "included_components": list(members),
+                    "missing_optional_components": missing_optional,
+                }
+
+                _atomic_bytes(
+                    manifest_path,
+                    (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8"),
+                )
 
     print(f"backup ready: {manifest_path}")
     return manifest_path
@@ -628,7 +671,10 @@ def main(argv: list[str] | None = None) -> int:
             require_docker=not args.skip_docker_check,
         )
         return 0
-    except (BackupError, OSError, ValueError, tarfile.TarError, subprocess.CalledProcessError) as error:
+    except (
+        BackupError, LockBusy, OSError, ValueError,
+        tarfile.TarError, subprocess.CalledProcessError,
+    ) as error:
         print(f"backup failed: {error}", file=sys.stderr)
         return 1
 

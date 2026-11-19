@@ -29,6 +29,46 @@ python deploy/backup_crm7.py verify \
   --secrets-dir /srv/protected-secrets/crm7-demo
 ```
 
+## Общий project lock Backup
+
+Реальный backup захватывает тот же канонический exclusive `update.lock`
+(`<project>/update-crm-7/update.lock`), что и Restore, updater, release и deploy.
+Lock берётся **до preflight** и удерживается до публикации manifest: SQL dump
+не выполняется вне project lock. Порядок захвата:
+
+1. `update.lock` — exclusive `flock`;
+2. `crm7-<backup_id>.id.lock` — эксклюзивное право на ID (`O_EXCL`);
+3. `database.json.lock` — shared `flock`, только на время чтения конфигурации
+   в secret bundle;
+4. создание SQL dump, secret bundle и manifest;
+5. освобождение в обратном порядке.
+
+Один проект не может одновременно выполнять Backup и Restore/updater/release/
+deploy, а также два Backup. Занятый lock приводит к **fail-fast** и ненулевому
+exit code с сообщением `backup lock is busy`: ожидания и retry нет, захват
+неблокирующий (`LOCK_NB`), как и у остальных утилит.
+
+`verify` read-only и **не** захватывает project lock; команда `status` у Restore
+тоже читает только журнал. Реальный Backup требует POSIX `flock`: на Windows,
+где его нет, он отказывается до создания артефактов (fail-closed).
+
+### SIGTERM и аварийное завершение Backup
+
+На время реального Backup устанавливается обработчик SIGTERM, который
+преобразует сигнал в управляемое исключение, которое проходит через `finally`:
+снимается общий lock, удаляются `crm7-<backup_id>.id.lock` и временные файлы,
+CLI завершается ненулевым кодом. SIGINT сохраняет штатную семантику
+`KeyboardInterrupt` с тем же cleanup. Обработчик восстанавливается после
+завершения операции и не действует на `verify`.
+
+SIGKILL перехватить нельзя: `flock` снимается ОС, но `O_EXCL`-маркер
+`crm7-<backup_id>.id.lock` и временные файлы могут остаться. Backup **не** является
+атомарной операцией и не гарантирует полную очистку после SIGKILL. Перед ручным
+удалением маркера убедитесь, что процесс backup действительно завершён
+(по `ps`/`pgrep` и времени изменения файла): удаление маркера активного процесса
+допустит параллельный backup того же `backup_id`. Удаляйте только маркер нужного
+`backup_id`, не трогая маркеры других операций, затем повторите backup.
+
 ## Согласованное чтение конфигурации
 
 `api/config/database.json` может измениться во время архивации. Перед чтением
@@ -49,10 +89,11 @@ python deploy/backup_crm7.py verify \
 Перед созданием компонентов backup эксклюзивно создаёт lock-файл
 `crm7-<backup_id>.id.lock` в каталоге SQL-дампов (`O_CREAT | O_EXCL`) и удаляет
 только его при завершении. Повторный или параллельный запуск с тем же `backup_id`
-получает `backup_id is already in use` и ничего не изменяет. Manifest пишется
-последним и служит маркером завершённого комплекта: если какой-то шаг упал,
-manifest не появляется. Неполные файлы текущей операции удаляются; предыдущие
-успешные комплекты не затрагиваются.
+получает `backup_id is already in use` и ничего не изменяет. Два Backup одного
+проекта с разными ID тоже не выполняются параллельно: общий project lock даёт
+`backup lock is busy`. Manifest пишется последним и служит маркером завершённого
+комплекта: если какой-то шаг упал, manifest не появляется. Неполные файлы текущей
+операции удаляются; предыдущие успешные комплекты не затрагиваются.
 
 ## SQL dump
 
@@ -282,8 +323,8 @@ code 0, а не корректность содержимого БД; корре
 <project>/update-crm-7/update.lock
 ```
 
-`crm7_updater.acquire_lock()` и `restore` используют `update_lock.py` и один и
-тот же `flock(LOCK_EX|LOCK_NB)`. Updater, запускаемый stand-updater без
+`crm7_updater.acquire_lock()`, `backup` и `restore` используют `update_lock.py`
+и один и тот же `flock(LOCK_EX|LOCK_NB)`. Updater, запускаемый stand-updater без
 `--backup-dir`, и restore с любым каталогом дампов блокируют один физический
 файл. `deploy/release_crm7.py` и `deploy/deploy_crm7.py` захватывают тот же файл
 в удалённом скрипте через `flock -n` до изменения `.env` и контейнеров; при
