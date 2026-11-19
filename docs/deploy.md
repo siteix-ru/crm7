@@ -29,7 +29,8 @@ API по умолчанию — `./api/v2` (внутри своей катего
 3. В `demo/api/config/.env` задать:
    - `API_BASE_PATH=/demo/api/v2` — префикс пути API (локально — `/api/v2`);
    - `DB_HOST`, `DB_PORT`, `DB_NAME=<своя база>`, `DB_USER`, `DB_PASS`;
-   - `APP_URL=https://сайт/demo`, `CORS_ORIGIN` — если фронтенд на другом домене.
+   - `APP_URL=https://сайт/demo`, `CORS_ORIGIN` — если фронтенд на другом домене;
+   - `APP_KEY` и `DB_CONFIG_KEY` — случайные ключи (`openssl rand -hex 32` для каждого); `DB_CONFIG_KEY` шифрует пароль в `config/database.json`, хранится только в `.env` и не должен попадать в Git или публичные ответы API.
 4. Создать базу и применить миграции:
    ```sql
    CREATE DATABASE crm_demo CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
@@ -40,6 +41,28 @@ API по умолчанию — `./api/v2` (внутри своей катего
    php demo/api/bin/seed-dev.php --password=…     # только для демо/тестового проекта
    ```
 5. Cron: `php demo/api/bin/cron.php` (рассылки отчётов, SLA, передачи клиентов).
+
+### Права конфигурации (обычный Linux)
+
+Каталог `demo/api/config` должен принадлежать пользователю PHP-FPM (например
+`www-data`) и иметь режим `0750`, а файлы `.env`, `database.json`, `database.json.bak`,
+`database.json.lock` и временные файлы — `0600`. Пример для Debian/Ubuntu:
+
+```bash
+chown -R www-data:www-data demo/api/config
+chmod 750 demo/api/config
+chmod 600 demo/api/config/.env demo/api/config/database.json* 2>/dev/null || true
+```
+
+Права записи на каталог необходимы: `SafeConfigFileWriter` создаёт уникальный
+temp-файл, пишет backup и выполняет atomарный `rename`. Достаточно прав файла
+не хватит. В Docker используется тот же принцип с UID/GID 82 (`www-data` в
+Alpine): setup-site задаёт `chown -R 82:82 config`, `chmod 750 config`,
+`chmod 600 config/.env`.
+
+Не делайте конфигурационные файлы доступными всем (`0644` и выше): даже
+зашифрованный пароль БД и ключ в `.env` остаются чувствительными. После ручного
+копирования файлов или изменения владельца восстановите права перед запуском PHP.
 
 Переписывание URL для фронтенда не нужно — используется hash-роутинг.
 Для API на Apache положить в `demo/api/.htaccess`:

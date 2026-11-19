@@ -74,6 +74,14 @@ python deploy/release_crm7.py --env k --tag sha-<old-sha>
   data/db/                → /var/lib/mysql             (том)
   /var/lib/crm7-updater/<env> → /var/lib/crm7-updater  (том, UI-обновления)
 ```
+Каталог `config/` монтируется в php/cron и должен принадлежать `82:82`
+(`www-data` в Alpine) с режимом `0750`: PHP читает `config/.env` и создаёт
+temp/lock-файлы для атомарной замены `database.json`. Файлы `config/.env`,
+`database.json`, `database.json.bak`, `database.json.lock` и `.cfg-*` имеют режим
+`0600`. Полный deployment (`deploy_crm7.py`) после общего `chmod 644` применяет
+защищённые права повторно; не копируйте конфигурацию вручную без восстановления
+этой модели. `deploy/config_permissions.py` содержит общий helper для Linux и Docker.
+
 PHP-сервис публикует сетевой алиас `crm7-php`, поэтому один и тот же
 `nginx.conf` в образе работает во всех окружениях. Для кнопки обновления в
 админке php-сервису нужны `CRM7_ENV`, `CRM7_VERSION`, `CRM7_UPDATE_DIR`.

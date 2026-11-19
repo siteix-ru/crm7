@@ -221,9 +221,18 @@ cd /opt/crm7</code></pre>
           <div class="code-block">
             <pre><code>mkdir -p config storage var data/db
 cp api/config/.env.example config/.env
+chown -R 82:82 config
+chmod 750 config
 chmod 600 config/.env</code></pre>
             <button class="copy" type="button">Копировать</button>
           </div>
+          <p>
+            PHP-FPM в образе CRM7 работает от пользователя <code>www-data</code> (UID/GID 82).
+            Каталог <code>config</code> принадлежит этому пользователю и имеет режим
+            <code>0750</code>: этого достаточно, чтобы читать <code>.env</code> и создавать
+            временные файлы/блокировки для атомарной замены <code>database.json</code>.
+            Файлы настроек имеют режим <code>0600</code>; не делайте их доступными всем.
+          </p>
 
           <h2 id="compose">4. compose.yaml</h2>
           <p>

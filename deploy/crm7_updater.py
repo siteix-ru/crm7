@@ -27,10 +27,7 @@ import time
 import urllib.request
 from datetime import datetime
 
-try:
-    import fcntl
-except ImportError:
-    fcntl = None
+from update_lock import LockBusy, acquire_update_lock, require_lock
 
 DEFAULT_URL = "https://update.crm7.ru/v1/releases.json"
 VERSION_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
@@ -144,11 +141,37 @@ def set_version(env_file: pathlib.Path, version: str) -> None:
     if not updated:
         result.append(f"CRM7_VERSION={version}")
 
-    mode = env_file.stat().st_mode & 0o777
+    info = env_file.stat()
+    mode = info.st_mode & 0o777
     temporary = env_file.with_name(env_file.name + ".tmp")
-    temporary.write_text("\n".join(result) + "\n", encoding="utf-8")
-    os.chmod(temporary, mode)
-    os.replace(temporary, env_file)
+
+    # Временный файл создаётся сразу с 0600: он содержит секреты .env.
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            handle.write("\n".join(result) + "\n")
+
+        os.chmod(temporary, mode)
+
+        chown = getattr(os, "chown", None)
+
+        if chown is None:
+            print("warning: owner/group preservation is not supported on this platform")
+        else:
+            try:
+                chown(temporary, info.st_uid, info.st_gid)
+            except OSError:
+                # ACL не сохраняются стандартными средствами; документированное ограничение.
+                print("warning: owner/group of .env was not preserved")
+
+        os.replace(temporary, env_file)
+    except Exception:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+        raise
 
 
 def backup_database(project: pathlib.Path, backup_dir: pathlib.Path, dry_run: bool) -> pathlib.Path:
@@ -206,18 +229,17 @@ def write_json(path: pathlib.Path, data: dict) -> None:
 
 
 def acquire_lock(project: pathlib.Path, args: argparse.Namespace):
-    if fcntl is None:
-        return None
-
-    directory = state_dir(project, args)
-    directory.mkdir(parents=True, exist_ok=True)
-    handle = (directory / "update.lock").open("w")
+    # Общий канонический lock с restore_crm7.py (не зависит от --backup-dir).
+    # Сообщение об ошибке сохранено прежним.
     try:
-        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        handle.close()
-        raise SystemExit("another update is already running")
-    return handle
+        require_lock()
+    except LockBusy as error:
+        raise SystemExit(str(error)) from error
+
+    try:
+        return acquire_update_lock(project)
+    except LockBusy as error:
+        raise SystemExit("another update is already running") from error
 
 
 def compose_env(project: pathlib.Path, service: str, name: str) -> str:

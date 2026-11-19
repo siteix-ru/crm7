@@ -11,7 +11,10 @@ Usage:
 """
 import argparse
 import pathlib
+import shlex
 import sys
+
+from update_lock import posix_lock_path
 
 try:
     import paramiko
@@ -27,8 +30,16 @@ ENVS = {
 
 def remote_block(env: str, directory: str, tag: str, pull: bool) -> str:
     pull_cmd = "docker compose pull" if pull else "echo '(skip pull)'"
+    lock = posix_lock_path(directory)
+    quoted_dir = shlex.quote(directory)
+    quoted_lock = shlex.quote(str(lock))
+    # Общий канонический lock с updater и restore: тот же физический файл.
+    # shell-flock совместим с fcntl.flock, используемым Python-утилитами.
     return f"""echo "=== {env} ==="
-cd {directory}
+cd {quoted_dir}
+mkdir -p {shlex.quote(str(pathlib.PurePosixPath(directory) / "update-crm-7"))}
+exec 9>{quoted_lock}
+flock -n 9 || {{ echo "RELEASE_LOCK_BUSY_{env}" >&2; exit 1; }}
 sed -i 's/^CRM7_VERSION=.*/CRM7_VERSION={tag}/' .env
 grep -q '^CRM7_VERSION=' .env || echo 'CRM7_VERSION={tag}' >> .env
 {pull_cmd}

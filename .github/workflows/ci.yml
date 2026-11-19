@@ -54,8 +54,51 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.2'
+          extensions: openssl
       - name: Lint PHP
         run: find api -name '*.php' -print0 | xargs -0 -n1 -P4 php -l
+      - name: PHP standalone tests
+        run: |
+          set -e
+          for f in api/tests/*.php; do
+            [ -e "$f" ] || continue
+            echo "Running $f"
+            php "$f"
+          done
+
+  python-deploy-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: openssl
+      - name: Show versions
+        run: |
+          python --version
+          php -v | head -1
+      - name: Install test dependencies
+        # deploy/tests импортируют deploy_crm7/release_crm7 (lock-path tests),
+        # а эти модули требуют paramiko уже при импорте.
+        run: python -m pip install --disable-pip-version-check paramiko
+      - name: Compile Python sources and tests
+        run: |
+          python -m py_compile \
+            deploy/backup_crm7.py \
+            deploy/restore_crm7.py \
+            deploy/update_lock.py \
+            deploy/tests/test_backup.py \
+            deploy/tests/test_restore.py
+      - name: Deploy Python tests (backup/restore/permissions/exclusions)
+        # Все тесты изолированы: temp-каталоги, mocks, FakeRunner; Docker/MariaDB не нужны.
+        run: python -m unittest discover -s deploy/tests -p 'test_*.py' -v
 
   images:
     if: github.ref == 'refs/heads/master'
@@ -126,6 +169,7 @@ jobs:
           sed -i 's/^DB_USER=.*/DB_USER=root/' api/config/.env
           sed -i 's/^DB_PASS=.*/DB_PASS=root/' api/config/.env
           sed -i "s/^APP_KEY=.*/APP_KEY=$(openssl rand -hex 32)/" api/config/.env
+          sed -i "s/^DB_CONFIG_KEY=.*/DB_CONFIG_KEY=$(openssl rand -hex 32)/" api/config/.env
       - name: Migrate and seed
         run: |
           php api/bin/migrate.php --allow-destructive
@@ -207,6 +251,7 @@ jobs:
           sed -i 's/^DB_USER=.*/DB_USER=root/' api/config/.env
           sed -i 's/^DB_PASS=.*/DB_PASS=root/' api/config/.env
           sed -i "s/^APP_KEY=.*/APP_KEY=$(openssl rand -hex 32)/" api/config/.env
+          sed -i "s/^DB_CONFIG_KEY=.*/DB_CONFIG_KEY=$(openssl rand -hex 32)/" api/config/.env
       - name: Migrate and seed
         run: |
           php api/bin/migrate.php --allow-destructive

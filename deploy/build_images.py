@@ -27,8 +27,18 @@ except ImportError:
     sys.exit("paramiko is required: pip install paramiko")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-EXCLUDE_PREFIXES = ("api/db/backups/", "api/var/", "api/storage/")
-EXCLUDE_FILES = ("api/config/.env", "api/config/database.json")
+EXCLUDE_PREFIXES = (
+    "api/db/backups/",
+    "api/var/",
+    "api/storage/",
+    "api/config/database.json.",
+    "api/config/.cfg-",
+)
+EXCLUDE_FILES = (
+    "api/config/.env",
+    "api/config/database.json",
+    "api/config/database.json.lock",
+)
 DEPLOY_FILES = ("Dockerfile.app", "Dockerfile.web", "nginx.conf")
 
 
