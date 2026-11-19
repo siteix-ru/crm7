@@ -284,7 +284,7 @@ final class AdminController extends ApiController
 
     public function saveDatabaseSettings(Request $request): Response
     {
-        $user = $this->requireTechAdmin($request);
+        [$user] = $this->requireTechAdmin($request);
 
         $payload = DatabaseSettings::save($request->bodyAll(), (string) ($user['LOGIN'] ?? ''));
 

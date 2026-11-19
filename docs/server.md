@@ -137,7 +137,11 @@ Runner `crm7-server` живёт на сервере и обслуживает `d
   `--pat` для `ghp_`/`github_pat_` и `--token` для registration token);
   PAT после регистрации удаляется, runner хранит только credentials;
 - `ghrunner` имеет право писать `/srv/projects/crm7-test/.env` (группа
-  `docker`, `664`) — workflow делает там `sed -i`.
+  `docker`, `664`) — workflow делает там `sed -i`. Updater сохраняет режим,
+  владельца и группу этого файла при замене (`set_version()`), но ACL не
+  сохраняются: после ручного `chown`/`setfacl` проверяйте доступ `ghrunner`
+  отдельно. Каталог `app/api/config/` и его файлы принадлежат `www-data` (82)
+  и имеют права `0750`/`0600` — см. `docs/images.md`.
 
 Проверить, что runner на месте:
 

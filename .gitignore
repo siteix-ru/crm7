@@ -13,6 +13,9 @@ frontend/.vite/
 api/config/database.json
 api/config/database.json.bak
 api/config/database.json.tmp
+api/config/database.json.*
+api/config/.cfg-*
+api/config/*.lock
 
 # sensitive artifacts (audit)
 db-old/
