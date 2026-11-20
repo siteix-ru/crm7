@@ -370,12 +370,11 @@ final class ClientController extends ApiController
 
     public function facets(Request $request): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user] = $this->context($request);
 
-        if (
-            (int) $user['LEVEL'] < 10 ||
-            (!in_array('clients.view.all', $capabilities, true) && !in_array('clients.view.own', $capabilities, true))
-        ) {
+        // Политика 3.4.1: список клиентов доступен всем сотрудникам.
+        // clients.view.own/all не ограничивают просмотр.
+        if ((int) $user['LEVEL'] < 10) {
             throw new HttpException(403, 'forbidden', 'Нет доступа к списку клиентов');
         }
 
@@ -384,12 +383,11 @@ final class ClientController extends ApiController
 
     public function index(Request $request): Response
     {
-        [$user, $capabilities] = $this->context($request);
+        [$user] = $this->context($request);
 
-        if (
-            (int) $user['LEVEL'] < 10 ||
-            (!in_array('clients.view.all', $capabilities, true) && !in_array('clients.view.own', $capabilities, true))
-        ) {
+        // Политика 3.4.1: список клиентов доступен всем сотрудникам.
+        // clients.view.own/all не ограничивают просмотр.
+        if ((int) $user['LEVEL'] < 10) {
             throw new HttpException(403, 'forbidden', 'Нет доступа к списку клиентов');
         }
 

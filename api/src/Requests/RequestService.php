@@ -1753,6 +1753,9 @@ final class RequestService
 
     private function scopeFor(array $user, array $capabilities): array
     {
+        // Политика 3.4.1: сотрудники видят все заявки, включая экспорт;
+        // привязка к менеджеру не ограничивает выборку. requests.view.own/all
+        // не влияют на scope (view.all используется для замещений и управления).
         if ((int) $user['LEVEL'] >= 10) {
             return [];
         }
@@ -1777,6 +1780,7 @@ final class RequestService
 
     private function assertCanView(array $user, array $capabilities, array $request): void
     {
+        // Политика 3.4.1: все сотрудники просматривают любую заявку.
         if ((int) $user['LEVEL'] >= 10) {
             return;
         }
