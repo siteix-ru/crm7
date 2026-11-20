@@ -17,7 +17,7 @@
  */
 
 import { chromium } from 'playwright-core';
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 const BASE = (process.env.CRM_BASE_URL ?? 'http://localhost:5174').replace(/\/$/, '');
@@ -26,6 +26,8 @@ const CHANNEL = process.env.CRM_BROWSER_CHANNEL ?? 'msedge';
 const HEADED = process.env.CRM_HEADED === '1';
 const MOBILE = process.env.CRM_E2E_MOBILE === '1';
 const SMOKE = process.env.CRM_E2E_SMOKE === '1';
+// Сценарии, создающие записи без штатного API удаления, по умолчанию не запускаются.
+const PERSISTENT = process.env.CRM_E2E_PERSISTENT === '1';
 const launchOptions = {
   ...(CHANNEL && CHANNEL !== 'bundled' ? { channel: CHANNEL } : {}),
   headless: !HEADED,
@@ -212,29 +214,33 @@ const scenarios = [
 
       const draftId = Number(match[1]);
       const updated = `${value} — дополнено`;
-
-      await subject.fill(updated);
-      await page.waitForTimeout(2500);
-
-      const afterUpdate = page.url().match(/draft=(\d+)/);
-
-      assert(
-        afterUpdate !== null && Number(afterUpdate[1]) === draftId,
-        'при изменении черновика создаётся новый вместо обновления текущего'
-      );
+      const headers = { Authorization: `Bearer ${session.token}` };
 
       try {
+        await subject.fill(updated);
+        await page.waitForTimeout(2500);
+
+        const afterUpdate = page.url().match(/draft=(\d+)/);
+
+        assert(
+          afterUpdate !== null && Number(afterUpdate[1]) === draftId,
+          'при изменении черновика создаётся новый вместо обновления текущего'
+        );
+
         await page.reload({ waitUntil: 'domcontentloaded' });
         await expectVisible(subject, 'после перезагрузки нет поля «Тема заявки»');
         await page.waitForTimeout(1000);
         assert((await subject.inputValue()) === updated, 'после перезагрузки тема черновика не восстановилась');
       } finally {
-        if (session?.token) {
-          await fetch(`${API}/request-drafts/${draftId}`, {
-            method: 'DELETE',
-            headers: { Authorization: `Bearer ${session.token}` }
-          }).catch(() => {});
-        }
+        const removed = await fetch(`${API}/request-drafts/${draftId}`, {
+          method: 'DELETE',
+          headers
+        });
+
+        assert(removed.status === 200, `удаление черновика: HTTP ${removed.status}`);
+        const missing = await fetch(`${API}/request-drafts/${draftId}`, { headers });
+
+        assert(missing.status === 404, `черновик не удалён: HTTP ${missing.status}`);
       }
     }
   },
@@ -466,6 +472,8 @@ const scenarios = [
   {
     name: 'клиенты: создание из списка',
     role: 'manager',
+    // Безопасного DELETE /clients/{id} нет: только для изолированной тестовой БД.
+    persistent: true,
     async run(page) {
       await page.goto(`${BASE}/#/clients`, { waitUntil: 'domcontentloaded' });
       await expectVisible(page.getByRole('button', { name: 'Новый клиент' }), 'нет кнопки создания клиента');
@@ -556,31 +564,8 @@ const scenarios = [
           client.active
       );
 
-      if (!target) {
-        // Демо-набор не гарантирует клиента с городом и менеджером — создаём его.
-        const managerId = [...managerIds][0];
-
-        assert(managerId, 'нет менеджера для создания тестового клиента');
-
-        const created = await fetch(`${API}/clients`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.session.token}` },
-          body: JSON.stringify({
-            name: `E2E Фильтры ${Date.now()}`,
-            city: 'E2E Город',
-            manager_id: managerId
-          })
-        });
-
-        assert(created.ok, `не удалось создать клиента для фильтров: HTTP ${created.status}`);
-
-        const refreshed = await fetch(`${API}/clients?per_page=100`, { headers });
-
-        target = (await refreshed.json()).data.items.find(
-          (client) => client.city === 'E2E Город' && client.manager?.id === managerId
-        );
-      }
-
+      // Клиентов в этом сценарии не создаём: штатного DELETE /clients/{id} нет,
+      // поэтому тестовые записи накапливались бы между прогонами.
       assert(target, 'нет активного клиента с менеджером и городом для проверки фильтров');
 
       await fetch(`${API}/preferences/filters/clients`, { method: 'DELETE', headers });
@@ -628,6 +613,8 @@ const scenarios = [
   {
     name: 'сотрудники: создание и карточка',
     role: 'admin',
+    // Создаёт пользователя и клиента, удаление штатным API отсутствует.
+    persistent: true,
     async run(page, ctx) {
       await page.goto(`${BASE}/#/staff`, { waitUntil: 'domcontentloaded' });
       await expectVisible(page.getByRole('heading', { name: 'Сотрудники' }), 'не открылся список сотрудников');
@@ -989,6 +976,8 @@ const scenarios = [
   {
     name: 'клиенты: перевод в сотрудника и обратно',
     role: 'admin',
+    // Создаёт пользователя, удаление штатным API отсутствует.
+    persistent: true,
     async run(page, ctx) {
       const token = ctx.session.token;
       const stamp = Date.now();
@@ -1083,7 +1072,7 @@ const scenarios = [
     }
   },
   {
-    name: 'чат: отправка сообщения',
+    name: 'чат: чтение диалога',
     role: 'manager',
     async run(page) {
       await page.goto(`${BASE}/#/chat`, { waitUntil: 'domcontentloaded' });
@@ -1091,13 +1080,10 @@ const scenarios = [
       await expectVisible(thread, 'нет ни одного треда в чате');
       await thread.click();
 
-      const composer = page.locator('form.composer textarea');
-      await expectVisible(composer, 'нет поля ввода сообщения');
-      const marker = `E2E проверка ${Date.now()}`;
-      await composer.fill(marker);
-      await page.locator('form.composer').getByRole('button', { name: 'Отправить' }).click();
-
-      await expectVisible(page.getByText(marker), 'отправленное сообщение не появилось');
+      // Только чтение: API удаления отдельного сообщения отсутствует,
+      // поэтому отправка в общем E2E-стенде оставляла бы постоянные записи.
+      await expectVisible(page.locator('.messages'), 'не открылась история диалога');
+      await expectVisible(page.locator('form.composer textarea'), 'нет поля ввода сообщения');
     }
   },
   {
@@ -1394,74 +1380,93 @@ const scenarios = [
     name: 'склад: группа — две колонки и состав',
     role: 'admin',
     async run(page, ctx) {
-      const response = await fetch(`${API}/admin/item-groups`, {
-        headers: { Authorization: `Bearer ${ctx.session.token}` }
-      });
+      const headers = { Authorization: `Bearer ${ctx.session.token}` };
+      const response = await fetch(`${API}/admin/item-groups`, { headers });
+
       assert(response.ok, `не удалось получить группы: HTTP ${response.status}`);
       const groups = (await response.json()).data.items;
       let group = groups.find((item) => (item.positions_count ?? 0) > 0);
+      let createdGroupId = null;
 
-      if (!group) {
-        // В демо-наборе группы могут быть не настроены — создаём пустую.
-        const created = await fetch(`${API}/admin/item-groups`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${ctx.session.token}` },
-          body: JSON.stringify({ title: `E2E Группа ${Date.now()}`, description: '', enabled: true })
-        });
+      try {
+        if (!group) {
+          // В демо-наборе группы могут быть не настроены — создаём пустую.
+          const created = await fetch(`${API}/admin/item-groups`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify({ title: `E2E Группа ${Date.now()}`, description: '', enabled: true })
+          });
 
-        assert(created.ok, `не удалось создать группу: HTTP ${created.status}`);
-        group = (await created.json()).data.group;
-      }
+          assert(created.ok, `не удалось создать группу: HTTP ${created.status}`);
+          group = (await created.json()).data.group;
+          createdGroupId = Number(group?.id);
 
-      const appResponse = await fetch(`${API}/settings/app`, {
-        headers: { Authorization: `Bearer ${ctx.session.token}` }
-      });
+          assert(createdGroupId > 0, 'созданная группа не появилась в API');
+        }
 
-      assert(appResponse.ok, `не удалось получить настройки: HTTP ${appResponse.status}`);
+        const appResponse = await fetch(`${API}/settings/app`, { headers });
 
-      if ((await appResponse.json()).data.groups_configured !== true) {
-        // Без включённого модуля групп карточка недоступна по дизайну —
-        // проверяем, что данные группы есть, и завершаем сценарий.
-        assert(Number(group.id) > 0, 'созданная группа не появилась в API');
+        assert(appResponse.ok, `не удалось получить настройки: HTTP ${appResponse.status}`);
 
-        return;
-      }
+        if ((await appResponse.json()).data.groups_configured !== true) {
+          // Без включённого модуля групп карточка недоступна по дизайну —
+          // проверяем, что данные группы есть, и завершаем сценарий.
+          assert(Number(group.id) > 0, 'созданная группа не появилась в API');
 
-      await page.goto(`${BASE}/#/stocks/groups/${group.id}`, { waitUntil: 'domcontentloaded' });
-      await expectVisible(
-        page.getByRole('heading', { name: 'Редактирование группы номенклатуры' }),
-        'не открылась карточка группы'
-      );
-      await expectVisible(page.getByRole('heading', { name: 'Состав группы' }), 'нет блока состава');
-      assert(
-        (await page.locator('.layout > .card').count()) === 2,
-        'карточка группы должна быть в две колонки'
-      );
-      const deleteButton = page.getByRole('button', { name: 'Удалить группу' });
-      const positions = group.positions_count ?? 0;
+          return;
+        }
 
-      assert(
-        (await deleteButton.isDisabled()) === (positions > 0),
-        'кнопка удаления должна быть доступна только для пустой группы'
-      );
-
-      if (positions > 0) {
-        await page.getByRole('button', { name: /Все позиции группы/ }).click();
-        const dialog = page.getByRole('dialog');
-        await expectVisible(dialog.getByText('Все позиции группы'), 'не открылась модалка состава');
-        const expected = Math.min(20, positions);
+        await page.goto(`${BASE}/#/stocks/groups/${group.id}`, { waitUntil: 'domcontentloaded' });
+        await expectVisible(
+          page.getByRole('heading', { name: 'Редактирование группы номенклатуры' }),
+          'не открылась карточка группы'
+        );
+        await expectVisible(page.getByRole('heading', { name: 'Состав группы' }), 'нет блока состава');
         assert(
-          (await dialog.locator('tbody tr').count()) === expected,
-          `в модалке должно быть ${expected} строк`
+          (await page.locator('.layout > .card').count()) === 2,
+          'карточка группы должна быть в две колонки'
+        );
+        const deleteButton = page.getByRole('button', { name: 'Удалить группу' });
+        const positions = group.positions_count ?? 0;
+
+        assert(
+          (await deleteButton.isDisabled()) === (positions > 0),
+          'кнопка удаления должна быть доступна только для пустой группы'
         );
 
-        if (positions > 20) {
-          await dialog.getByRole('button', { name: 'Страница 2' }).click();
-          const remaining = Math.min(20, positions - 20);
+        if (positions > 0) {
+          await page.getByRole('button', { name: /Все позиции группы/ }).click();
+          const dialog = page.getByRole('dialog');
+          await expectVisible(dialog.getByText('Все позиции группы'), 'не открылась модалка состава');
+          const expected = Math.min(20, positions);
           assert(
-            (await dialog.locator('tbody tr').count()) === remaining,
-            `на второй странице должно быть ${remaining} строк`
+            (await dialog.locator('tbody tr').count()) === expected,
+            `в модалке должно быть ${expected} строк`
           );
+
+          if (positions > 20) {
+            await dialog.getByRole('button', { name: 'Страница 2' }).click();
+            const remaining = Math.min(20, positions - 20);
+            assert(
+              (await dialog.locator('tbody tr').count()) === remaining,
+              `на второй странице должно быть ${remaining} строк`
+            );
+          }
+        }
+      } finally {
+        if (createdGroupId !== null) {
+          const removed = await fetch(`${API}/admin/item-groups/${createdGroupId}`, {
+            method: 'DELETE',
+            headers
+          });
+
+          assert(removed.ok, `удаление тестовой группы: HTTP ${removed.status}`);
+          const after = await fetch(`${API}/admin/item-groups`, { headers });
+          const remaining = (await after.json()).data.items.some(
+            (item) => Number(item.id) === createdGroupId
+          );
+
+          assert(!remaining, 'созданная тестовая группа не удалена');
         }
       }
     }
@@ -1964,22 +1969,8 @@ const scenarios = [
         'на мобильном видна десктопная навигация'
       );
 
-      if ((await page.locator('main a.card[href*="/requests/"]').count()) === 0) {
-        const created = await fetch(`${API}/requests`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${ctx.session.token}`,
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            subject: `e2e-mobile ${Date.now()}`,
-            description: 'Проверка мобильного списка заявок'
-          })
-        });
-        assert(created.ok, `не удалось создать заявку для проверки (HTTP ${created.status})`);
-        await page.reload({ waitUntil: 'domcontentloaded' });
-      }
-
+      // Заявки здесь не создаём: DELETE /requests/{id} отсутствует,
+      // поэтому тестовая заявка оставалась бы в БД после прогона.
       const tile = page.locator('main a.card[href*="/requests/"]').first();
       await expectVisible(tile, 'у клиента нет заявок в списке');
       await tile.click();
@@ -3028,6 +3019,196 @@ const scenarios = [
         'клиенту показана заявка другого клиента'
       );
     }
+  },
+  {
+    name: 'demo guard: инфраструктурные мутации запрещены при DEMO_MODE=true',
+    role: 'admin',
+    smoke: true,
+    demo: true,
+    async run(page, ctx) {
+      const publicData = (await (await fetch(`${API}/settings/public`)).json()).data;
+
+      assert(publicData.demo_mode === true, 'сценарий требует DEMO_MODE=true');
+
+      const token = ctx.session.token;
+      const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+      const rolesBefore = await fetch(`${API}/roles`, { headers });
+      const before = JSON.stringify((await rolesBefore.json()).data?.items ?? []);
+      const dbPath = path.resolve('../api/config/database.json');
+      let dbMtime = null;
+
+      try {
+        dbMtime = (await stat(dbPath)).mtimeMs;
+      } catch {
+        // В CI API работает в отдельном контейнере — файл недоступен.
+      }
+
+      const updateDir = process.env.CRM7_UPDATE_DIR;
+      const updateFiles = ['status.json', 'request.json', 'apply.lock'];
+      const updateState = async () => {
+        if (!updateDir) {
+          return null;
+        }
+
+        const state = [];
+
+        for (const file of updateFiles) {
+          const filePath = path.join(updateDir, file);
+
+          try {
+            const [content, info] = await Promise.all([
+              readFile(filePath, 'utf8'),
+              stat(filePath)
+            ]);
+
+            state.push([file, content, info.size, info.mtimeMs]);
+          } catch {
+            // Файл отсутствует или недоступен — фиксируем это как часть состояния.
+            state.push([file, null, null, null]);
+          }
+        }
+
+        return JSON.stringify(state);
+      };
+      const updateBefore = await updateState();
+
+      const forbidden = [
+        ['POST', '/admin/settings/database'],
+        ['POST', '/admin/settings/database/test'],
+        ['GET', '/admin/settings/database'],
+        ['POST', '/admin/update/apply'],
+        ['POST', '/admin/modules']
+      ];
+
+      for (const [method, route] of forbidden) {
+        const response = await fetch(`${API}${route}`, {
+          method,
+          headers,
+          body: method === 'GET' ? undefined : '{}'
+        });
+        const text = await response.text();
+
+        assert(response.status === 403, `${method} ${route}: ожидался 403, а не ${response.status}`);
+        assert(
+          text === '{"error":{"code":"demo_mode"}}',
+          `${method} ${route}: неверный формат ответа ${text}`
+        );
+      }
+
+      const rolesAfter = await fetch(`${API}/roles`, { headers });
+      const after = JSON.stringify((await rolesAfter.json()).data?.items ?? []);
+
+      assert(after === before, 'матрица прав изменилась после отклонённых запросов');
+
+      if (dbMtime !== null) {
+        assert((await stat(dbPath)).mtimeMs === dbMtime, 'файл конфигурации БД изменился');
+      }
+
+      assert((await updateState()) === updateBefore, 'файлы обновлений изменились после отклонённого запроса');
+    }
+  },
+  {
+    name: 'demo guard: не блокирует при DEMO_MODE=false',
+    role: 'admin',
+    smoke: true,
+    demo: false,
+    async run(page, ctx) {
+      const publicData = (await (await fetch(`${API}/settings/public`)).json()).data;
+
+      assert(publicData.demo_mode === false, 'сценарий требует DEMO_MODE=false');
+
+      const headers = { Authorization: `Bearer ${ctx.session.token}` };
+      const settings = await fetch(`${API}/admin/settings/database`, { headers });
+      const settingsJson = await settings.json();
+
+      assert(settings.status === 200, `настройки БД: HTTP ${settings.status}`);
+      assert(settingsJson.data?.host, 'guard блокирует чтение настроек БД при DEMO_MODE=false');
+
+      // Пустое тело безопасно: валидация отклонит запрос до какой-либо мутации.
+      const invalid = await fetch(`${API}/admin/settings/database`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: '{}'
+      });
+      const invalidJson = await invalid.json();
+
+      assert(invalid.status === 422, `пустой запрос: ожидался 422, а не ${invalid.status}`);
+      assert(
+        invalidJson.error?.code === 'validation_error',
+        'валидация настроек БД не сработала'
+      );
+
+      const unauthorized = await fetch(`${API}/admin/settings/database`);
+
+      assert(
+        unauthorized.status === 401,
+        `без токена ожидался 401, а не ${unauthorized.status}`
+      );
+    }
+  },
+  {
+    name: 'demo guard: чтение бизнес-маршрутов доступно в демо',
+    role: 'manager',
+    smoke: true,
+    demo: true,
+    async run(page, ctx) {
+      const headers = { Authorization: `Bearer ${ctx.session.token}` };
+
+      for (const route of ['/requests', '/clients', '/chat/threads']) {
+        const response = await fetch(`${API}${route}`, { headers });
+
+        assert(response.status === 200, `${route}: ожидался 200, а не ${response.status}`);
+      }
+    }
+  },
+  {
+    name: 'demo guard: создание тестового черновика доступно в демо',
+    role: 'client',
+    smoke: true,
+    demo: true,
+    async run(page, ctx) {
+      const headers = {
+        Authorization: `Bearer ${ctx.session.token}`,
+        'Content-Type': 'application/json'
+      };
+      const marker = `E2E demo guard ${Date.now()}`;
+      let draftId = null;
+
+      try {
+        const created = await fetch(`${API}/request-drafts`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ subject: marker, body: 'Проверка демо-режима' })
+        });
+
+        assert(created.ok, `создание черновика: HTTP ${created.status}`);
+        const draft = (await created.json()).data;
+        draftId = Number(draft?.id);
+
+        assert(draftId > 0, 'созданный черновик не содержит id');
+
+        const readback = await fetch(`${API}/request-drafts/${draftId}`, { headers });
+
+        assert(readback.status === 200, `чтение черновика: HTTP ${readback.status}`);
+        assert(
+          (await readback.json()).data?.subject === marker,
+          'прочитанный черновик не совпадает с созданным'
+        );
+      } finally {
+        if (draftId !== null) {
+          const removed = await fetch(`${API}/request-drafts/${draftId}`, {
+            method: 'DELETE',
+            headers
+          });
+
+          assert(removed.status === 200, `удаление черновика: HTTP ${removed.status}`);
+
+          const missing = await fetch(`${API}/request-drafts/${draftId}`, { headers });
+
+          assert(missing.status === 404, `черновик не удалён: HTTP ${missing.status}`);
+        }
+      }
+    }
   }
 ];
 
@@ -3060,16 +3241,41 @@ async function swipeOnPage(page, fromX, toX, y = 420) {
 
 async function main() {
   const passwords = await loadPasswords();
+  let demoMode = false;
+
+  try {
+    const response = await fetch(`${API}/settings/public`);
+
+    if (response.ok) {
+      demoMode = (await response.json()).data?.demo_mode === true;
+    }
+  } catch {
+    // Если публичные настройки недоступны, демо-сценарии не выбираются.
+  }
+
   const selected = scenarios.filter(
     (scenario) =>
       Boolean(scenario.mobile) === MOBILE
       && (!SMOKE || Boolean(scenario.smoke))
+      && (!scenario.persistent || PERSISTENT)
+      && (scenario.demo === undefined || scenario.demo === demoMode)
       && (ONLY.length === 0 || ONLY.some((needle) => scenario.name.includes(needle)))
   );
 
+  const persistentExcluded = scenarios.filter(
+    (scenario) => scenario.persistent && !PERSISTENT
+  ).length;
+
   await mkdir(OUT, { recursive: true });
 
-  log(`Фронтенд: ${BASE}; API: ${API}; браузер: ${CHANNEL}`);
+  log(`Фронтенд: ${BASE}; API: ${API}; браузер: ${CHANNEL}; DEMO_MODE=${demoMode}`);
+
+  if (persistentExcluded > 0) {
+    log(
+      `Исключено сценариев с постоянными данными: ${persistentExcluded} ` +
+        '(CRM_E2E_PERSISTENT=1 только для изолированной тестовой БД)'
+    );
+  }
   log(`Сценариев: ${selected.length}`);
 
   const browser = await chromium.launch(launchOptions);

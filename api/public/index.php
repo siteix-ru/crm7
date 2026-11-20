@@ -28,6 +28,7 @@ use App\Controllers\UserFiltersController;
 use App\Auth\AuthService;
 use App\Core\Config;
 use App\Core\Logger;
+use App\Http\DemoModeGuard;
 use App\Http\HttpException;
 use App\Http\Request;
 use App\Http\Response;
@@ -66,6 +67,9 @@ $basePath = rtrim((string) Config::get('API_BASE_PATH', ''), '/');
 if ($basePath !== '' && str_starts_with($request->path, $basePath)) {
     $request = $request->withPath(substr($request->path, strlen($basePath)) ?: '/');
 }
+
+// Демо-защита инфраструктурных операций: до maintenance и до dispatch роутера.
+DemoModeGuard::enforce($request);
 
 $updateDir = rtrim((string) Config::get('CRM7_UPDATE_DIR', ''), '/');
 $maintenanceFile = $updateDir !== '' ? $updateDir . '/maintenance' : '';
