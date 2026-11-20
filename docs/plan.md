@@ -674,6 +674,39 @@ Demo-режим (`DEMO_MODE=true` в `api/config/.env`):
 - демо-учётки по одной на роль (`demo_root` 90, `demo_admin` 50, `demo_manager` 10, `demo_client` 5; пароль `demo123456`) создаются `api/bin/seed-demo-users.php` и показываются на странице входа (клиент привязан к демо-менеджеру);
 - полный сброс demo: `/srv/projects/crm7-demo/reset-demo.sh` (сид демо-данных + демо-учётки).
 
+Централизованная защита инфраструктурных операций — `App\Http\DemoModeGuard`
+(`api/src/Http/DemoModeGuard.php`). Точка входа `api/public/index.php` вызывает
+`DemoModeGuard::enforce()` **после** снятия префикса `API_BASE_PATH` из пути
+запроса и **до** проверки maintenance и dispatch роутера. Поэтому сопоставление
+маршрутов работает с нормализованным путём: запрос к `/api/v2/...` с префиксом
+приводится к маршруту без префикса, а ненормализованный путь `/api/v2/roles/10`
+шаблону не соответствует.
+
+При `DEMO_MODE=true` guard возвращает `403 {"error":{"code":"demo_mode"}}`
+только для шести уникальных пар «метод — путь»:
+
+- `GET /admin/settings/database`;
+- `POST /admin/settings/database`;
+- `POST /admin/settings/database/test`;
+- `POST /admin/update/apply`;
+- `POST /admin/modules`;
+- `POST /roles/{level}` — один шаблон, в unit-тестах проверенный на двух
+  конкретных уровнях (`/roles/10`, `/roles/5`); поэтому в
+  `api/tests/demo-mode-guard.php` семь проверок, но шесть уникальных шаблонов.
+
+`GET /admin/update/check` и `GET /admin/update/status` остаются доступными,
+как и разрешённое чтение бизнес-маршрутов. При `DEMO_MODE=false` новый guard не
+блокирует ничего. Он дополняет, а не заменяет существующий `denyInDemo()` в
+контроллерах (смена/сброс пароля, пользователи, регистрация): оба механизма
+работают одновременно и источник истины для обоих — серверный `DEMO_MODE`, а не
+флаг frontend.
+
+Проверки: `api/tests/demo-mode-guard.php` (unit, режимы true/false и порядок
+подключения до maintenance) и E2E `frontend/tools/e2e/run.mjs` — четыре
+сценария, три из которых с `demo: true` запускаются в отдельном CI-задании
+`e2e-demo-guard` с `DEMO_MODE=true`, четвёртый (`demo: false`) — в обычных
+desktop/mobile job'ах.
+
 Выкладка (образы): `python deploy/build_images.py --push` (сборка на dev-сервере, теги `<version>` + `sha-<commit>`, публичный GHCR) → `python deploy/release_crm7.py --env all --tag <ver>` (pull → миграции → перезапуск; тома с данными не трогаются). Подробности — `docs/images.md`. Провижининг нового окружения — `provision_crm7_env.sh`; прежний `deploy/deploy_crm7.py` (SFTP-код) оставлен как legacy для bind-mount.
 
 Правила миграций БД — `docs/migrations.md` (аддитивность, бэкап перед k/prod, сиды только demo; `migrate.php --status` и защита `--allow-destructive`).
