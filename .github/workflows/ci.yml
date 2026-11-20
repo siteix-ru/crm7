@@ -297,3 +297,118 @@ jobs:
           name: e2e-desktop-smoke-artifacts
           path: frontend/artifacts/e2e
           if-no-files-found: ignore
+
+  # Отдельный изолированный стенд: DEMO_MODE=true и собственный MariaDB.
+  # Обычные smoke/mobile job'ы работают с DEMO_MODE=false и не покрывают
+  # demo:true сценарии — этот job проверяет именно их реальное выполнение.
+  e2e-demo-guard:
+    needs: [frontend, php]
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: crm_ci_demo
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, gd
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Configure API (DEMO_MODE=true)
+        run: |
+          cp api/config/.env.example api/config/.env
+          sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' api/config/.env
+          sed -i 's/^DB_NAME=.*/DB_NAME=crm_ci_demo/' api/config/.env
+          sed -i 's/^DB_USER=.*/DB_USER=root/' api/config/.env
+          sed -i 's/^DB_PASS=.*/DB_PASS=root/' api/config/.env
+          sed -i 's/^DEMO_MODE=.*/DEMO_MODE=true/' api/config/.env
+          sed -i "s/^APP_KEY=.*/APP_KEY=$(openssl rand -hex 32)/" api/config/.env
+          sed -i "s/^DB_CONFIG_KEY=.*/DB_CONFIG_KEY=$(openssl rand -hex 32)/" api/config/.env
+          grep -q '^DEMO_MODE=true$' api/config/.env
+      - name: Migrate and seed
+        run: |
+          php api/bin/migrate.php --allow-destructive
+          php api/bin/seed-dev.php --password=Secret123
+          php api/bin/seed-demo.php --force --password=Secret123
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
+      - name: Install Chromium
+        run: npx playwright-core install --with-deps chromium
+        working-directory: frontend
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
+      - name: Verify required demo:true scenarios exist
+        run: |
+          for name in \
+            'demo guard: инфраструктурные мутации запрещены при DEMO_MODE=true' \
+            'demo guard: чтение бизнес-маршрутов доступно в демо' \
+            'demo guard: создание тестового черновика доступно в демо'; do
+            grep -Fq "name: '$name'" frontend/tools/e2e/run.mjs \
+              || { echo "missing required scenario: $name" >&2; exit 1; }
+          done
+      - name: Demo Guard e2e (DEMO_MODE=true)
+        env:
+          CRM_BASE_URL: http://localhost:4173
+          CRM_API_URL: http://127.0.0.1:8080/api/v2
+          CRM_BROWSER_CHANNEL: bundled
+          CRM_E2E_SMOKE: '1'
+          CRM_E2E_ONLY: 'demo guard:'
+          CRM_PASSWORD: Secret123
+        run: |
+          php -S 127.0.0.1:8080 -t api/public api/public/router.php > /tmp/api-demo.log 2>&1 &
+          (cd frontend && npx vite preview --port 4173 --strictPort > /tmp/preview-demo.log 2>&1 &)
+          for i in $(seq 1 40); do
+            if curl -fsS http://127.0.0.1:8080/api/v2/health > /dev/null 2>&1 \
+              && curl -fsS http://localhost:4173 > /dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          if ! curl -fsS http://127.0.0.1:8080/api/v2/settings/public \
+            | grep -Eq '"demo_mode"[[:space:]]*:[[:space:]]*true'; then
+            echo 'backend is not running with DEMO_MODE=true' >&2
+            tail -n 30 /tmp/api-demo.log || true
+            exit 1
+          fi
+          set +e
+          (cd frontend && node tools/e2e/run.mjs) 2>&1 | tee /tmp/demo-guard-e2e.log
+          status=${PIPESTATUS[0]}
+          set -e
+          for name in \
+            'demo guard: инфраструктурные мутации запрещены при DEMO_MODE=true' \
+            'demo guard: чтение бизнес-маршрутов доступно в демо' \
+            'demo guard: создание тестового черновика доступно в демо'; do
+            grep -Fq "✓ $name" /tmp/demo-guard-e2e.log \
+              || { echo "required scenario did not pass: $name" >&2; status=1; }
+          done
+          guard_passed=$(grep -c '✓ demo guard:' /tmp/demo-guard-e2e.log || true)
+          if [ "$guard_passed" -ne 3 ]; then
+            echo "expected exactly 3 passed demo guard scenarios, got $guard_passed" >&2
+            status=1
+          fi
+          tail -n 20 /tmp/api-demo.log || true
+          tail -n 20 /tmp/preview-demo.log || true
+          exit "$status"
+      - name: Upload demo guard e2e artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-demo-guard-artifacts
+          path: frontend/artifacts/e2e
+          if-no-files-found: ignore
