@@ -126,6 +126,13 @@ final class Request
         return $this->body;
     }
 
+    public function header(string $name): ?string
+    {
+        $key = strtolower(str_replace('_', '-', $name));
+
+        return isset($this->headers[$key]) ? (string) $this->headers[$key] : null;
+    }
+
     public function bearerToken(): ?string
     {
         $header = (string) ($this->headers['authorization'] ?? '');
