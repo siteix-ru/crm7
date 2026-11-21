@@ -28,6 +28,18 @@ final class StocksService
 {
     public const MAX_SIZE = 20971520;
 
+    /**
+     * Именованный лок MariaDB, сериализующий импорт остатков.
+     * Стабильное имя не зависит от пользователя, файла или склада.
+     */
+    private const IMPORT_LOCK = 'crm7_stocks_import:v1';
+
+    private const IMPORT_LOCK_DEFAULT_TIMEOUT = 30;
+
+    private const IMPORT_LOCK_MIN_TIMEOUT = 1;
+
+    private const IMPORT_LOCK_MAX_TIMEOUT = 60;
+
     private const ALLOWED_EXTENSIONS = ['xls', 'xlsx', 'csv', 'txt'];
 
     public const MAX_PHOTOS = 10;
@@ -2250,11 +2262,16 @@ final class StocksService
             }
         }
 
-        $jobId = $this->stocks->createJob($originalName, $actualDate, (int) $user['ID']);
         $pdo = Database::pdo();
-        $pdo->beginTransaction();
+        $this->acquireImportLock($pdo);
+
+        $committed = false;
+        $jobId = 0;
 
         try {
+            $jobId = $this->stocks->createJob($originalName, $actualDate, (int) $user['ID']);
+            $pdo->beginTransaction();
+
             $updateSid = md5(uniqid('', true));
             $this->stocks->insertUpdate($updateSid, $actualDate, $originalName);
 
@@ -2403,38 +2420,122 @@ final class StocksService
             }
 
             $pdo->commit();
+            $committed = true;
+
+            // Данные уже зафиксированы: ошибки post-commit не должны превращать
+            // успешный импорт в HTTP 500 и провоцировать повторную загрузку.
+            try {
+                $this->stocks->finishJob($jobId, 'done', count($rows) + $skipped, $imported, $skipped, $errors);
+            } catch (Throwable $exception) {
+                error_log('stocks.import: finishJob(done) failed: ' . $exception->getMessage());
+            }
+
+            try {
+                $this->audit->log($user, 'stocks.import', 'stocks', $jobId, [
+                    'file' => $originalName,
+                    'imported' => $imported,
+                    'skipped' => $skipped,
+                    'actual_date' => $actualDate,
+                ], null);
+            } catch (Throwable $exception) {
+                error_log('stocks.import: audit failed: ' . $exception->getMessage());
+            }
+
+            return [
+                'status' => 'done',
+                'job_id' => $jobId,
+                'file_name' => $originalName,
+                'actual_date' => $actualDate,
+                'rows_total' => count($rows) + $skipped,
+                'rows_imported' => $imported,
+                'rows_created' => $created,
+                'rows_zeroed' => $zeroed,
+                'rows_skipped' => $skipped,
+                'warehouses_created' => $warehousesCreated,
+                'new_positions' => count($newPositions),
+                'prices_imported' => $pricesImported,
+                'errors' => array_slice($errors, 0, 20),
+            ];
         } catch (Throwable $exception) {
-            $pdo->rollBack();
-            Logger::error('stocks.import failed', ['job' => $jobId, 'error' => $exception->getMessage()]);
-            $this->stocks->finishJob($jobId, 'failed', count($rows) + $skipped, 0, $skipped, ['Импорт не выполнен. Подробности — в журнале.']);
+            if ($committed) {
+                // Данные уже зафиксированы — не сообщать, что импорт не выполнен.
+                throw $exception;
+            }
+
+            try {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                }
+            } catch (Throwable) {
+                // Первичное исключение важнее ошибки проверки/отката.
+            }
+
+            if ($jobId > 0) {
+                Logger::error('stocks.import failed', ['job' => $jobId, 'error' => $exception->getMessage()]);
+                $this->stocks->finishJob($jobId, 'failed', count($rows) + $skipped, 0, $skipped, ['Импорт не выполнен. Подробности — в журнале.']);
+            }
 
             throw new HttpException(500, 'import_failed', 'Импорт не выполнен. Подробности — в журнале.');
+        } finally {
+            $this->releaseImportLock($pdo);
+        }
+    }
+
+    /**
+     * Сериализует импорт остатков. Должен вызываться на том же PDO, который
+     * используется транзакцией импорта и releaseImportLock().
+     */
+    private function acquireImportLock(\PDO $pdo): void
+    {
+        try {
+            $statement = $pdo->prepare('SELECT GET_LOCK(?, ?)');
+            $statement->execute([self::IMPORT_LOCK, $this->importLockTimeout()]);
+            $result = $statement->fetchColumn();
+        } catch (Throwable $exception) {
+            throw new HttpException(503, 'import_unavailable', 'Импорт временно недоступен. Повторите попытку позже.');
         }
 
-        $this->stocks->finishJob($jobId, 'done', count($rows) + $skipped, $imported, $skipped, $errors);
+        if ($result === null || $result === false) {
+            throw new HttpException(503, 'import_unavailable', 'Импорт временно недоступен. Повторите попытку позже.');
+        }
 
-        $this->audit->log($user, 'stocks.import', 'stocks', $jobId, [
-            'file' => $originalName,
-            'imported' => $imported,
-            'skipped' => $skipped,
-            'actual_date' => $actualDate,
-        ], null);
+        if ((int) $result === 1) {
+            return;
+        }
 
-        return [
-            'status' => 'done',
-            'job_id' => $jobId,
-            'file_name' => $originalName,
-            'actual_date' => $actualDate,
-            'rows_total' => count($rows) + $skipped,
-            'rows_imported' => $imported,
-            'rows_created' => $created,
-            'rows_zeroed' => $zeroed,
-            'rows_skipped' => $skipped,
-            'warehouses_created' => $warehousesCreated,
-            'new_positions' => count($newPositions),
-            'prices_imported' => $pricesImported,
-            'errors' => array_slice($errors, 0, 20),
-        ];
+        throw new HttpException(423, 'import_busy', 'Другой импорт остатков уже выполняется. Повторите попытку через несколько секунд.');
+    }
+
+    private function importLockTimeout(): int
+    {
+        $raw = Config::get('CRM_STOCK_IMPORT_LOCK_TIMEOUT');
+
+        if ($raw === null || preg_match('/^\d+$/', trim($raw)) !== 1) {
+            return self::IMPORT_LOCK_DEFAULT_TIMEOUT;
+        }
+
+        $value = (int) $raw;
+
+        return $value >= self::IMPORT_LOCK_MIN_TIMEOUT && $value <= self::IMPORT_LOCK_MAX_TIMEOUT
+            ? $value
+            : self::IMPORT_LOCK_DEFAULT_TIMEOUT;
+    }
+
+    /**
+     * Освобождает лок в finally; никогда не заменяет первичное исключение.
+     */
+    private function releaseImportLock(\PDO $pdo): void
+    {
+        try {
+            $statement = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+            $statement->execute([self::IMPORT_LOCK]);
+
+            if ((int) $statement->fetchColumn() !== 1) {
+                error_log('stocks.import: RELEASE_LOCK did not release ' . self::IMPORT_LOCK);
+            }
+        } catch (Throwable $exception) {
+            error_log('stocks.import: RELEASE_LOCK failed: ' . $exception->getMessage());
+        }
     }
 
     public function history(array $user, array $capabilities): array
