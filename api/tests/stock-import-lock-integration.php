@@ -123,12 +123,40 @@ function levels(PDO $pdo): array
 
 function backup(PDO $pdo): array
 {
-    return rows($pdo, 'SELECT STOCK, NAME, QUANTITY FROM stock_levels_backup ORDER BY STOCK, NAME');
+    // Общая нормализация порядка с levelsProjection(): STOCK → NAME → QUANTITY.
+    return levelsProjection(
+        rows($pdo, 'SELECT STOCK, NAME, QUANTITY FROM stock_levels_backup ORDER BY STOCK, NAME')
+    );
+}
+
+function levelsProjection(array $rows): array
+{
+    $projected = array_map(static fn (array $row): array => [
+        'STOCK' => $row['STOCK'] ?? '',
+        'NAME' => $row['NAME'] ?? '',
+        'QUANTITY' => $row['QUANTITY'] ?? '',
+    ], $rows);
+
+    // Стабильный порядок для сравнения с backup(), где нет ID и нет ORDER BY ID.
+    usort($projected, static function (array $a, array $b): int {
+        return strcmp((string) $a['STOCK'], (string) $b['STOCK'])
+            ?: strcmp((string) $a['NAME'], (string) $b['NAME'])
+            ?: strcmp((string) $a['QUANTITY'], (string) $b['QUANTITY']);
+    });
+
+    return $projected;
 }
 
 function jobs(PDO $pdo): array
 {
     return rows($pdo, 'SELECT ID, STATUS FROM stock_import_jobs ORDER BY ID');
+}
+
+function usedLock(PDO $pdo): mixed
+{
+    $rows = $pdo->query("SELECT IS_USED_LOCK('crm7_stocks_import:v1')")->fetchAll(PDO::FETCH_NUM);
+
+    return $rows[0][0] ?? null;
 }
 
 function levelValue(array $rows, string $stock, string $name): ?string
@@ -157,7 +185,7 @@ $backupBefore = backup($pdo);
 $jobsBefore = jobs($pdo);
 
 // Внешнее соединение удерживает лок — второй импорт получает 423.
-$pdo->exec("SELECT GET_LOCK('crm7_stocks_import:v1', 5)");
+$pdo->query("SELECT GET_LOCK('crm7_stocks_import:v1', 5)")->fetchAll(PDO::FETCH_NUM);
 
 [$status, $raw] = api($base, $token, '/api/v2/stocks/import', $fixture);
 check($status === 423, 'lock занят → HTTP 423', $failures);
@@ -166,13 +194,12 @@ check(jobs($pdo) === $jobsBefore, 'после отказа jobs не созда�
 check(levels($pdo) === $levelsBefore, 'после отказа stock_levels не изменены', $failures);
 check(backup($pdo) === $backupBefore, 'после отказа backup не изменён', $failures);
 
-$held = $pdo->query("SELECT IS_USED_LOCK('crm7_stocks_import:v1')")->fetchColumn();
+$held = usedLock($pdo);
 check($held !== null && $held !== false, 'лок удерживается внешним соединением', $failures);
 
-$pdo->exec("SELECT RELEASE_LOCK('crm7_stocks_import:v1')");
+$pdo->query("SELECT RELEASE_LOCK('crm7_stocks_import:v1')")->fetchAll(PDO::FETCH_NUM);
 
-$preImportLevels = levels($pdo);
-$preImportBackup = backup($pdo);
+$preImportLevels = levelsProjection(levels($pdo));
 
 [$status, $raw] = api($base, $token, '/api/v2/stocks/import', $fixture);
 check(in_array($status, [200, 201], true), 'после снятия лока импорт выполняется', $failures);
@@ -182,13 +209,13 @@ $finalLevels = levels($pdo);
 check(levelValue($finalLevels, 'WH1', 'IT1') === '11.00000', 'WH1/IT1 = 11', $failures);
 check(levelValue($finalLevels, 'WH1', 'IT_UNIQUE') === '7.00000', 'WH1/IT_UNIQUE = 7', $failures);
 check(levelValue($finalLevels, 'WH1', 'IT1') !== 'DUPLICATE', 'нет дублей по WH1/IT1', $failures);
-check(backup($pdo) === $preImportBackup, 'backup соответствует состоянию до импорта', $failures);
+check(backup($pdo) === $preImportLevels, 'backup соответствует остаткам до импорта', $failures);
 check(count(array_filter(jobs($pdo), static fn ($j) => ($j['STATUS'] ?? '') === 'done')) >= 1,
     'есть job со статусом done', $failures);
 check(array_filter(jobs($pdo), static fn ($j) => ($j['STATUS'] ?? '') === 'processing') === [],
     'нет stuck processing jobs', $failures);
 
-$held = $pdo->query("SELECT IS_USED_LOCK('crm7_stocks_import:v1')")->fetchColumn();
+$held = usedLock($pdo);
 check($held === null || $held === false, 'IS_USED_LOCK = NULL после завершения', $failures);
 
 @unlink($fixture);
