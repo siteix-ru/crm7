@@ -36,6 +36,7 @@ final class StubStatement extends PDOStatement {
     public function execute(?array $params = null): bool {
         if ($this->error) { throw $this->error; }
         $this->args = $params ?? [];
+        $this->owner->executed[] = ['sql' => $this->sql, 'args' => $this->args];
         return true;
     }
     public function rowCount(): int { return 1; }
@@ -75,6 +76,7 @@ final class StubStatement extends PDOStatement {
 
 final class StubPdo extends PDO {
     public array $calls = [];
+    public array $executed = [];
     public mixed $lockResult = '1';
     public mixed $releaseResult = '1';
     public bool $inTx = false;
@@ -110,23 +112,62 @@ function makePdo(mixed $lock = '1', mixed $release = '1'): StubPdo {
     return $p;
 }
 
+/** @return list<array{sql: string, args: array}> */
+function releaseCalls(StubPdo $pdo): array {
+    return array_values(array_filter(
+        $pdo->executed,
+        static fn (array $call): bool => str_contains($call['sql'], 'RELEASE_LOCK')
+    ));
+}
+
+/** Перенаправляет error_log во временный файл на время вызова и возвращает его содержимое. */
+function captureErrorLog(callable $fn): string {
+    $path = sys_get_temp_dir() . '/crm_i68_log_' . bin2hex(random_bytes(5)) . '.log';
+    $previous = ini_get('error_log');
+    ini_set('error_log', $path);
+    try {
+        $fn();
+    } finally {
+        ini_set('error_log', $previous === false ? '' : $previous);
+    }
+    $content = is_file($path) ? (string) file_get_contents($path) : '';
+    @unlink($path);
+
+    return $content;
+}
+
+/** Проверяет, что RELEASE_LOCK вызван ровно один раз с ожидаемым именем лока. */
+function checkReleaseOnce(StubPdo $pdo, string $name, array &$failures): void {
+    $calls = releaseCalls($pdo);
+    check(count($calls) === 1, $name . ': ровно один вызов (actual=' . count($calls) . ')', $failures);
+    check(($calls[0]['sql'] ?? null) === 'SELECT RELEASE_LOCK(?)', $name . ': SQL', $failures);
+    check(($calls[0]['args'] ?? null) === ['crm7_stocks_import:v1'], $name . ': аргумент — имя лока', $failures);
+}
+
 $user = ['ID'=>1,'LEVEL'=>90];
 $caps = ['stocks.import'];
 
 $p = makePdo('0');
 expectHttp(fn() => (new StocksService())->import($user,$caps,fixture(),'2026-01-01'), 423, 'import_busy', 'GET_LOCK=0 → 423', $failures);
+checkReleaseOnce($p, 'RELEASE_LOCK в finally при 423', $failures);
 
 $p = makePdo(null);
 expectHttp(fn() => (new StocksService())->import($user,$caps,fixture(),'2026-01-01'), 503, 'import_unavailable', 'GET_LOCK=NULL → 503', $failures);
+checkReleaseOnce($p, 'RELEASE_LOCK в finally при 503', $failures);
 
 $p = makePdo();
 $res = (new StocksService())->import($user,$caps,fixture(),'2026-01-01');
 check($res['status'] === 'done', 'успешный импорт → done', $failures);
-check(array_column($p->calls,0) && in_array('RELEASE_LOCK', array_column(array_map(fn($c)=>str_contains((string)$c[1],'RELEASE_LOCK')?['prepare']:$c, $p->calls),0), true) === false || true, 'release вызван', $failures);
+checkReleaseOnce($p, 'RELEASE_LOCK при успешном импорте', $failures);
 
 $p = makePdo('1', null);
-$res = (new StocksService())->import($user,$caps,fixture(),'2026-01-01');
+$res = null;
+$releaseLog = captureErrorLog(function () use (&$res, $user, $caps): void {
+    $res = (new StocksService())->import($user, $caps, fixture(), '2026-01-01');
+});
 check($res['status'] === 'done', 'RELEASE_LOCK error не портит успех', $failures);
+checkReleaseOnce($p, 'RELEASE_LOCK при ошибке release', $failures);
+check(str_contains($releaseLog, 'RELEASE_LOCK did not release'), 'ошибка RELEASE_LOCK залогирована', $failures);
 
 $p = makePdo();
 expectHttp(fn() => (new StocksService())->import($user,$caps,fixture(),'2026-01-01',[],'bad-key'), 422, 'invalid_idempotency_key', 'невалидный UUID → 422', $failures);
