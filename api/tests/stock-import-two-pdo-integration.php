@@ -232,7 +232,16 @@ function resetFixtures(PDO $pdo): void
 
 function lockEvidence(PDO $observer): array
 {
-    $out = ['available' => false, 'waits' => [], 'processlist' => []];
+    $out = [
+        'available' => false,
+        'waits' => [],
+        'trx' => [],
+        'trx_available' => false,
+        'processlist' => [],
+        'processlist_available' => false,
+        'correlations' => [],
+        'at' => microtime(true),
+    ];
     try {
         $waits = rows($observer, 'SELECT requesting_trx_id, blocking_trx_id FROM information_schema.INNODB_LOCK_WAITS LIMIT 10');
         $out['available'] = true;
@@ -241,11 +250,39 @@ function lockEvidence(PDO $observer): array
         $out['error'] = substr($e->getMessage(), 0, 120);
     }
     try {
+        $out['trx'] = rows($observer,
+            'SELECT trx_id, trx_mysql_thread_id, trx_state FROM information_schema.INNODB_TRX LIMIT 100');
+        $out['trx_available'] = true;
+    } catch (Throwable $e) {
+        $out['trx_error'] = substr($e->getMessage(), 0, 120);
+    }
+    try {
+        // Исключаем собственное соединение observer, чтобы его SQL не выглядел как ожидающий FOR UPDATE.
         $out['processlist'] = rows($observer,
-            "SELECT ID,USER,STATE,LEFT(IFNULL(INFO,''),90) AS info FROM information_schema.PROCESSLIST
-             WHERE INFO LIKE '%FOR UPDATE%' OR STATE LIKE '%lock%' LIMIT 10");
+            "SELECT ID,USER,STATE,LEFT(IFNULL(INFO,''),512) AS info FROM information_schema.PROCESSLIST
+              WHERE (INFO LIKE '%FOR UPDATE%' OR STATE LIKE '%lock%')
+                AND ID <> CONNECTION_ID() LIMIT 10");
+        $out['processlist_available'] = true;
     } catch (Throwable $e) {
         $out['processlist_error'] = substr($e->getMessage(), 0, 120);
+    }
+
+    // Связываем trx ID с connection ID через INNODB_TRX.trx_mysql_thread_id.
+    $trxById = [];
+    foreach ($out['trx'] as $trx) {
+        $trxById[(string) ($trx['trx_id'] ?? '')] = $trx;
+    }
+    foreach ($out['waits'] as $wait) {
+        $req = $trxById[(string) ($wait['requesting_trx_id'] ?? '')] ?? [];
+        $block = $trxById[(string) ($wait['blocking_trx_id'] ?? '')] ?? [];
+        $out['correlations'][] = [
+            'requesting_trx_id' => (string) ($wait['requesting_trx_id'] ?? ''),
+            'blocking_trx_id' => (string) ($wait['blocking_trx_id'] ?? ''),
+            'requesting_conn' => (int) ($req['trx_mysql_thread_id'] ?? 0),
+            'blocking_conn' => (int) ($block['trx_mysql_thread_id'] ?? 0),
+            'requesting_state' => (string) ($req['trx_state'] ?? ''),
+            'blocking_state' => (string) ($block['trx_state'] ?? ''),
+        ];
     }
 
     return $out;
@@ -323,6 +360,12 @@ if ($role === 'A' || $role === 'B') {
         writeSignal($dir, 'B_DONE', ['error' => 'A_READY timeout']);
         exit(1);
     }
+    // Connection ID B фиксируется ДО блокирующего SELECT ... FOR UPDATE внутри retry().
+    writeSignal($dir, 'B_START', [
+        'pid' => getmypid(),
+        'conn' => (int) $pdo->query('SELECT CONNECTION_ID()')->fetchColumn(),
+        'time' => microtime(true),
+    ]);
     $start = microtime(true);
     $result = $repo->retry($userId, $token, $hash, 'f.csv', '2026-01-01');
     $end = microtime(true);
@@ -407,7 +450,10 @@ function runRace(PDO $coordinator, string $mode, array &$failures): array
         'dir' => $dir, 'op_id' => $opId, 'attempt_id' => $attemptId,
         'token' => $token, 'hash' => $hash,
         'a' => $a, 'b' => $b, 'a_ready' => $aReady,
-        'evidence_count' => count($evidence), 'evidence_last' => $evidence[count($evidence) - 1] ?? [],
+        'b_start' => readSignal($dir, 'B_START'),
+        'evidence_count' => count($evidence),
+        'evidence_all' => $evidence,
+        'evidence_last' => $evidence[count($evidence) - 1] ?? [],
     ];
 }
 
@@ -458,6 +504,84 @@ $r2 = runRace($pdo, 'rollback', $failures);
 check(($r2['a']['outcome'] ?? '') === 'rolled_back', 'rollback: A откатил транзакцию', $failures);
 $wait2 = (float) ($r2['b']['duration'] ?? 0);
 check($wait2 >= 0.2, 'rollback: B реально ожидал (длительность ' . $wait2 . 's)', $failures);
+
+// Обязательное DB-level доказательство: ALL условия должны выполняться В ОДНОМ snapshot.
+$observerOk = ($r2['evidence_last']['available'] ?? false) === true
+    && ($r2['evidence_last']['trx_available'] ?? false) === true
+    && ($r2['evidence_last']['processlist_available'] ?? false) === true;
+check($observerOk, 'rollback: observer доступен (LOCK_WAITS/TRX/PROCESSLIST)', $failures);
+check($r2['evidence_count'] > 0, 'rollback: собрано lock evidence (snapshots=' . $r2['evidence_count'] . ')', $failures);
+
+$aConn = (int) ($r2['a_ready']['conn'] ?? 0);
+$bConn = (int) ($r2['b_start']['conn'] ?? 0);
+check($aConn > 0 && $bConn > 0 && $aConn !== $bConn, 'rollback: разные CONNECTION_ID A/B', $failures);
+
+$matchedSnapshot = null;
+$rejections = [];
+$releaseTime = (float) ($r2['a']['time'] ?? 0);
+foreach ($r2['evidence_all'] as $snap) {
+    if (($snap['available'] ?? false) !== true) {
+        $rejections[] = 'observer_unavailable';
+        continue;
+    }
+    if (($snap['waits'] ?? []) === []) {
+        $rejections[] = 'no_waits';
+        continue;
+    }
+    $correlationOk = false;
+    $corrReq = 0;
+    $corrBlock = 0;
+    $corrState = 'other';
+    foreach ($snap['correlations'] ?? [] as $corr) {
+        $corrReq = (int) ($corr['requesting_conn'] ?? 0);
+        $corrBlock = (int) ($corr['blocking_conn'] ?? 0);
+        $rawState = (string) ($corr['requesting_state'] ?? '');
+        $corrState = in_array($rawState, ['LOCK WAIT', 'RUNNING', 'WAITING'], true) ? $rawState : 'other';
+        if ($corrReq === $bConn && $corrBlock === $aConn && $corrState === 'LOCK WAIT') {
+            $correlationOk = true;
+            break;
+        }
+    }
+    if (!$correlationOk) {
+        $rejections[] = 'correlation_mismatch(req=' . $corrReq . ',block=' . $corrBlock . ',state=' . $corrState . ')';
+        continue;
+    }
+    $processOk = false;
+    $procFound = false;
+    $procHasSql = false;
+    foreach ($snap['processlist'] ?? [] as $proc) {
+        if ((int) ($proc['ID'] ?? 0) !== $bConn) {
+            continue;
+        }
+        $procFound = true;
+        if (str_contains((string) ($proc['info'] ?? ''), 'FOR UPDATE')) {
+            $procHasSql = true;
+            $processOk = true;
+            break;
+        }
+    }
+    if (!$processOk) {
+        $rejections[] = 'processlist_mismatch(row=' . ($procFound ? 'yes' : 'no')
+            . ',for_update=' . ($procHasSql ? 'yes' : 'no') . ')';
+        continue;
+    }
+    if ($releaseTime <= 0 || (float) ($snap['at'] ?? 0) >= $releaseTime) {
+        $rejections[] = 'snapshot_too_late';
+        continue;
+    }
+    $matchedSnapshot = $snap;
+    break;
+}
+check($matchedSnapshot !== null,
+    'rollback: единый snapshot подтверждает, что B ждёт блокировку A', $failures);
+if ($matchedSnapshot === null) {
+    $counts = array_count_values($rejections);
+    ksort($counts);
+    echo 'ROLLBACK REJECTIONS=' . json_encode($counts, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+}
+echo 'ROLLBACK LOCK EVIDENCE (matched)='
+    . json_encode($matchedSnapshot ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+
 $opAfterRb = one($pdo, 'SELECT STATE,GENERATION FROM stock_import_operations WHERE ID=' . $r2['op_id']);
 echo 'B retry result after rollback=' . json_encode($r2['b']['result'] ?? null)
     . ' op=' . json_encode($opAfterRb) . "\n";
