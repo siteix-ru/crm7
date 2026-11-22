@@ -105,6 +105,7 @@
   let unit = $state('шт');
   let article = $state('');
   let quantity = $state('0');
+  let physicalQuantity = $state('');
   let description = $state('');
   let groupId = $state(0);
   let warehousePrices = $state<Record<string, Record<string, string>>>({});
@@ -431,6 +432,7 @@
         unit = item.unit;
         article = item.article ?? '';
         quantity = String(item.quantity);
+        physicalQuantity = '';
         description = item.description ?? '';
         groupId = item.group_id ?? 0;
         warehouseId = item.warehouse_id;
@@ -773,12 +775,13 @@
     saving = true;
 
     try {
+      const hasPhysical = physicalQuantity.trim() !== '';
       const payload = {
         name: trimmedName,
         unit: unit.trim(),
         article: article.trim(),
         type: itemType,
-        quantity: qty,
+        ...(hasPhysical ? { physical_quantity: physicalQuantity.trim() } : { quantity: qty }),
         description: description.trim(),
         ...(pricesEnabled && priceColumns.length > 0 ? { warehouse_prices: pricePayload } : {}),
         ...(groupsEnabled ? { group_id: groupId > 0 ? groupId : null } : {}),
@@ -1043,6 +1046,12 @@
 
           <div class="row">
             <Input label="Артикул" bind:value={article} placeholder="Код / SKU" maxlength={128} disabled={!canEdit} />
+            <Input
+              label="Физический остаток (необязательно)"
+              bind:value={physicalQuantity}
+              placeholder="Оставьте пустым — используется доступный остаток"
+              disabled={!canEdit}
+            />
             <Select label="Единица измерения" bind:value={unit} disabled={!canEdit}>
               {#if unit && !UNITS.includes(unit)}
                 <option value={unit}>{unit}</option>

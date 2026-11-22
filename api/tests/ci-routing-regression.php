@@ -53,6 +53,7 @@ foreach (glob($root . '/api/tests/*.php') ?: [] as $file) {
 }
 sort($dbDependent);
 $expected = [
+    'stock-abs-accounting-integration.php',
     'stock-import-fencing-integration.php',
     'stock-import-idempotency-cleanup.php',
     'stock-import-idempotency-integration.php',
@@ -60,6 +61,7 @@ $expected = [
     'stock-import-lock-integration.php',
     'stock-import-two-pdo-integration.php',
     'stock-reservation-concurrency-integration.php',
+    'stock-warehouse-collapse-integration.php',
 ];
 check($dbDependent === $expected,
     'routing: DB-dependent test set matches approved list (' . implode(',', $dbDependent) . ')', $failures);
