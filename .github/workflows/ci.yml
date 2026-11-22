@@ -63,7 +63,7 @@ jobs:
           for f in api/tests/*.php; do
             [ -e "$f" ] || continue
             case "$(basename "$f")" in
-              stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php)
+              stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php|stock-reservation-concurrency-integration.php)
                 echo "DB-dependent test routed to stock-import-integration: $f"
                 continue
                 ;;
@@ -534,6 +534,7 @@ jobs:
           php api/tests/stock-import-fencing-integration.php
           php api/tests/stock-import-idempotency-cleanup.php
           php api/tests/stock-import-idempotency-recover.php
+          php api/tests/stock-reservation-concurrency-integration.php
       - name: Legacy lock integration (48 assertions, numeric exit)
         env:
           CRM_STOCK_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=crm_cistock_test;charset=utf8mb4
