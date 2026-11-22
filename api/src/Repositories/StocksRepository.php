@@ -959,7 +959,7 @@ final class StocksRepository
         )->fetchAll() ?: [];
     }
 
-    public function updateLevelFromImport(int $id, string $updateSid, string $actualDate, float $quantity): void
+    public function updateLevelFromImport(int $id, string $updateSid, string $actualDate, string $quantity): void
     {
         $stmt = Database::pdo()->prepare(
             'UPDATE stock_levels SET LAST_STOCK_UPDATE_SID = ?, ACTUAL_DATE = ?, QUANTITY = ? WHERE ID = ?'

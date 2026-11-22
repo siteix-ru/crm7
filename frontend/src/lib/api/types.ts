@@ -618,7 +618,10 @@ export interface StockLevel {
   id: number;
   name: string;
   unit: string;
+  /** Available balance (legacy field). */
   quantity: number;
+  /** Physical balance = available + reserved. */
+  physical_quantity?: string;
   description: string;
   actual_date: string | null;
   price: number | null;
@@ -640,11 +643,14 @@ export interface StockLevel {
 export interface StockItemPayload {
   name: string;
   unit: string;
-  quantity: number;
+  /** Available balance (legacy field). Optional when physical_quantity is provided. */
+  quantity?: number;
+  /** Optional physical balance; must match quantity + reserved when sent together. */
+  physical_quantity?: number | string;
   description: string;
   prices?: Record<string, number | null>;
   group_id?: number | null;
-  levels?: { warehouse_sid: string; quantity: number }[];
+  levels?: { warehouse_sid: string; quantity: number; physical_quantity?: number | string }[];
   warehouse_prices?: Record<string, Record<string, number | null>>;
   article?: string;
   type?: string;

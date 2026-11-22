@@ -120,6 +120,86 @@ final class StockReservationRepository
     }
 
     /**
+     * Shared lock on the topology sentinel. Must be called inside a transaction.
+     * Multiple reservations may hold this lock concurrently; topology changes cannot.
+     */
+    public function lockTopologyShared(): void
+    {
+        $stmt = Database::pdo()->prepare(
+            "SELECT `value` FROM settings WHERE `key` = 'module.warehouses' LOCK IN SHARE MODE"
+        );
+        $stmt->execute();
+        if ($stmt->fetchColumn() === false) {
+            throw new \RuntimeException('topology sentinel is missing');
+        }
+    }
+
+    /**
+     * Exclusive lock on the same sentinel. Must be called inside a transaction.
+     * Waits for all in-flight reservations to finish before a topology change starts.
+     */
+    public function lockTopologyExclusive(): void
+    {
+        $stmt = Database::pdo()->prepare(
+            "SELECT `value` FROM settings WHERE `key` = 'module.warehouses' FOR UPDATE"
+        );
+        $stmt->execute();
+        if ($stmt->fetchColumn() === false) {
+            throw new \RuntimeException('topology sentinel is missing');
+        }
+    }
+
+    /**
+     * Counts every reservation row, including orphans with a missing level.
+     */
+    public function countAll(): int
+    {
+        return (int) Database::pdo()->query('SELECT COUNT(*) FROM stock_reservations')->fetchColumn();
+    }
+
+    /** Reserved quantity for one level, as a canonical DECIMAL(20,5) string. */
+    public function reservedForLevel(int $levelId): string
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT CAST(COALESCE(SUM(quantity), 0) AS DECIMAL(20,5)) FROM stock_reservations WHERE stock_level_id = ?'
+        );
+        $stmt->execute([$levelId]);
+        $value = $stmt->fetchColumn();
+
+        return \App\Support\Decimal::parse($value === false ? '0' : (string) $value);
+    }
+
+    /** Available quantity for one level, as a canonical DECIMAL(20,5) string. */
+    public function availableForLevel(int $levelId): string
+    {
+        $stmt = Database::pdo()->prepare('SELECT CAST(QUANTITY AS DECIMAL(20,5)) FROM stock_levels WHERE ID = ? LIMIT 1');
+        $stmt->execute([$levelId]);
+        $value = $stmt->fetchColumn();
+
+        return \App\Support\Decimal::parse($value === false ? '0' : (string) $value);
+    }
+
+    /**
+     * Absolute available write for an ABS operation. Returns false when the level is missing.
+     */
+    public function setLevelAvailable(int $levelId, string $available): bool
+    {
+        $pdo = Database::pdo();
+        $check = $pdo->prepare('SELECT 1 FROM stock_levels WHERE ID = ? FOR UPDATE');
+        $check->execute([$levelId]);
+        if ($check->fetchColumn() === false) {
+            return false;
+        }
+
+        $stmt = $pdo->prepare(
+            'UPDATE stock_levels SET QUANTITY = ?, ACTUAL_DATE = CURDATE() WHERE ID = ?'
+        );
+        $stmt->execute([$available, $levelId]);
+
+        return true;
+    }
+
+    /**
      * Atomically applies a stock change only if the resulting balance stays >= 0.
      * Returns false when the level is missing or the condition does not hold.
      */

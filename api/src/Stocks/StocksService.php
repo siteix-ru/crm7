@@ -18,9 +18,11 @@ use App\Repositories\SettingsRepository;
 use App\Repositories\StockPhotoRepository;
 use App\Repositories\StocksRepository;
 use App\Repositories\StockImportIdempotencyRepository;
+use App\Repositories\StockReservationRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\ViewLogRepository;
 use App\Support\ImageProcessor;
+use App\Support\Decimal;
 use App\Support\ItemTypes;
 use App\Support\Storage;
 use Throwable;
@@ -72,7 +74,8 @@ final class StocksService
         private readonly StockPhotoRepository $photos = new StockPhotoRepository(),
         private readonly SettingsRepository $settings = new SettingsRepository(),
         private readonly ItemTypeService $itemTypes = new ItemTypeService(),
-        private readonly StockImportIdempotencyRepository $idem = new StockImportIdempotencyRepository()
+        private readonly StockImportIdempotencyRepository $idem = new StockImportIdempotencyRepository(),
+        private readonly StockReservationRepository $reservations = new StockReservationRepository()
     ) {
     }
 
@@ -171,6 +174,10 @@ final class StocksService
         $assignedTypeIds = array_map(static fn (array $type): int => (int) $type['id'], $assignedTypes);
 
         $rows = $this->stocks->levels($sids, $filters, $page, $perPage, $typeIds);
+        foreach ($rows as $index => $row) {
+            $reserved = $this->reservations->reservedForLevel((int) $row['id']);
+            $rows[$index]['physical_quantity'] = Decimal::add((string) $row['quantity'], $reserved);
+        }
         $total = $this->stocks->levelsCount($sids, $filters);
 
         $priceMap = [];
@@ -236,6 +243,7 @@ final class StocksService
                     'name' => (string) $row['name'],
                     'unit' => (string) ($row['unit'] ?? ''),
                     'quantity' => (float) $row['quantity'],
+                    'physical_quantity' => (string) ($row['physical_quantity'] ?? (string) $row['quantity']),
                     'description' => (string) ($row['description'] ?? ''),
                     'actual_date' => $row['actual_date'] !== null ? (string) $row['actual_date'] : null,
                     'price' => $sid !== '' && isset($priceMap[$stockSid][$sid]) ? (float) $priceMap[$stockSid][$sid] : null,
@@ -403,6 +411,10 @@ final class StocksService
                 'name' => (string) $level['name'],
                 'unit' => (string) ($level['unit'] ?? ''),
                 'quantity' => (float) $level['quantity'],
+                'physical_quantity' => Decimal::add(
+                    (string) $level['quantity'],
+                    $this->reservations->reservedForLevel((int) $level['id'])
+                ),
                 'description' => (string) ($level['description'] ?? ''),
                 'actual_date' => $level['actual_date'] !== null ? (string) $level['actual_date'] : null,
                 'price' => $price,
@@ -1054,48 +1066,64 @@ final class StocksService
             ? $this->normalizeGroupId($input['group_id'] ?? null)
             : null;
 
-        $item = $this->stocks->upsertNomenclature($name, $unit, $description);
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+        try {
+            $this->reservations->lockTopologyShared();
+            $available = $this->resolveAvailable($input, 0, false);
 
-        if ($item === null) {
-            throw new HttpException(500, 'server_error', 'Не удалось создать номенклатуру');
+            $item = $this->stocks->upsertNomenclature($name, $unit, $description);
+
+            if ($item === null) {
+                throw new HttpException(500, 'server_error', 'Не удалось создать номенклатуру');
+            }
+
+            if ($this->stocks->levelExists((string) $warehouse['SID'], (string) $item['SID'])) {
+                throw new HttpException(422, 'duplicate_item', 'Номенклатура с таким названием уже есть на складе — отредактируйте её');
+            }
+
+            $this->stocks->setNomenclatureGroup((string) $item['SID'], $groupId);
+            $this->stocks->setNomenclatureArticle((string) $item['SID'], $this->normalizeArticle($input['article'] ?? null));
+            $this->stocks->setNomenclatureType(
+                (string) $item['SID'],
+                array_key_exists('type', $input) ? $this->normalizeType($input['type']) : $this->storedType('')
+            );
+
+            // Новая позиция создаётся деактивированной — пользователь активирует её отдельно.
+            $isNewPosition = $this->stocks->levelsForName((string) $item['SID']) === [];
+
+            if ($isNewPosition) {
+                $this->stocks->setNomenclatureActive((string) $item['SID'], false);
+            }
+
+            $actualDate = date('Y-m-d');
+
+            $itemId = $this->stocks->createLevel([
+                'update_sid' => null,
+                'actual_date' => $actualDate,
+                'stock' => (string) $warehouse['NAME'],
+                'stock_sid' => (string) $warehouse['SID'],
+                'name' => $name,
+                'name_sid' => (string) $item['SID'],
+                'unit' => $unit,
+                'quantity' => $available,
+            ]);
+
+            $this->savePrices($user, $warehouse, $item, $input);
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $exception;
         }
-
-        if ($this->stocks->levelExists((string) $warehouse['SID'], (string) $item['SID'])) {
-            throw new HttpException(422, 'duplicate_item', 'Номенклатура с таким названием уже есть на складе — отредактируйте её');
-        }
-
-        $this->stocks->setNomenclatureGroup((string) $item['SID'], $groupId);
-        $this->stocks->setNomenclatureArticle((string) $item['SID'], $this->normalizeArticle($input['article'] ?? null));
-        $this->stocks->setNomenclatureType(
-            (string) $item['SID'],
-            array_key_exists('type', $input) ? $this->normalizeType($input['type']) : $this->storedType('')
-        );
-
-        // Новая позиция создаётся деактивированной — пользователь активирует её отдельно.
-        $isNewPosition = $this->stocks->levelsForName((string) $item['SID']) === [];
-
-        if ($isNewPosition) {
-            $this->stocks->setNomenclatureActive((string) $item['SID'], false);
-        }
-
-        $actualDate = date('Y-m-d');
-
-        $itemId = $this->stocks->createLevel([
-            'update_sid' => null,
-            'actual_date' => $actualDate,
-            'stock' => (string) $warehouse['NAME'],
-            'stock_sid' => (string) $warehouse['SID'],
-            'name' => $name,
-            'name_sid' => (string) $item['SID'],
-            'unit' => $unit,
-            'quantity' => $quantity,
-        ]);
-
-        $this->savePrices($user, $warehouse, $item, $input);
 
         $this->audit->log($user, 'stocks.item.create', 'stocks', $warehouseId, [
             'name' => $name,
-            'quantity' => $quantity,
+            'quantity' => $available,
+            'physical_quantity' => $available,
+            'reserved' => '0.00000',
+            'mode' => array_key_exists('physical_quantity', $input) ? 'physical' : 'available',
         ], null);
 
         return [
@@ -1103,7 +1131,8 @@ final class StocksService
                 'id' => $itemId,
                 'name' => $name,
                 'unit' => $unit,
-                'quantity' => $quantity,
+                'quantity' => $available,
+                'physical_quantity' => $available,
                 'description' => $description ?? '',
                 'actual_date' => $actualDate,
                 'prices' => $this->prices->pricesForStockItem((string) $warehouse['SID'], (string) $item['SID']),
@@ -1155,46 +1184,82 @@ final class StocksService
             }
         }
 
-        $this->stocks->renameNomenclature($nameSid, $name, $unit, $description);
-        $this->stocks->setNomenclatureGroup($nameSid, $groupId);
+        $pdo = Database::pdo();
+        $absInput = $input;
 
-        if (array_key_exists('article', $input)) {
-            $this->stocks->setNomenclatureArticle($nameSid, $this->normalizeArticle($input['article']));
-        }
+        $pdo->beginTransaction();
+        try {
+            $this->reservations->lockTopologyShared();
 
-        $storedType = $this->storedType((string) ($level['type'] ?? ''));
-        $type = $storedType;
+            // Reads happen only after the shared topology lock is held.
+            $availableBefore = $this->reservations->availableForLevel($itemId);
+            $reserved = $this->reservations->reservedForLevel($itemId);
+            $physicalBefore = Decimal::add($availableBefore, $reserved);
 
-        if (array_key_exists('type', $input)) {
-            $type = $this->normalizeType($input['type'], $storedType);
-            $this->stocks->setNomenclatureType($nameSid, $type);
-        }
-
-        if ($type === ItemTypes::SET) {
-            if (array_key_exists('composition', $input)) {
-                $this->stocks->replaceComposition($nameSid, $this->normalizeComposition($nameSid, $input['composition']));
+            // PATCH without a balance field must preserve the current available
+            // value read under the lock (legacy code used the same fallback).
+            if (!array_key_exists('quantity', $absInput) && !array_key_exists('physical_quantity', $absInput)) {
+                $absInput['quantity'] = $availableBefore;
             }
-        } elseif (array_key_exists('type', $input)) {
-            $this->stocks->replaceComposition($nameSid, []);
+
+            $this->stocks->renameNomenclature($nameSid, $name, $unit, $description);
+            $this->stocks->setNomenclatureGroup($nameSid, $groupId);
+
+            if (array_key_exists('article', $input)) {
+                $this->stocks->setNomenclatureArticle($nameSid, $this->normalizeArticle($input['article']));
+            }
+
+            $storedType = $this->storedType((string) ($level['type'] ?? ''));
+            $type = $storedType;
+
+            if (array_key_exists('type', $input)) {
+                $type = $this->normalizeType($input['type'], $storedType);
+                $this->stocks->setNomenclatureType($nameSid, $type);
+            }
+
+            if ($type === ItemTypes::SET) {
+                if (array_key_exists('composition', $input)) {
+                    $this->stocks->replaceComposition($nameSid, $this->normalizeComposition($nameSid, $input['composition']));
+                }
+            } elseif (array_key_exists('type', $input)) {
+                $this->stocks->replaceComposition($nameSid, []);
+            }
+
+            $available = $this->resolveAvailable($absInput, $itemId, true);
+            if (!$this->reservations->setLevelAvailable($itemId, $available)) {
+                throw new HttpException(409, 'stock_level_missing', 'Уровень остатка не найден');
+            }
+
+            if (isset($input['levels']) && is_array($input['levels'])) {
+                $this->saveLevelQuantities($user, $capabilities, $nameSid, $itemId, $name, $unit, $input['levels']);
+            }
+
+            $item = ['SID' => $nameSid, 'NAME' => $name];
+            $this->savePrices($user, $warehouse, $item, $input);
+
+            if (isset($input['warehouse_prices']) && is_array($input['warehouse_prices'])) {
+                $this->saveWarehousePrices($user, $capabilities, $nameSid, $input['warehouse_prices']);
+            }
+
+            $pdo->commit();
+        } catch (Throwable $exception) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $exception;
         }
 
-        $this->stocks->updateLevelQuantity($itemId, $quantity);
-
-        if (isset($input['levels']) && is_array($input['levels'])) {
-            $this->saveLevelQuantities($user, $capabilities, $nameSid, $itemId, $name, $unit, $input['levels']);
-        }
-
-        $item = ['SID' => $nameSid, 'NAME' => $name];
-        $this->savePrices($user, $warehouse, $item, $input);
-
-        if (isset($input['warehouse_prices']) && is_array($input['warehouse_prices'])) {
-            $this->saveWarehousePrices($user, $capabilities, $nameSid, $input['warehouse_prices']);
-        }
-
+        $physicalAfter = Decimal::add($available, $reserved);
         $this->audit->log($user, 'stocks.item.update', 'stocks', (int) $warehouse['ID'], [
             'id' => $itemId,
             'name' => $name,
-            'quantity' => $quantity,
+            'quantity' => $available,
+            'available_before' => $availableBefore,
+            'available_after' => $available,
+            'reserved' => $reserved,
+            'physical_before' => $physicalBefore,
+            'physical_after' => $physicalAfter,
+            'mode' => array_key_exists('physical_quantity', $input) ? 'physical' : 'available',
         ], null);
 
         return [
@@ -1202,7 +1267,8 @@ final class StocksService
                 'id' => $itemId,
                 'name' => $name,
                 'unit' => $unit,
-                'quantity' => $quantity,
+                'quantity' => $available,
+                'physical_quantity' => $physicalAfter,
                 'description' => $description ?? '',
                 'actual_date' => date('Y-m-d'),
                 'prices' => $this->prices->pricesForStockItem((string) $warehouse['SID'], (string) $item['SID']),
@@ -1305,7 +1371,9 @@ final class StocksService
         }
 
         foreach ($levels as $entry) {
-            if (!is_array($entry) || !array_key_exists('quantity', $entry)) {
+            if (!is_array($entry)
+                || (!array_key_exists('quantity', $entry) && !array_key_exists('physical_quantity', $entry))
+            ) {
                 continue;
             }
 
@@ -1318,8 +1386,6 @@ final class StocksService
             $warehouse = $accessible[$stockSid];
             $this->requireWarehouse($user, $capabilities, (int) $warehouse['ID']);
 
-            $quantity = (float) $entry['quantity'];
-
             if (isset($existing[$stockSid])) {
                 $row = $existing[$stockSid];
 
@@ -1327,10 +1393,15 @@ final class StocksService
                     continue;
                 }
 
-                $this->stocks->updateLevelQuantity((int) $row['id'], $quantity);
+                $levelId = (int) $row['id'];
+                $available = $this->resolveAvailable($entry, $levelId, true);
+                if (!$this->reservations->setLevelAvailable($levelId, $available)) {
+                    throw new HttpException(409, 'stock_level_missing', 'Уровень остатка не найден');
+                }
                 continue;
             }
 
+            $available = $this->resolveAvailable($entry, 0, false);
             $this->stocks->createLevel([
                 'update_sid' => null,
                 'actual_date' => date('Y-m-d'),
@@ -1339,7 +1410,7 @@ final class StocksService
                 'name' => $name,
                 'name_sid' => $nameSid,
                 'unit' => $unit,
-                'quantity' => $quantity,
+                'quantity' => $available,
             ]);
         }
     }
@@ -1458,6 +1529,53 @@ final class StocksService
         }
     }
 
+    private function parseDecimalInput(mixed $raw, string $field): ?string
+    {
+        if ($raw === null || $raw === '') {
+            return null;
+        }
+        try {
+            return Decimal::parse($raw);
+        } catch (\InvalidArgumentException) {
+            throw new HttpException(422, 'validation_error', 'Укажите корректное значение ' . $field);
+        }
+    }
+
+    /**
+     * Resolves the available balance from legacy `quantity` (available) and/or
+     * `physical_quantity`. Caller must already hold the shared topology lock.
+     */
+    private function resolveAvailable(array $input, int $levelId, bool $existing): string
+    {
+        $legacy = $this->parseDecimalInput($input['quantity'] ?? null, 'quantity') ?? '0.00000';
+        $physical = $this->parseDecimalInput($input['physical_quantity'] ?? null, 'physical_quantity');
+        $reserved = $existing ? $this->reservations->reservedForLevel($levelId) : '0.00000';
+
+        if ($physical !== null) {
+            $expected = Decimal::add($legacy, $reserved);
+            if (array_key_exists('quantity', $input) && $input['quantity'] !== null
+                && Decimal::compare($physical, $expected) !== 0
+            ) {
+                throw new HttpException(
+                    422,
+                    'validation_error',
+                    'physical_quantity должен равняться quantity + reserved'
+                );
+            }
+            $available = Decimal::sub($physical, $reserved);
+            if (Decimal::compare($available, '0.00000') < 0 && !$this->settings->allowZeroStock()) {
+                throw new HttpException(422, 'validation_error', 'Физический остаток меньше зарезервированного');
+            }
+        } else {
+            $available = $legacy;
+            if (Decimal::compare($available, '0.00000') < 0 && !$this->settings->allowZeroStock()) {
+                throw new HttpException(422, 'validation_error', 'Остаток должен быть неотрицательным');
+            }
+        }
+
+        return $available;
+    }
+
     /**
      * @return array{0: string, 1: string, 2: float, 3: ?string}
      */
@@ -1491,7 +1609,7 @@ final class StocksService
 
         $quantity = (float) $raw;
 
-        if ($quantity < 0 || $quantity > 1000000000) {
+        if (($quantity < 0 && !$this->settings->allowZeroStock()) || $quantity > 1000000000) {
             throw new HttpException(422, 'validation_error', 'Остаток должен быть неотрицательным');
         }
 
@@ -2055,15 +2173,31 @@ final class StocksService
         $pdo = Database::pdo();
         $name = $this->settings->singleWarehouseName();
         $sid = self::SINGLE_WAREHOUSE_SID;
-
-        $levels = $this->stocks->mergedLevels();
-        $prices = $this->stocks->mergedPrices();
-
-        $this->stocks->snapshotLevels();
+        $levels = [];
+        $prices = [];
 
         $pdo->beginTransaction();
 
         try {
+            try {
+                // Exclusive topology lock: waits for all in-flight reservations.
+                $this->reservations->lockTopologyExclusive();
+            } catch (\PDOException $exception) {
+                throw new HttpException(423, 'inventory_busy', 'Инвентарные операции временно недоступны');
+            }
+
+            if ($this->reservations->countAll() > 0) {
+                throw new HttpException(
+                    423,
+                    'warehouse_has_reservations',
+                    'Есть активные брони — схлопывание складов запрещено'
+                );
+            }
+
+            $levels = $this->stocks->mergedLevels();
+            $prices = $this->stocks->mergedPrices();
+            $this->stocks->snapshotLevels();
+
             $pdo->exec('DELETE FROM stock_levels');
             $pdo->exec('DELETE FROM nomenclature_prices');
             $pdo->exec('DELETE FROM user_level_stock');
@@ -2106,7 +2240,9 @@ final class StocksService
 
             $pdo->commit();
         } catch (Throwable $exception) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $exception;
         }
 
@@ -2376,6 +2512,7 @@ final class StocksService
             $this->acquireImportLock($pdo);
             $pdo->beginTransaction();
             $locked = true;
+            $this->reservations->lockTopologyShared();
 
             $workerState = $this->idem->lockForWorker($pdo, $operationId, $attemptId, $generation, $owner);
             if ($workerState === null) {
@@ -2403,12 +2540,13 @@ final class StocksService
             $insert = $this->stocks->prepareLevelInsert();
 
             $pricesImported = 0;
+            $physicalRows = 0;
 
             foreach ($rows as $row) {
                 $stockName = $row['stock'];
                 $itemName = $row['item'];
                 $unit = $row['unit'];
-                $quantity = $row['quantity'];
+                $quantity = $row['quantity'] ?? '0.00000';
                 if (!isset($warehouses[$stockName])) {
                     if (!$warehousesEnabled) {
                         $warehouse = $this->ensureSingleWarehouse();
@@ -2453,14 +2591,44 @@ final class StocksService
                 }
 
                 $key = (string) $warehouses[$stockName]['SID'] . '|' . (string) $nomenclature[$itemName]['SID'];
-                $seen[$key] = $quantity;
+                $levelIdForRow = isset($existing[$key]) ? (int) $existing[$key]['id'] : 0;
+                $reservedRow = $levelIdForRow > 0
+                    ? $this->reservations->reservedForLevel($levelIdForRow)
+                    : '0.00000';
+                $physicalRow = $row['physical_quantity'] ?? null;
+                $available = $quantity;
+
+                if ($physicalRow !== null) {
+                    $physicalRows++;
+                    $expected = Decimal::add($quantity, $reservedRow);
+                    if (array_key_exists('quantity', $row) && $row['quantity'] !== null
+                        && Decimal::compare($physicalRow, $expected) !== 0
+                    ) {
+                        throw new HttpException(
+                            422,
+                            'physical_quantity_mismatch',
+                            'Строка ' . $itemName . ': physical_quantity не совпадает с остатком и резервом'
+                        );
+                    }
+                    $available = Decimal::sub($physicalRow, $reservedRow);
+                }
+
+                if (Decimal::compare($available, '0.00000') < 0 && !$this->settings->allowZeroStock()) {
+                    throw new HttpException(
+                        422,
+                        'insufficient_stock',
+                        'Строка ' . $itemName . ': физический остаток меньше зарезервированного'
+                    );
+                }
+
+                $seen[$key] = $available;
 
                 if (isset($existing[$key])) {
                     $this->stocks->updateLevelFromImport(
                         $existing[$key]['id'],
                         $updateSid,
                         $actualDate,
-                        $quantity
+                        $available
                     );
                 } else {
                     $insert->execute([
@@ -2471,7 +2639,7 @@ final class StocksService
                         $itemName,
                         (string) $nomenclature[$itemName]['SID'],
                         $unit !== '' ? $unit : null,
-                        $quantity,
+                        $available,
                     ]);
 
                     $created++;
@@ -2572,6 +2740,7 @@ final class StocksService
                     'file' => $originalName,
                     'imported' => $imported,
                     'skipped' => $skipped,
+                    'physical_rows' => $physicalRows,
                     'actual_date' => $actualDate,
                 ], null);
             } catch (Throwable $exception) {
@@ -2781,7 +2950,7 @@ final class StocksService
     }
 
     /**
-     * @return array{header_index: int, stock: ?int, item: int, unit: ?int, quantity: int, prices: array<int, array{index: int, name: string}>}|null
+     * @return array{header_index: int, stock: ?int, item: int, unit: ?int, quantity: ?int, physical: ?int, prices: array<int, array{index: int, name: string}>}|null
      */
     private function detectColumns(array $cells): ?array
     {
@@ -2790,7 +2959,7 @@ final class StocksService
 
         for ($index = 0; $index < $limit; $index++) {
             foreach ($cells[$index] as $cell) {
-                if (preg_match('/^\s*остат/ui', trim((string) $cell)) === 1) {
+                if (preg_match('/^\s*(?:остат|физическ|physical)/ui', trim((string) $cell)) === 1) {
                     $headerIndex = $index;
                     break 2;
                 }
@@ -2805,6 +2974,7 @@ final class StocksService
         $item = null;
         $unit = null;
         $quantity = null;
+        $physical = null;
         $prices = [];
 
         foreach ($cells[$headerIndex] as $index => $cell) {
@@ -2829,6 +2999,13 @@ final class StocksService
                 continue;
             }
 
+            // Physical headers are checked first so that "Остаток физический"
+            // is not captured by the legacy "Остаток" prefix.
+            if (preg_match('/^physical[_\s-]?quantity|физическ/ui', $text) === 1) {
+                $physical = (int) $index;
+                continue;
+            }
+
             if (preg_match('/^остат/ui', $text) === 1) {
                 $quantity = (int) $index;
                 continue;
@@ -2841,7 +3018,7 @@ final class StocksService
             $prices[] = ['index' => (int) $index, 'name' => $text];
         }
 
-        if ($item === null || $quantity === null) {
+        if ($item === null || ($quantity === null && $physical === null)) {
             return null;
         }
 
@@ -2851,6 +3028,7 @@ final class StocksService
             'item' => $item,
             'unit' => $unit,
             'quantity' => $quantity,
+            'physical' => $physical,
             'prices' => $prices,
         ];
     }
@@ -2896,10 +3074,29 @@ final class StocksService
             }
 
             $unit = $columns['unit'] !== null ? trim((string) ($row[$columns['unit']] ?? '')) : '';
-            $rawQuantity = (string) ($row[$columns['quantity']] ?? '');
-            $quantity = $this->parseQuantity($rawQuantity);
+            $rawQuantity = $columns['quantity'] !== null ? (string) ($row[$columns['quantity']] ?? '') : '';
+            $quantity = $rawQuantity !== '' ? $this->parseQuantity($rawQuantity) : null;
+            $physical = null;
 
-            if ($quantity === null) {
+            if ($columns['physical'] !== null) {
+                $rawPhysical = (string) ($row[$columns['physical']] ?? '');
+                if ($rawPhysical !== '') {
+                    try {
+                        $physical = Decimal::parse($rawPhysical);
+                    } catch (\InvalidArgumentException) {
+                        $physical = null;
+                    }
+                    if ($physical === null) {
+                        $skipped++;
+                        if (count($errors) < 20) {
+                            $errors[] = 'Строка ' . ($index + 1) . ': некорректный физический остаток "' . trim($rawPhysical) . '"';
+                        }
+                        continue;
+                    }
+                }
+            }
+
+            if ($quantity === null && $physical === null) {
                 $skipped++;
 
                 if (count($errors) < 20) {
@@ -2919,13 +3116,19 @@ final class StocksService
                 }
             }
 
-            $rows[] = [
+            $rowData = [
                 'stock' => $stockName,
                 'item' => $itemName,
                 'unit' => $unit,
-                'quantity' => $quantity,
+                'physical_quantity' => $physical,
                 'prices' => $prices,
             ];
+            if ($columns['quantity'] !== null && $quantity !== null) {
+                // Legacy cells arrive as float; canonicalize to DECIMAL(20,5)
+                // with the same rounding MySQL applied when the float was bound.
+                $rowData['quantity'] = Decimal::parse(number_format($quantity, 5, '.', ''));
+            }
+            $rows[] = $rowData;
         }
 
         return [
@@ -3005,7 +3208,8 @@ final class StocksService
                 'stock' => $stockName,
                 'item' => $itemName,
                 'unit' => $unit,
-                'quantity' => $quantity,
+                'quantity' => Decimal::parse(number_format($quantity, 5, '.', '')),
+                'physical_quantity' => null,
                 'prices' => [],
             ];
         }

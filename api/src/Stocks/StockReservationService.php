@@ -40,6 +40,9 @@ final class StockReservationService
 
     public function apply(int $requestId, array $items): void
     {
+        // Shared topology lock: prevents a concurrent warehouse collapse from
+        // deleting levels while this reservation is being written.
+        $this->reservations->lockTopologyShared();
         $desired = $this->aggregate($items);
         $allowZero = $this->settings->allowZeroStock();
         $reserveEnabled = $this->settings->stockReserveEnabled();
@@ -92,6 +95,7 @@ final class StockReservationService
      */
     public function release(int $requestId): void
     {
+        $this->reservations->lockTopologyShared();
         $current = $this->reservations->forRequestFresh($requestId);
 
         if ($current === []) {
