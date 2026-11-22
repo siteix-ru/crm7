@@ -53,6 +53,7 @@ foreach (glob($root . '/api/tests/*.php') ?: [] as $file) {
 }
 sort($dbDependent);
 $expected = [
+    'request-transition-api-integration.php',
     'stock-abs-accounting-integration.php',
     'stock-import-fencing-integration.php',
     'stock-import-idempotency-cleanup.php',

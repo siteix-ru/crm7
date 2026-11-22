@@ -1342,6 +1342,12 @@ final class RequestService
 
             $isManager = $this->canManage($user, $capabilities, $request);
 
+            // Staff-side status changes require the capability. The separate
+            // client-owner cancellation path below intentionally stays unchanged.
+            if ($isManager && !in_array('requests.transition', $capabilities, true)) {
+                throw new HttpException(403, 'forbidden', 'Недостаточно прав для смены статуса');
+            }
+
             if (!$isManager && $toStatus !== 'canceled') {
                 throw new HttpException(403, 'forbidden', 'Клиент может только отменить заявку');
             }
