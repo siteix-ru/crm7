@@ -161,7 +161,7 @@ jobs:
           set -euo pipefail
           SENTINEL=$(python3 -c 'import uuid; print(uuid.uuid4())')
           echo "CRM_STOCK_TEST_SENTINEL=$SENTINEL" >> "$GITHUB_ENV"
-          mariadb -h 127.0.0.1 -uroot -proot crm_cistock_test -e \
+          mariadb --ssl=0 -h 127.0.0.1 -uroot -proot crm_cistock_test -e \
             "INSERT IGNORE INTO level_capabilities (level,capability_code) VALUES (10,'stocks.import'); \
              CREATE TABLE IF NOT EXISTS crm_disposable_sentinel (id INT PRIMARY KEY, marker VARCHAR(64) NOT NULL); \
              DELETE FROM crm_disposable_sentinel; \
