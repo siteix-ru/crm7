@@ -17,6 +17,7 @@ use App\Repositories\SearchLogRepository;
 use App\Repositories\SettingsRepository;
 use App\Repositories\StockPhotoRepository;
 use App\Repositories\StocksRepository;
+use App\Repositories\StockImportIdempotencyRepository;
 use App\Repositories\UserRepository;
 use App\Repositories\ViewLogRepository;
 use App\Support\ImageProcessor;
@@ -27,6 +28,18 @@ use Throwable;
 final class StocksService
 {
     public const MAX_SIZE = 20971520;
+
+    /**
+     * Именованный лок MariaDB, сериализующий импорт остатков.
+     * Стабильное имя не зависит от пользователя, файла или склада.
+     */
+    private const IMPORT_LOCK = 'crm7_stocks_import:v1';
+
+    private const IMPORT_LOCK_DEFAULT_TIMEOUT = 30;
+
+    private const IMPORT_LOCK_MIN_TIMEOUT = 1;
+
+    private const IMPORT_LOCK_MAX_TIMEOUT = 60;
 
     private const ALLOWED_EXTENSIONS = ['xls', 'xlsx', 'csv', 'txt'];
 
@@ -58,7 +71,8 @@ final class StocksService
         private readonly SearchLogRepository $searches = new SearchLogRepository(),
         private readonly StockPhotoRepository $photos = new StockPhotoRepository(),
         private readonly SettingsRepository $settings = new SettingsRepository(),
-        private readonly ItemTypeService $itemTypes = new ItemTypeService()
+        private readonly ItemTypeService $itemTypes = new ItemTypeService(),
+        private readonly StockImportIdempotencyRepository $idem = new StockImportIdempotencyRepository()
     ) {
     }
 
@@ -2145,8 +2159,83 @@ final class StocksService
         return array_values($byItem);
     }
 
-    public function import(array $user, array $capabilities, array $file, string $date, array $mapping = []): array
+    /** Канонический хеш запроса: версия + user + дата + байты файла + mapping. */
+    private function payloadHash(int $userId, string $date, string $tmpName, array $mapping): string
     {
+        ksort($mapping, SORT_STRING);
+        $canonicalMapping = [];
+        foreach ($mapping as $key => $value) {
+            $canonicalMapping[(string) $key] = (int) $value;
+        }
+        $mappingJson = $canonicalMapping === [] ? '' : json_encode(
+            $canonicalMapping,
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+        );
+
+        $fileHash = hash_file('sha256', $tmpName) ?: '';
+        $canonical = "v1\n"
+            . strlen((string) $userId) . ':' . $userId . "\n"
+            . strlen($date) . ':' . $date . "\n"
+            . strlen($fileHash) . ':' . $fileHash . "\n"
+            . strlen((string) $mappingJson) . ':' . $mappingJson;
+
+        return hash('sha256', $canonical);
+    }
+
+    private function normalizeIdempotencyKey(?string $key): ?string
+    {
+        if ($key === null || trim($key) === '') {
+            return null;
+        }
+        $key = trim($key);
+        if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $key) !== 1) {
+            throw new HttpException(422, 'invalid_idempotency_key', 'Некорректный Idempotency-Key (ожидается UUID v4).');
+        }
+
+        return strtolower($key);
+    }
+
+    /** @return array<string, mixed> */
+    private function importResponse(
+        int $jobId,
+        string $originalName,
+        string $actualDate,
+        int $rowsTotal,
+        int $imported,
+        int $created,
+        int $zeroed,
+        int $skipped,
+        int $warehousesCreated,
+        int $newPositions,
+        int $pricesImported,
+        array $errors
+    ): array {
+        return [
+            'status' => 'done',
+            'job_id' => $jobId,
+            'file_name' => $originalName,
+            'actual_date' => $actualDate,
+            'rows_total' => $rowsTotal,
+            'rows_imported' => $imported,
+            'rows_created' => $created,
+            'rows_zeroed' => $zeroed,
+            'rows_skipped' => $skipped,
+            'warehouses_created' => $warehousesCreated,
+            'new_positions' => $newPositions,
+            'prices_imported' => $pricesImported,
+            'errors' => array_slice($errors, 0, 20),
+        ];
+    }
+
+    public function import(
+        array $user,
+        array $capabilities,
+        array $file,
+        string $date,
+        array $mapping = [],
+        ?string $idempotencyKey = null
+    ): array {
+
         if (!in_array('stocks.import', $capabilities, true)) {
             throw new HttpException(403, 'forbidden', 'Недостаточно прав для импорта остатков');
         }
@@ -2204,10 +2293,6 @@ final class StocksService
         $resolvedPrices = [];
 
         if ($pricesEnabled && $priceColumns !== []) {
-            if ($mapping !== []) {
-                $this->prices->saveImportMappings($mapping);
-            }
-
             $titleMap = $this->prices->typeIdsByTitle();
             $savedMappings = $this->prices->importMappings();
             $unresolved = [];
@@ -2250,11 +2335,57 @@ final class StocksService
             }
         }
 
-        $jobId = $this->stocks->createJob($originalName, $actualDate, (int) $user['ID']);
+        $userId = (int) $user['ID'];
+        $token = $this->normalizeIdempotencyKey($idempotencyKey);
+        $legacy = $token === null;
+        $effectiveToken = $token ?? StockImportIdempotencyRepository::generateToken();
+        $payloadHash = $this->payloadHash($userId, $actualDate, (string) $file['tmp_name'], $mapping);
+
+        $reservation = $this->idem->reserve(
+            $userId,
+            $effectiveToken,
+            $payloadHash,
+            $originalName,
+            $actualDate,
+            $legacy
+        );
+
+        if (($reservation['replay'] ?? false) === true) {
+            return $reservation['response'];
+        }
+
+        if (($reservation['retry'] ?? false) === true) {
+            $reservation = $this->idem->retry($userId, $effectiveToken, $payloadHash, $originalName, $actualDate);
+            if ($reservation === null) {
+                throw new HttpException(409, 'import_in_progress', 'Импорт уже выполняется.');
+            }
+        }
+
+        $operationId = (int) $reservation['operation']['ID'];
+        $attemptId = (int) $reservation['attempt']['ID'];
+        $generation = (int) $reservation['attempt']['GENERATION'];
+        $jobId = (int) $reservation['job_id'];
         $pdo = Database::pdo();
-        $pdo->beginTransaction();
+
+        $committed = false;
+        $locked = false;
+        $activated = false;
+        $owner = bin2hex(random_bytes(8));
 
         try {
+            $this->acquireImportLock($pdo);
+            $pdo->beginTransaction();
+            $locked = true;
+
+            $workerState = $this->idem->lockForWorker($pdo, $operationId, $attemptId, $generation, $owner);
+            if ($workerState === null) {
+                throw new HttpException(409, 'import_in_progress', 'Импорт уже выполняется другой попыткой.');
+            }
+            if ($this->idem->activate($pdo, $operationId, $attemptId, $generation, $owner, 30) !== 1) {
+                throw new HttpException(409, 'import_in_progress', 'Импорт уже выполняется другой попыткой.');
+            }
+            $activated = true;
+
             $updateSid = md5(uniqid('', true));
             $this->stocks->insertUpdate($updateSid, $actualDate, $originalName);
 
@@ -2402,39 +2533,161 @@ final class StocksService
                 }
             }
 
+            $response = $this->importResponse(
+                $jobId, $originalName, $actualDate, count($rows) + $skipped,
+                $imported, $created, $zeroed, $skipped, $warehousesCreated,
+                count($newPositions), $pricesImported, $errors
+            );
+            $responseJson = json_encode($response, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if (!is_string($responseJson)) {
+                throw new \RuntimeException('response serialization failed');
+            }
+
+            // Mapping — в той же транзакции, что и остатки и marker.
+            if ($pricesEnabled && $mapping !== []) {
+                $this->prices->saveImportMappings($mapping);
+            }
+
+            if (!$this->idem->markCommitted($pdo, $operationId, $attemptId, $generation, $responseJson)) {
+                throw new \RuntimeException('stale generation on commit marker');
+            }
+
             $pdo->commit();
+            $committed = true;
+            $locked = false;
+
+            // Данные уже зафиксированы: ошибки post-commit не должны превращать
+            // успешный импорт в HTTP 500 и провоцировать повторную загрузку.
+            try {
+                $this->idem->finishJob(
+                    $jobId, $attemptId, $generation, 'done',
+                    count($rows) + $skipped, $imported, $skipped, $errors
+                );
+            } catch (Throwable $exception) {
+                error_log('stocks.import: finishJob(done) failed: ' . $exception->getMessage());
+            }
+
+            try {
+                $this->audit->log($user, 'stocks.import', 'stocks', $jobId, [
+                    'file' => $originalName,
+                    'imported' => $imported,
+                    'skipped' => $skipped,
+                    'actual_date' => $actualDate,
+                ], null);
+            } catch (Throwable $exception) {
+                error_log('stocks.import: audit failed: ' . $exception->getMessage());
+            }
+
+            return $response;
         } catch (Throwable $exception) {
-            $pdo->rollBack();
-            Logger::error('stocks.import failed', ['job' => $jobId, 'error' => $exception->getMessage()]);
-            $this->stocks->finishJob($jobId, 'failed', count($rows) + $skipped, 0, $skipped, ['Импорт не выполнен. Подробности — в журнале.']);
+            if ($committed) {
+                // Данные уже зафиксированы — не сообщать, что импорт не выполнен.
+                throw $exception;
+            }
+
+            try {
+                if ($pdo->inTransaction()) {
+                    $pdo->rollBack();
+                    $locked = false;
+                }
+            } catch (Throwable) {
+                // Первичное исключение важнее ошибки проверки/отката.
+            }
+
+            if ($jobId > 0) {
+                Logger::error('stocks.import failed', ['job' => $jobId, 'error' => $exception->getMessage()]);
+                $status = $exception instanceof HttpException ? $exception->errorCode : 'import_failed';
+
+                if ($activated) {
+                    // Транзакция остатков откачена: rollback доказан, помечаем failed.
+                    $this->idem->markFailedAfterRollback($operationId, $attemptId, $generation, $status);
+                    $this->idem->finishJob(
+                        $jobId, $attemptId, $generation, 'failed',
+                        count($rows) + $skipped, 0, $skipped, ['Импорт не выполнен.']
+                    );
+                } else {
+                    // Отказ до активации (лок/фенсинг): резервация не должна
+                    // блокировать повтор с тем же токеном — помечаем её failed,
+                    // чтобы import() создал новую generation через retry().
+                    $this->idem->abandonReservation($operationId, $attemptId, $generation, $status);
+                }
+            }
+
+            if ($exception instanceof HttpException
+                && in_array($exception->errorCode, [
+                    'import_busy', 'import_unavailable', 'invalid_idempotency_key',
+                    'idempotency_conflict', 'result_unavailable', 'import_in_progress',
+                ], true)) {
+                throw $exception;
+            }
 
             throw new HttpException(500, 'import_failed', 'Импорт не выполнен. Подробности — в журнале.');
+        } finally {
+            if ($locked && $pdo->inTransaction()) {
+                try {
+                    $pdo->rollBack();
+                } catch (Throwable) {
+                }
+            }
+            $this->releaseImportLock($pdo);
+        }
+    }
+
+    /**
+     * Сериализует импорт остатков. Должен вызываться на том же PDO, который
+     * используется транзакцией импорта и releaseImportLock().
+     */
+    private function acquireImportLock(\PDO $pdo): void
+    {
+        try {
+            $statement = $pdo->prepare('SELECT GET_LOCK(?, ?)');
+            $statement->execute([self::IMPORT_LOCK, $this->importLockTimeout()]);
+            $result = $statement->fetchColumn();
+        } catch (Throwable $exception) {
+            throw new HttpException(503, 'import_unavailable', 'Импорт временно недоступен. Повторите попытку позже.');
         }
 
-        $this->stocks->finishJob($jobId, 'done', count($rows) + $skipped, $imported, $skipped, $errors);
+        if ($result === null || $result === false) {
+            throw new HttpException(503, 'import_unavailable', 'Импорт временно недоступен. Повторите попытку позже.');
+        }
 
-        $this->audit->log($user, 'stocks.import', 'stocks', $jobId, [
-            'file' => $originalName,
-            'imported' => $imported,
-            'skipped' => $skipped,
-            'actual_date' => $actualDate,
-        ], null);
+        if ((int) $result === 1) {
+            return;
+        }
 
-        return [
-            'status' => 'done',
-            'job_id' => $jobId,
-            'file_name' => $originalName,
-            'actual_date' => $actualDate,
-            'rows_total' => count($rows) + $skipped,
-            'rows_imported' => $imported,
-            'rows_created' => $created,
-            'rows_zeroed' => $zeroed,
-            'rows_skipped' => $skipped,
-            'warehouses_created' => $warehousesCreated,
-            'new_positions' => count($newPositions),
-            'prices_imported' => $pricesImported,
-            'errors' => array_slice($errors, 0, 20),
-        ];
+        throw new HttpException(423, 'import_busy', 'Другой импорт остатков уже выполняется. Повторите попытку через несколько секунд.');
+    }
+
+    private function importLockTimeout(): int
+    {
+        $raw = Config::get('CRM_STOCK_IMPORT_LOCK_TIMEOUT');
+
+        if ($raw === null || preg_match('/^\d+$/', trim($raw)) !== 1) {
+            return self::IMPORT_LOCK_DEFAULT_TIMEOUT;
+        }
+
+        $value = (int) $raw;
+
+        return $value >= self::IMPORT_LOCK_MIN_TIMEOUT && $value <= self::IMPORT_LOCK_MAX_TIMEOUT
+            ? $value
+            : self::IMPORT_LOCK_DEFAULT_TIMEOUT;
+    }
+
+    /**
+     * Освобождает лок в finally; никогда не заменяет первичное исключение.
+     */
+    private function releaseImportLock(\PDO $pdo): void
+    {
+        try {
+            $statement = $pdo->prepare('SELECT RELEASE_LOCK(?)');
+            $statement->execute([self::IMPORT_LOCK]);
+
+            if ((int) $statement->fetchColumn() !== 1) {
+                error_log('stocks.import: RELEASE_LOCK did not release ' . self::IMPORT_LOCK);
+            }
+        } catch (Throwable $exception) {
+            error_log('stocks.import: RELEASE_LOCK failed: ' . $exception->getMessage());
+        }
     }
 
     public function history(array $user, array $capabilities): array

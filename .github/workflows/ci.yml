@@ -62,6 +62,12 @@ jobs:
           set -e
           for f in api/tests/*.php; do
             [ -e "$f" ] || continue
+            case "$(basename "$f")" in
+              stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php)
+                echo "DB-dependent test routed to stock-import-integration: $f"
+                continue
+                ;;
+            esac
             echo "Running $f"
             php "$f"
           done
@@ -99,6 +105,511 @@ jobs:
       - name: Deploy Python tests (backup/restore/permissions/exclusions)
         # Все тесты изолированы: temp-каталоги, mocks, FakeRunner; Docker/MariaDB не нужны.
         run: python -m unittest discover -s deploy/tests -p 'test_*.py' -v
+
+  stock-import-integration:
+    needs: [php]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: stock-import-integration-${{ github.ref }}
+      cancel-in-progress: false
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: crm_cistock_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, gd, openssl
+      - name: Install DB client
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
+      - name: Configure API
+        run: |
+          cp api/config/.env.example api/config/.env
+          sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' api/config/.env
+          sed -i 's/^DB_NAME=.*/DB_NAME=crm_cistock_test/' api/config/.env
+          sed -i 's/^DB_USER=.*/DB_USER=root/' api/config/.env
+          sed -i 's/^DB_PASS=.*/DB_PASS=root/' api/config/.env
+          sed -i 's/^DEMO_MODE=.*/DEMO_MODE=false/' api/config/.env
+          sed -i "s/^APP_KEY=.*/APP_KEY=$(openssl rand -hex 32)/" api/config/.env
+          sed -i "s/^DB_CONFIG_KEY=.*/DB_CONFIG_KEY=$(openssl rand -hex 32)/" api/config/.env
+      - name: Migrate and seed
+        run: |
+          php api/bin/migrate.php --allow-destructive
+          php api/bin/seed-dev.php --password=Secret123
+      - name: Start API
+        run: |
+          php -S 127.0.0.1:8080 -t api/public api/public/router.php > /tmp/stock-api.log 2>&1 &
+          for i in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:8080/api/v2/health > /dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8080/api/v2/health
+      - name: Provision disposable guard and tokens
+        run: |
+          set -euo pipefail
+          SENTINEL=$(python3 -c 'import uuid; print(uuid.uuid4())')
+          echo "CRM_STOCK_TEST_SENTINEL=$SENTINEL" >> "$GITHUB_ENV"
+          mariadb --ssl=0 -h 127.0.0.1 -uroot -proot crm_cistock_test -e \
+            "INSERT IGNORE INTO level_capabilities (level,capability_code) VALUES (10,'stocks.import'); \
+             CREATE TABLE IF NOT EXISTS crm_disposable_sentinel (id INT PRIMARY KEY, marker VARCHAR(64) NOT NULL); \
+             DELETE FROM crm_disposable_sentinel; \
+             INSERT INTO crm_disposable_sentinel (id,marker) VALUES (1,'$SENTINEL'); \
+             SELECT COUNT(*) FROM crm_disposable_sentinel;"
+          login() {
+            curl -fsS -X POST http://127.0.0.1:8080/api/v2/auth/login \
+              -H 'Content-Type: application/json' \
+              -d "{\"login\":\"$1\",\"password\":\"Secret123\"}" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["token"])'
+          }
+          echo "CRM_STOCK_TEST_TOKEN=$(login admin)" >> "$GITHUB_ENV"
+          echo "CRM_STOCK_TEST_TOKEN2=$(login manager)" >> "$GITHUB_ENV"
+      - name: Evidence validator mutation suite
+        run: |
+          set -euo pipefail
+          cat > /tmp/check_stock_evidence.py <<'PY'
+          import json
+          import math
+          import re
+          import sys
+
+          mode = sys.argv[1]
+          a_conn = int(sys.argv[2])
+          b_conn = int(sys.argv[3])
+
+
+          def fail(message):
+              print("evidence check failed (" + mode + "): " + message, file=sys.stderr)
+              raise SystemExit(2)
+
+
+          def positive_int(value):
+              if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                  return None
+              return value
+
+
+          def canonical_decimal(value):
+              if not isinstance(value, str) or re.fullmatch(r"[1-9][0-9]*", value) is None:
+                  return None
+              return int(value)
+
+
+          raw = sys.stdin.read()
+          if not raw.strip():
+              fail("empty payload")
+          try:
+              evidence = json.loads(raw)
+          except (ValueError, TypeError):
+              fail("json parse error")
+          if not isinstance(evidence, dict):
+              fail("payload is not a JSON object")
+          for key in ("available", "trx_available", "processlist_available"):
+              if evidence.get(key) is not True:
+                  fail(key + " is not true")
+          if mode not in ("commit", "rollback"):
+              fail("unknown evidence mode")
+          if mode == "commit" and (a_conn <= 0 or b_conn <= 0 or a_conn == b_conn):
+              fail("invalid A/B connection ids for commit evidence")
+
+          waits = evidence.get("waits")
+          if not isinstance(waits, list) or not waits:
+              fail("waits is empty or not a list")
+          wait_pairs = []
+          for wait in waits:
+              if not isinstance(wait, dict):
+                  fail("malformed waits row")
+              req_trx = positive_int(wait.get("requesting_trx_id"))
+              block_trx = positive_int(wait.get("blocking_trx_id"))
+              if req_trx is None or block_trx is None or req_trx == block_trx:
+                  fail("invalid transaction id in waits")
+              if (req_trx, block_trx) in wait_pairs:
+                  fail("duplicate wait pair")
+              wait_pairs.append((req_trx, block_trx))
+
+          correlations = evidence.get("correlations")
+          if not isinstance(correlations, list) or not correlations:
+              fail("correlations is empty or not a list")
+          corr_pairs = []
+          connections = []
+          for correlation in correlations:
+              if not isinstance(correlation, dict):
+                  fail("malformed correlation row")
+              req_trx = canonical_decimal(correlation.get("requesting_trx_id"))
+              block_trx = canonical_decimal(correlation.get("blocking_trx_id"))
+              req_conn = positive_int(correlation.get("requesting_conn"))
+              block_conn = positive_int(correlation.get("blocking_conn"))
+              req_state = correlation.get("requesting_state")
+              block_state = correlation.get("blocking_state")
+              if req_trx is None or block_trx is None or req_conn is None or block_conn is None:
+                  fail("invalid field in correlation")
+              if not isinstance(req_state, str) or not isinstance(block_state, str) or not req_state or not block_state:
+                  fail("invalid state in correlation")
+              if req_conn == block_conn:
+                  fail("requester and blocker share a connection")
+              if (req_trx, block_trx) not in wait_pairs:
+                  fail("correlation pair is not present in waits")
+              if (req_trx, block_trx) in corr_pairs:
+                  fail("duplicate correlation pair")
+              corr_pairs.append((req_trx, block_trx))
+              connections.append((req_conn, block_conn, req_state, block_state))
+          if len(corr_pairs) != len(wait_pairs) or set(corr_pairs) != set(wait_pairs):
+              fail("waits and correlations are not in one-to-one correspondence")
+
+          trx = evidence.get("trx")
+          if not isinstance(trx, list) or not trx:
+              fail("trx is empty or not a list")
+          trx_by_id = {}
+          for row in trx:
+              if not isinstance(row, dict):
+                  fail("malformed trx row")
+              tid = positive_int(row.get("trx_id"))
+              thread = positive_int(row.get("trx_mysql_thread_id"))
+              state = row.get("trx_state")
+              if tid is None or thread is None or not isinstance(state, str) or not state.strip():
+                  fail("invalid field in trx row")
+              if tid in trx_by_id:
+                  fail("duplicate trx_id")
+              trx_by_id[tid] = (thread, state)
+          required_trx = {value for pair in wait_pairs for value in pair}
+          if set(trx_by_id) != required_trx:
+              fail("trx records do not match wait/correlation transaction ids")
+
+          for (req_trx, block_trx), (req_conn, block_conn, req_state, block_state) in zip(corr_pairs, connections):
+              if trx_by_id[req_trx][0] != req_conn or trx_by_id[block_trx][0] != block_conn:
+                  fail("connection id does not match trx_mysql_thread_id")
+              if trx_by_id[req_trx][1] != req_state or trx_by_id[block_trx][1] != block_state:
+                  fail("trx_state does not match correlation state")
+              if req_state != "LOCK WAIT":
+                  fail("requester is not in LOCK WAIT")
+              if mode == "commit" and (req_conn != b_conn or block_conn != a_conn):
+                  fail("commit correlation does not match A/B connections")
+
+          processlist = evidence.get("processlist")
+          if not isinstance(processlist, list) or not processlist:
+              fail("processlist is empty or not a list")
+          proc_by_id = {}
+          for row in processlist:
+              if not isinstance(row, dict):
+                  fail("malformed processlist row")
+              pid = positive_int(row.get("ID"))
+              info = row.get("info")
+              state = row.get("STATE")
+              if pid is None or not isinstance(info, str) or not isinstance(state, str) or not state.strip():
+                  fail("invalid field in processlist row")
+              if pid in proc_by_id:
+                  fail("duplicate processlist connection")
+              proc_by_id[pid] = (info, state)
+          for req_conn, _block_conn, _req_state, _block_state in connections:
+              row = proc_by_id.get(req_conn)
+              if row is None or "FOR UPDATE" not in row[0]:
+                  fail("no FOR UPDATE processlist row for waiting connection")
+
+          at = evidence.get("at")
+          if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at) or at <= 0:
+              fail("invalid snapshot timestamp")
+          print("evidence ok: mode=" + mode)
+          PY
+          cat > /tmp/stock_evidence_extract.sh <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+
+          log="$1"
+          prefix="$2"
+
+          count=$(awk -v p="$prefix" 'index($0, p) { c++ } END { print c + 0 }' "$log")
+          if [ "$count" -ne 1 ]; then
+            echo "evidence line count=$count for [$prefix], expected exactly 1" >&2
+            exit 3
+          fi
+
+          line=$(awk -v p="$prefix" 'index($0, p) { print; exit }' "$log")
+          payload=${line#*$prefix}
+          if [ -z "$payload" ]; then
+            echo "empty evidence payload for [$prefix]" >&2
+            exit 4
+          fi
+          printf '%s' "$payload"
+          SH
+          cat > /tmp/stock_evidence_mutation.py <<'PY'
+          import copy
+          import json
+          import math
+          import os
+          import subprocess
+          import sys
+          import tempfile
+
+          HERE = os.path.dirname(os.path.abspath(__file__))
+          VALIDATOR = os.path.join(HERE, "check_stock_evidence.py")
+          EXTRACT = os.path.join(HERE, "stock_evidence_extract.sh")
+          BASH = os.environ.get("CRM_BASH", "bash")
+          A_CONN = 43
+          B_CONN = 44
+          COMMIT_PREFIX = "LOCK EVIDENCE (last snapshot)="
+          ROLLBACK_PREFIX = "ROLLBACK LOCK EVIDENCE (matched)="
+
+          BASE = {
+              "available": True,
+              "trx_available": True,
+              "processlist_available": True,
+              "waits": [{"requesting_trx_id": 1330, "blocking_trx_id": 1329}],
+              "trx": [
+                  {"trx_id": 1330, "trx_mysql_thread_id": 44, "trx_state": "LOCK WAIT"},
+                  {"trx_id": 1329, "trx_mysql_thread_id": 43, "trx_state": "RUNNING"},
+              ],
+              "processlist": [
+                  {"ID": 44, "USER": "root", "STATE": "Statistics",
+                   "info": "SELECT * FROM stock_import_operations WHERE IDEMPOTENCY_TOKEN = 'REDACTED' FOR UPDATE"}
+              ],
+              "correlations": [
+                  {"requesting_trx_id": "1330", "blocking_trx_id": "1329",
+                   "requesting_conn": 44, "blocking_conn": 43,
+                   "requesting_state": "LOCK WAIT", "blocking_state": "RUNNING"}
+              ],
+              "at": 1795327919.445279,
+          }
+
+          results = []
+
+
+          def record(name, expected, actual):
+              ok = expected == actual
+              results.append((name, expected, actual, "PASS" if ok else "FAIL"))
+              return ok
+
+
+          def run_validator(name, payload, mode="rollback", a=0, b=0, expect_zero=False, raw=None):
+              text = raw if raw is not None else json.dumps(payload)
+              proc = subprocess.run([sys.executable, VALIDATOR, mode, str(a), str(b)],
+                                    input=text, text=True, capture_output=True)
+              actual_zero = proc.returncode == 0
+              record(name, expect_zero, actual_zero)
+
+
+          def mutate(name, fn, mode="rollback", expect_zero=False):
+              payload = copy.deepcopy(BASE)
+              fn(payload)
+              run_validator(name, payload, mode, 0 if mode == "rollback" else A_CONN,
+                            0 if mode == "rollback" else B_CONN, expect_zero)
+
+
+          def generic_rejects(name, field, value):
+              mutate(name, lambda p: p.__setitem__(field, value))
+
+
+          # POSITIVE
+          run_validator("POS real-like rollback fixture", BASE, expect_zero=True)
+          run_validator("POS real-like commit fixture", BASE, "commit", A_CONN, B_CONN, True)
+          mutate("POS canonical string ids", lambda p: None, expect_zero=True)
+          mutate("POS integer ids in waits/trx", lambda p: None, expect_zero=True)
+
+          # D1/D2 canonical ids
+          mutate("NEG01 whitespace around correlation id", lambda p: p["correlations"][0].__setitem__("requesting_trx_id", " 1330 "))
+          mutate("NEG02 leading zero correlation id", lambda p: p["correlations"][0].__setitem__("requesting_trx_id", "01330"))
+          mutate("NEG03 plus sign correlation id", lambda p: p["correlations"][0].__setitem__("requesting_trx_id", "+1330"))
+          mutate("NEG04 fraction correlation id", lambda p: p["correlations"][0].__setitem__("requesting_trx_id", "1330.0"))
+          mutate("NEG05 exponent correlation id", lambda p: p["correlations"][0].__setitem__("requesting_trx_id", "1e3"))
+          mutate("NEG06 zero correlation id", lambda p: p["correlations"][0].__setitem__("requesting_trx_id", "0"))
+          mutate("NEG07 negative correlation id", lambda p: p["correlations"][0].__setitem__("requesting_trx_id", "-1"))
+
+          # D3/D4 trx
+          mutate("NEG08 identical duplicate trx", lambda p: p["trx"].append(copy.deepcopy(p["trx"][0])))
+          mutate("NEG09 conflicting duplicate trx", lambda p: p["trx"].append({"trx_id": 1330, "trx_mysql_thread_id": 1, "trx_state": "RUNNING"}))
+          mutate("NEG10 extra unrelated trx", lambda p: p["trx"].append({"trx_id": 9999, "trx_mysql_thread_id": 9, "trx_state": "RUNNING"}))
+          mutate("NEG11 missing trx", lambda p: p["trx"].pop())
+          mutate("NEG12 empty trx", lambda p: p.__setitem__("trx", []))
+
+          # D5/D6/D9 correlations
+          mutate("NEG13 duplicate correlation", lambda p: p["correlations"].append(copy.deepcopy(p["correlations"][0])))
+          mutate("NEG14 contradictory correlation", lambda p: p["correlations"].append({
+              "requesting_trx_id": "9999", "blocking_trx_id": "9998", "requesting_conn": 99, "blocking_conn": 98,
+              "requesting_state": "LOCK WAIT", "blocking_state": "RUNNING"}))
+          mutate("NEG15 uncovered second wait pair", lambda p: (
+              p["waits"].append({"requesting_trx_id": 777, "blocking_trx_id": 776}),
+              p["trx"].extend([{"trx_id": 777, "trx_mysql_thread_id": 77, "trx_state": "LOCK WAIT"},
+                               {"trx_id": 776, "trx_mysql_thread_id": 76, "trx_state": "RUNNING"}])))
+          mutate("NEG16 requester blocker swapped", lambda p: (
+              p["correlations"][0].__setitem__("requesting_conn", 43),
+              p["correlations"][0].__setitem__("blocking_conn", 44)))
+          mutate("NEG17 wrong requesting connection", lambda p: p["correlations"][0].__setitem__("requesting_conn", 999))
+          mutate("NEG18 wrong blocking connection", lambda p: p["correlations"][0].__setitem__("blocking_conn", 999))
+          mutate("NEG19 valid plus invalid correlation", lambda p: p["correlations"].append({
+              "requesting_trx_id": "1330", "blocking_trx_id": "1329", "requesting_conn": 44, "blocking_conn": 43,
+              "requesting_state": "RUNNING", "blocking_state": "RUNNING"}))
+          mutate("NEG20 empty correlations", lambda p: p.__setitem__("correlations", []))
+
+          # D7/D8 processlist
+          mutate("NEG21 info as list", lambda p: p["processlist"][0].__setitem__("info", ["FOR UPDATE"]))
+          mutate("NEG22 info as null", lambda p: p["processlist"][0].__setitem__("info", None))
+          mutate("NEG23 empty STATE", lambda p: p["processlist"][0].__setitem__("STATE", ""))
+          mutate("NEG24 STATE not string", lambda p: p["processlist"][0].__setitem__("STATE", 1))
+          mutate("NEG25 FOR UPDATE only foreign row", lambda p: (
+              p["processlist"][0].__setitem__("info", "SELECT 1"),
+              p["processlist"].append({"ID": 999, "USER": "root", "STATE": "Running", "info": "FOR UPDATE"})))
+          mutate("NEG26 empty processlist", lambda p: p.__setitem__("processlist", []))
+          mutate("NEG27 duplicate processlist record", lambda p: p["processlist"].append(copy.deepcopy(p["processlist"][0])))
+
+          # waits and types
+          mutate("NEG28 empty waits", lambda p: p.__setitem__("waits", []))
+          for idx, (key, value, label) in enumerate((
+                  ("requesting_trx_id", None, "null wait id"),
+                  ("requesting_trx_id", True, "bool wait id"),
+                  ("requesting_trx_id", [], "list wait id"),
+                  ("requesting_trx_id", {}, "dict wait id"),
+                  ("blocking_trx_id", 0, "zero wait id"),
+                  ("blocking_trx_id", -1, "negative wait id"))):
+              mutate("NEG29 " + label, lambda p, k=key, v=value: p["waits"][0].__setitem__(k, v))
+          mutate("NEG30 wait ids equal", lambda p: p["waits"][0].__setitem__("blocking_trx_id", 1330))
+
+          # timestamp / JSON
+          for label, value in (("null", None), ("string", "123"), ("bool", True),
+                               ("NaN", float("nan")), ("Infinity", float("inf"))):
+              mutate("NEG31 at " + label, lambda p, v=value: p.__setitem__("at", v))
+          run_validator("NEG32 broken JSON", None, raw="{")
+          run_validator("NEG33 JSON null", None, raw="null")
+          run_validator("NEG34 empty JSON object", None, raw="{}")
+          run_validator("NEG35 wrong commit A/B", BASE, "commit", 999, 998, False)
+
+          # Shell extraction (D10) - exercises the exact helper used by the two-PDO step
+          def run_extract(name, lines, prefix, expect_zero):
+              with tempfile.NamedTemporaryFile("w", suffix=".out", delete=False, encoding="utf-8") as fh:
+                  fh.write("\n".join(lines) + "\n")
+                  path = fh.name
+              proc = subprocess.run([BASH, EXTRACT, path, prefix], text=True, capture_output=True)
+              os.unlink(path)
+              record(name, expect_zero, proc.returncode == 0)
+
+
+          one = COMMIT_PREFIX + json.dumps(BASE)
+          two_same = one + "\n" + one
+          two_conflict = one + "\n" + COMMIT_PREFIX + json.dumps({**BASE, "at": 1.0})
+          one_rb = ROLLBACK_PREFIX + json.dumps(BASE)
+          two_rb_same = one_rb + "\n" + one_rb
+          two_rb_conflict = one_rb + "\n" + ROLLBACK_PREFIX + json.dumps({**BASE, "available": False})
+          run_extract("NEG36 two identical COMMIT lines", two_same.split("\n"), COMMIT_PREFIX, False)
+          run_extract("NEG37 two conflicting COMMIT lines", two_conflict.split("\n"), COMMIT_PREFIX, False)
+          run_extract("NEG38 two identical ROLLBACK lines", two_rb_same.split("\n"), ROLLBACK_PREFIX, False)
+          run_extract("NEG39 two conflicting ROLLBACK lines", two_rb_conflict.split("\n"), ROLLBACK_PREFIX, False)
+          run_extract("NEG40 missing evidence line", ["unrelated output"], COMMIT_PREFIX, False)
+          run_extract("NEG41 empty payload", [COMMIT_PREFIX], COMMIT_PREFIX, False)
+          run_extract("POS single COMMIT line", [one], COMMIT_PREFIX, True)
+          run_extract("POS single ROLLBACK line", [one_rb], ROLLBACK_PREFIX, True)
+
+          print(f'{"SCENARIO":48} {"EXPECT_OK":10} {"ACTUAL_OK":10} RESULT')
+          for name, expected, actual, result in results:
+              print(f'{name[:48]:48} {str(expected):10} {str(actual):10} {result}')
+          pos = sum(1 for r in results if r[0].startswith("POS") and r[1] and r[2])
+          neg = sum(1 for r in results if r[0].startswith("NEG") and not r[1] and not r[2])
+          bad = [r[0] for r in results if r[3] == "FAIL"]
+          print(f"SUMMARY positive_pass={pos} negative_rejected={neg} failures={len(bad)}")
+          if bad:
+              print("FAILURES=" + ",".join(bad))
+              raise SystemExit(1)
+          PY
+          python3 /tmp/stock_evidence_mutation.py
+
+      - name: DB-dependent idempotency, cleanup and recovery tests
+        env:
+          CRM_STOCK_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=crm_cistock_test;charset=utf8mb4
+          CRM_STOCK_TEST_USER: root
+          CRM_STOCK_TEST_PASS: root
+          CRM_STOCK_TEST_BASE: http://127.0.0.1:8080
+          CRM_STOCK_TEST_PORT: '3306'
+          CRM_STOCK_TEST_DISPOSABLE: '1'
+        run: |
+          set -euo pipefail
+          php api/tests/stock-import-idempotency-integration.php
+          php api/tests/stock-import-fencing-integration.php
+          php api/tests/stock-import-idempotency-cleanup.php
+          php api/tests/stock-import-idempotency-recover.php
+      - name: Legacy lock integration (48 assertions, numeric exit)
+        env:
+          CRM_STOCK_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=crm_cistock_test;charset=utf8mb4
+          CRM_STOCK_TEST_USER: root
+          CRM_STOCK_TEST_PASS: root
+          CRM_STOCK_TEST_BASE: http://127.0.0.1:8080
+          CRM_STOCK_TEST_PORT: '3306'
+          CRM_STOCK_TEST_DISPOSABLE: '1'
+        run: |
+          set -euo pipefail
+          rc=0
+          php api/tests/stock-import-lock-integration.php > legacy.out 2> legacy.err || rc=$?
+          echo "$rc" > legacy.code
+          test "$(cat legacy.code)" = "0"
+          test "$(grep -c '^ok' legacy.out)" = "48"
+          ! grep -q '^FAIL' legacy.out
+          ! grep -q '^SKIP' legacy.out
+      - name: Two-PDO integration x3 (numeric exit + lock evidence)
+        env:
+          CRM_STOCK_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=crm_cistock_test;charset=utf8mb4
+          CRM_STOCK_TEST_USER: root
+          CRM_STOCK_TEST_PASS: root
+          CRM_STOCK_TEST_BASE: http://127.0.0.1:8080
+          CRM_STOCK_TEST_PORT: '3306'
+          CRM_STOCK_TEST_DISPOSABLE: '1'
+        run: |
+          set -euo pipefail
+          if [ ! -f /tmp/check_stock_evidence.py ]; then
+            echo "evidence validator missing" >&2
+            exit 1
+          fi
+          if [ ! -f /tmp/stock_evidence_extract.sh ]; then
+            echo "evidence extractor missing" >&2
+            exit 1
+          fi
+          for n in 1 2 3; do
+            rc=0
+            php api/tests/stock-import-two-pdo-integration.php > "pdo$n.out" 2> "pdo$n.err" || rc=$?
+            echo "$rc" > "pdo$n.code"
+            test "$(cat "pdo$n.code")" = "0"
+            test "$(grep -c '^ok' "pdo$n.out")" = "30"
+            ! grep -q '^FAIL' "pdo$n.out"
+            ! grep -q '^SKIP' "pdo$n.out"
+            ab_line=$(grep -F -m1 'A pid/conn=' "pdo$n.out")
+            if [ -z "$ab_line" ]; then
+              echo "missing A/B connection line" >&2
+              exit 1
+            fi
+            a_conn=$(printf '%s' "$ab_line" | sed -nE 's/.*A pid\/conn=[0-9]+\/([0-9]+).*/\1/p')
+            b_conn=$(printf '%s' "$ab_line" | sed -nE 's/.*B pid\/conn=[0-9]+\/([0-9]+).*/\1/p')
+            case "$a_conn" in ''|*[!0-9]*) echo "invalid A connection id" >&2; exit 1;; esac
+            case "$b_conn" in ''|*[!0-9]*) echo "invalid B connection id" >&2; exit 1;; esac
+            if [ "$a_conn" = "$b_conn" ]; then
+              echo "A and B connection ids are equal" >&2
+              exit 1
+            fi
+            for spec in "commit:LOCK EVIDENCE (last snapshot)=" "rollback:ROLLBACK LOCK EVIDENCE (matched)="; do
+              mode=${spec%%:*}
+              prefix=${spec#*:}
+              payload=$(bash /tmp/stock_evidence_extract.sh "pdo$n.out" "$prefix")
+              printf '%s' "$payload" | python3 /tmp/check_stock_evidence.py "$mode" "$a_conn" "$b_conn"
+            done
+          done
+      - name: Upload stock import logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stock-import-integration-logs
+          path: |
+            legacy.out
+            legacy.err
+            legacy.code
+            pdo*.out
+            pdo*.err
+            pdo*.code
+          if-no-files-found: ignore
 
   images:
     if: github.ref == 'refs/heads/master'

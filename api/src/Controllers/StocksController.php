@@ -158,13 +158,18 @@ final class StocksController extends ApiController
         [$user, $capabilities] = $this->context($request);
         $this->requireStockEdit();
 
-        return Response::ok($this->service->import(
+        $result = $this->service->import(
             $user,
             $capabilities,
             $_FILES['file'] ?? [],
             (string) $request->input('actual_date', ''),
-            $this->importMapping($request)
-        ), 201);
+            $this->importMapping($request),
+            $request->header('Idempotency-Key')
+        );
+
+        $status = ($result['replayed'] ?? false) === true ? 200 : 201;
+
+        return Response::ok($result, $status);
     }
 
     public function history(Request $request): Response
