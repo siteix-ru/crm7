@@ -633,6 +633,7 @@ final class RequestService
         $slaHours = max(1, (int) ($this->settings->get('sla.resolution_hours') ?? Config::int('REQUEST_SLA_HOURS', 24)));
 
         $pdo = Database::pdo();
+        $lockedRequest = 0;
         $pdo->beginTransaction();
         $createdClient = null;
 
@@ -662,6 +663,8 @@ final class RequestService
 
             $number = $this->requests->setNumber($id);
             $this->requests->createItems($id, $items);
+            $this->reservations->lock($id);
+            $lockedRequest = $id;
             $this->reservations->apply($id, $items);
             $this->history->add($id, (int) $user['ID'], null, 'new', 'Заявка создана');
 
@@ -697,6 +700,10 @@ final class RequestService
         } catch (Throwable $exception) {
             $pdo->rollBack();
             throw $exception;
+        } finally {
+            if ($lockedRequest > 0) {
+                $this->reservations->unlock($lockedRequest);
+            }
         }
 
         $result = $this->detail($user, $capabilities, $id);
@@ -794,6 +801,7 @@ final class RequestService
         $comment = trim((string) ($input['comment'] ?? ''));
 
         $pdo = Database::pdo();
+        $lockedRequest = 0;
         $pdo->beginTransaction();
 
         try {
@@ -823,6 +831,8 @@ final class RequestService
             $before = $this->requests->itemsForRequests([$id])[$id] ?? [];
 
             $this->requests->replaceItems($id, $items);
+            $this->reservations->lock($id);
+            $lockedRequest = $id;
             $this->reservations->apply($id, $items);
 
             $diff = $this->itemsDiffText($before, $items);
@@ -860,6 +870,10 @@ final class RequestService
         } catch (Throwable $exception) {
             $pdo->rollBack();
             throw $exception;
+        } finally {
+            if ($lockedRequest > 0) {
+                $this->reservations->unlock($lockedRequest);
+            }
         }
 
         return $this->detail($user, $capabilities, $id);
@@ -913,6 +927,7 @@ final class RequestService
         }
 
         $pdo = Database::pdo();
+        $lockedRequest = 0;
         $pdo->beginTransaction();
 
         try {
@@ -978,6 +993,8 @@ final class RequestService
                 $items = $this->prices->attachPrices($items, $typeIds);
 
                 $this->requests->replaceItems($id, $items);
+                $this->reservations->lock($id);
+                $lockedRequest = $id;
                 $this->reservations->apply($id, $items);
             }
 
@@ -1047,6 +1064,10 @@ final class RequestService
         } catch (Throwable $exception) {
             $pdo->rollBack();
             throw $exception;
+        } finally {
+            if ($lockedRequest > 0) {
+                $this->reservations->unlock($lockedRequest);
+            }
         }
 
         return $this->detail($user, $capabilities, $id);
@@ -1057,6 +1078,7 @@ final class RequestService
         $version = isset($input['version']) ? (int) $input['version'] : null;
 
         $pdo = Database::pdo();
+        $lockedRequest = 0;
         $pdo->beginTransaction();
 
         try {
@@ -1234,6 +1256,10 @@ final class RequestService
         } catch (Throwable $exception) {
             $pdo->rollBack();
             throw $exception;
+        } finally {
+            if ($lockedRequest > 0) {
+                $this->reservations->unlock($lockedRequest);
+            }
         }
 
         return $this->detail($user, $capabilities, $id);
@@ -1298,6 +1324,7 @@ final class RequestService
         }
 
         $pdo = Database::pdo();
+        $lockedRequest = 0;
         $pdo->beginTransaction();
 
         try {
@@ -1376,6 +1403,8 @@ final class RequestService
             $this->requests->applyTransition($id, $toStatus, $timestampOps);
 
             if ($toStatus === 'canceled') {
+                $this->reservations->lock($id);
+                $lockedRequest = $id;
                 $this->reservations->release($id);
             }
 
@@ -1394,6 +1423,10 @@ final class RequestService
         } catch (Throwable $exception) {
             $pdo->rollBack();
             throw $exception;
+        } finally {
+            if ($lockedRequest > 0) {
+                $this->reservations->unlock($lockedRequest);
+            }
         }
 
         return $this->detail($user, $capabilities, $id);
@@ -1404,6 +1437,7 @@ final class RequestService
         $this->requireCapability($capabilities, 'requests.transition');
 
         $pdo = Database::pdo();
+        $lockedRequest = 0;
         $pdo->beginTransaction();
 
         try {
@@ -1442,6 +1476,10 @@ final class RequestService
         } catch (Throwable $exception) {
             $pdo->rollBack();
             throw $exception;
+        } finally {
+            if ($lockedRequest > 0) {
+                $this->reservations->unlock($lockedRequest);
+            }
         }
 
         return $this->detail($user, $capabilities, $id);
@@ -1466,6 +1504,7 @@ final class RequestService
         $version = isset($input['version']) ? (int) $input['version'] : null;
 
         $pdo = Database::pdo();
+        $lockedRequest = 0;
         $pdo->beginTransaction();
 
         try {
@@ -1576,6 +1615,10 @@ final class RequestService
         } catch (Throwable $exception) {
             $pdo->rollBack();
             throw $exception;
+        } finally {
+            if ($lockedRequest > 0) {
+                $this->reservations->unlock($lockedRequest);
+            }
         }
 
         return $this->detail($user, $capabilities, $id);

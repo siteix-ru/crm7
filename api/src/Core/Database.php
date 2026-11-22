@@ -16,6 +16,22 @@ final class Database
             return self::$pdo;
         }
 
+        self::$pdo = self::makePdo();
+
+        return self::$pdo;
+    }
+
+    /**
+     * Independent autocommit connection. Used when a caller needs to see the
+     * latest committed state instead of its transaction's REPEATABLE READ snapshot.
+     */
+    public static function freshPdo(): PDO
+    {
+        return self::makePdo();
+    }
+
+    private static function makePdo(): PDO
+    {
         $settings = DatabaseSettings::current();
 
         $dsn = sprintf(
@@ -25,7 +41,7 @@ final class Database
             $settings['database']
         );
 
-        self::$pdo = new PDO(
+        return new PDO(
             $dsn,
             $settings['user'],
             $settings['password'],
@@ -35,7 +51,5 @@ final class Database
                 PDO::ATTR_EMULATE_PREPARES => false,
             ]
         );
-
-        return self::$pdo;
     }
 }

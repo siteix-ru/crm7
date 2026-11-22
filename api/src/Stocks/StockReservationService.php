@@ -22,25 +22,69 @@ final class StockReservationService
      * Приводит резервы заявки в соответствие с её составом: проверяет доступность,
      * уменьшает/восстанавливает остатки и сохраняет актуальные резервы.
      */
+    /**
+     * Caller must hold this lock from before the reservation read until after
+     * the surrounding transaction is committed or rolled back.
+     */
+    public function lock(int $requestId): void
+    {
+        if (!$this->reservations->lockRequest($requestId)) {
+            throw new \RuntimeException('stock reservation is busy');
+        }
+    }
+
+    public function unlock(int $requestId): void
+    {
+        $this->reservations->unlockRequest($requestId);
+    }
+
     public function apply(int $requestId, array $items): void
     {
         $desired = $this->aggregate($items);
-        $current = $this->reservations->forRequest($requestId);
+        $allowZero = $this->settings->allowZeroStock();
+        $reserveEnabled = $this->settings->stockReserveEnabled();
 
-        if (!$this->settings->allowZeroStock()) {
-            $this->assertAvailable($desired, $current);
-        }
+        if (!$reserveEnabled) {
+            // Preserve the legacy check-only behaviour when reservation is disabled.
+            if (!$allowZero) {
+                $this->assertAvailable($desired, $this->reservations->forRequestFresh($requestId));
+            }
 
-        if (!$this->settings->stockReserveEnabled()) {
             return;
         }
 
+        $current = $this->reservations->forRequestFresh($requestId);
+
         foreach ($this->levelIds($desired, $current) as $levelId) {
             $delta = ($desired[$levelId] ?? 0.0) - ($current[$levelId] ?? 0.0);
-            $this->reservations->adjustLevel($levelId, -$delta);
+            $change = -$delta;
+
+            if ($allowZero) {
+                // Explicitly preserved legacy bypass: allow over-reservation.
+                $this->reservations->adjustLevel($levelId, $change);
+                continue;
+            }
+
+            if (!$this->reservations->adjustLevelAtomic($levelId, $change)) {
+                throw $this->insufficientStock(
+                    $levelId,
+                    $this->reservations->levelQuantity($levelId) + ($current[$levelId] ?? 0.0),
+                    $desired[$levelId] ?? 0.0
+                );
+            }
         }
 
         $this->reservations->replace($requestId, $desired);
+    }
+
+    private function insufficientStock(int $levelId, float $available, float $want): HttpException
+    {
+        return new HttpException(
+            422,
+            'insufficient_stock',
+            'Недостаточно остатка «' . $this->reservations->levelLabel($levelId) . '»: доступно '
+                . $this->formatQuantity($available) . ', запрошено ' . $this->formatQuantity($want)
+        );
     }
 
     /**
@@ -48,7 +92,7 @@ final class StockReservationService
      */
     public function release(int $requestId): void
     {
-        $current = $this->reservations->forRequest($requestId);
+        $current = $this->reservations->forRequestFresh($requestId);
 
         if ($current === []) {
             return;
@@ -91,12 +135,7 @@ final class StockReservationService
             $available = $this->reservations->levelQuantity($levelId) + ($current[$levelId] ?? 0.0);
 
             if ($want > $available + self::EPSILON) {
-                throw new HttpException(
-                    422,
-                    'insufficient_stock',
-                    'Недостаточно остатка «' . $this->reservations->levelLabel($levelId) . '»: доступно '
-                        . $this->formatQuantity($available) . ', запрошено ' . $this->formatQuantity($want)
-                );
+                throw $this->insufficientStock($levelId, $available, $want);
             }
         }
     }

@@ -59,6 +59,7 @@ $expected = [
     'stock-import-idempotency-recover.php',
     'stock-import-lock-integration.php',
     'stock-import-two-pdo-integration.php',
+    'stock-reservation-concurrency-integration.php',
 ];
 check($dbDependent === $expected,
     'routing: DB-dependent test set matches approved list (' . implode(',', $dbDependent) . ')', $failures);
