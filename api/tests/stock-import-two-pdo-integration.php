@@ -328,7 +328,7 @@ if ($role === 'A' || $role === 'B') {
         // Реальные production-мутации внутри транзакции A.
         $stocks = new StocksRepository();
         $stocks->snapshotLevels();
-        $stocks->updateLevelFromImport(1, 'two-pdo-' . getmypid(), '2026-01-01', 11.0);
+        $stocks->updateLevelFromImport(1, 'two-pdo-' . getmypid(), '2026-01-01', '11.00000');
         $prices = new PriceRepository();
         $prices->saveImportMapping('twopdo', 1);
         writeSignal($dir, 'A_READY', [
