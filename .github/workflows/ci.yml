@@ -62,6 +62,12 @@ jobs:
           set -e
           for f in api/tests/*.php; do
             [ -e "$f" ] || continue
+            case "$(basename "$f")" in
+              stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php)
+                echo "DB-dependent test routed to stock-import-integration: $f"
+                continue
+                ;;
+            esac
             echo "Running $f"
             php "$f"
           done
@@ -514,6 +520,20 @@ jobs:
           PY
           python3 /tmp/stock_evidence_mutation.py
 
+      - name: DB-dependent idempotency, cleanup and recovery tests
+        env:
+          CRM_STOCK_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=crm_cistock_test;charset=utf8mb4
+          CRM_STOCK_TEST_USER: root
+          CRM_STOCK_TEST_PASS: root
+          CRM_STOCK_TEST_BASE: http://127.0.0.1:8080
+          CRM_STOCK_TEST_PORT: '3306'
+          CRM_STOCK_TEST_DISPOSABLE: '1'
+        run: |
+          set -euo pipefail
+          php api/tests/stock-import-idempotency-integration.php
+          php api/tests/stock-import-fencing-integration.php
+          php api/tests/stock-import-idempotency-cleanup.php
+          php api/tests/stock-import-idempotency-recover.php
       - name: Legacy lock integration (48 assertions, numeric exit)
         env:
           CRM_STOCK_TEST_DSN: mysql:host=127.0.0.1;port=3306;dbname=crm_cistock_test;charset=utf8mb4
