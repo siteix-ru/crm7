@@ -420,3 +420,12 @@ deployment — Linux.
 SHA-256 подтверждает только целостность относительно manifest, но не подлинность
 и не пригодность данных. Проверки не покрывают применение миграций, корректность
 дампа и поведение после перезапуска приложения.
+
+## Native backup/restore без Docker
+
+Для Linux VPS без Docker добавлен отдельный backend
+[`docs/backup-restore-native.md`](backup-restore-native.md) и утилита
+`deploy/native_backup_restore.py`. Он использует локальные `mariadb-dump`/`mysql`,
+сохраняет инварианты блокировок, target identity и подтверждения, а также
+добавляет ARCHIVE `api/storage/`. Docker-скрипты в этом этапе не изменялись.
+Cross-backend restore намеренно не поддерживается.

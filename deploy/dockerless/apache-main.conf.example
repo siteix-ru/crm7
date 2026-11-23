@@ -1,0 +1,12 @@
+# CRM7 Dockerless VPS — Apache main-server directives.
+# Merge these two lines into the MAIN server context of httpd.conf
+# (Debian/Ubuntu: /etc/apache2/apache2.conf), OUTSIDE any <VirtualHost>.
+# They MUST NOT be placed inside deploy/dockerless/apache-root.conf:
+# apachectl configtest rejects them there.
+ServerTokens Prod
+ServerSignature Off
+
+# Required modules must also be enabled by the target distribution's mechanism
+# (for example `a2enmod alias rewrite proxy proxy_fcgi authz_core unixd dir
+# mime log_config headers setenvif` on Debian/Ubuntu). Do not copy module paths
+# from the disposable Alpine test image.
