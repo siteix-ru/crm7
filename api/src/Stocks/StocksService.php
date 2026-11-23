@@ -3274,7 +3274,9 @@ final class StocksService
 
         $rows = [];
 
-        while (($row = fgetcsv($handle, 0, $delimiter)) !== false) {
+        // PHP 8.4 deprecates omitting $escape; pass the historical default explicitly
+        // so CSV parsing semantics (including backslash handling) stay unchanged.
+        while (($row = fgetcsv($handle, 0, $delimiter, '"', '\\')) !== false) {
             $rows[] = array_map(static function ($cell): string {
                 $cell = (string) $cell;
 
