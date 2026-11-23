@@ -612,8 +612,12 @@ final class StocksRepository
     {
         $pdo = Database::pdo();
 
-        $pdo->prepare('INSERT IGNORE INTO nomenclature (NAME, NAME_1C, UNIT, DESCRIPTION) VALUES (?, ?, ?, ?)')
-            ->execute([$name, $name, $unit !== '' ? $unit : null, $description]);
+        // Applied on INSERT only. INSERT IGNORE keeps the existing product's
+        // TRACK_LOTS unchanged when the name already exists.
+        $trackLots = (new SettingsRepository())->trackLotsDefault() ? '1' : '0';
+
+        $pdo->prepare('INSERT IGNORE INTO nomenclature (NAME, NAME_1C, UNIT, DESCRIPTION, TRACK_LOTS) VALUES (?, ?, ?, ?, ?)')
+            ->execute([$name, $name, $unit !== '' ? $unit : null, $description, $trackLots]);
 
         if ($description !== null) {
             $pdo->prepare('UPDATE nomenclature SET DESCRIPTION = ? WHERE NAME_1C = ?')->execute([$description, $name]);

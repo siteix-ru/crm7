@@ -87,6 +87,15 @@ final class SettingsRepository
         return $this->get('stock.reserve_enabled') === '1';
     }
 
+    /**
+     * Default mode for newly created nomenclature only. Changing this value
+     * never affects products that already exist.
+     */
+    public function trackLotsDefault(): bool
+    {
+        return $this->get('stock.track_lots_default') === '1';
+    }
+
     public function pricesLevels(): array
     {
         return $this->levels('prices.levels');
