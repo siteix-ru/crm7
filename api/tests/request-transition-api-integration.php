@@ -33,6 +33,21 @@ function guardFail(string $reason): void
     exit(2);
 }
 
+/** The CI disposable contract allows only these two exact base URL forms. */
+function apiBaseError(string $base): ?string
+{
+    if (preg_match('#^http://127\.0\.0\.1:8080(?:/api/v2)?$#', $base) !== 1) {
+        return 'API base должен быть http://127.0.0.1:8080 или http://127.0.0.1:8080/api/v2';
+    }
+
+    return null;
+}
+
+function normalizeApiBase(string $base): string
+{
+    return str_ends_with($base, '/api/v2') ? $base : $base . '/api/v2';
+}
+
 /** @return string|null error description, or null when the target is an allowed disposable DB */
 function dbTargetError(array $env): ?string
 {
@@ -77,8 +92,9 @@ function dbTargetError(array $env): ?string
     if (!ctype_digit($port) || $port !== (string) $env['CRM_STOCK_TEST_PORT']) {
         return 'порт DSN и CRM_STOCK_TEST_PORT не совпадают';
     }
-    if (preg_match('#^http://127\.0\.0\.1:\d+/api/v2$#', rtrim((string) $env['CRM_STOCK_TEST_BASE'], '/')) !== 1) {
-        return 'API base должен быть loopback /api/v2';
+    $baseError = apiBaseError((string) $env['CRM_STOCK_TEST_BASE']);
+    if ($baseError !== null) {
+        return $baseError;
     }
     if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
             (string) $env['CRM_STOCK_TEST_SENTINEL']) !== 1) {
@@ -107,7 +123,7 @@ if (in_array('--guard-selftest', $argv, true)) {
         'CRM_STOCK_TEST_PORT' => '3306',
         'CRM_STOCK_TEST_SENTINEL' => '123e4567-e89b-42d3-a456-426614174000',
         'CRM_STOCK_TEST_DISPOSABLE' => '1',
-        'CRM_STOCK_TEST_BASE' => 'http://127.0.0.1:8080/api/v2',
+        'CRM_STOCK_TEST_BASE' => 'http://127.0.0.1:8080',
         'CRM_STOCK_TEST_LOGIN_PASSWORD' => 'x',
     ];
     check(dbTargetError($valid) === null, 'positive: crm_cistock_test accepted', $failures);
@@ -115,6 +131,31 @@ if (in_array('--guard-selftest', $argv, true)) {
     $local['CRM_STOCK_TEST_DSN'] = 'mysql:host=127.0.0.1;port=18720;dbname=crm_i139_test;charset=utf8mb4';
     $local['CRM_STOCK_TEST_PORT'] = '18720';
     check(dbTargetError($local) === null, 'positive: local disposable DB accepted', $failures);
+    $normalized = $valid;
+    $normalized['CRM_STOCK_TEST_BASE'] = 'http://127.0.0.1:8080/api/v2';
+    check(dbTargetError($normalized) === null, 'positive: /api/v2 base accepted', $failures);
+    check(normalizeApiBase('http://127.0.0.1:8080') === 'http://127.0.0.1:8080/api/v2',
+        'root base normalizes exactly once', $failures);
+    check(normalizeApiBase('http://127.0.0.1:8080/api/v2') === 'http://127.0.0.1:8080/api/v2',
+        'normalized base is not doubled', $failures);
+    foreach ([
+        'http://127.0.0.1:3306' => 'forbidden port',
+        'http://127.0.0.1:8081' => 'forbidden port',
+        'http://localhost:8080' => 'non-loopback host',
+        'http://192.168.1.1:8080' => 'external host',
+        'https://127.0.0.1:8080' => 'https',
+        'http://127.0.0.1:8080/api/v3' => 'api/v3',
+        'http://127.0.0.1:8080/other' => 'arbitrary path',
+        'http://127.0.0.1:8080?x=1' => 'query',
+        'http://127.0.0.1:8080#fragment' => 'fragment',
+        'http://127.0.0.1:abc' => 'malformed port',
+        'not-a-url' => 'malformed url',
+        'http://127.0.0.1:8080/api/v2/' => 'trailing slash',
+    ] as $badBase => $reason) {
+        $case = $valid;
+        $case['CRM_STOCK_TEST_BASE'] = $badBase;
+        check(dbTargetError($case) !== null, 'negative: ' . $reason . ' rejected', $failures);
+    }
     foreach (['crm_local', 'crm7_itn', 'crm_prod', 'crm_staging', 'crm', 'crm_badname'] as $badName) {
         $case = $valid;
         $case['CRM_STOCK_TEST_DSN'] = 'mysql:host=127.0.0.1;port=3306;dbname=' . $badName . ';charset=utf8mb4';
@@ -179,7 +220,7 @@ if (!hash_equals($env['CRM_STOCK_TEST_SENTINEL'], (string) $markerStmt->fetchCol
     guardFail('sentinel marker не совпадает');
 }
 
-$base = rtrim($env['CRM_STOCK_TEST_BASE'], '/');
+$base = normalizeApiBase($env['CRM_STOCK_TEST_BASE']);
 $password = $env['CRM_STOCK_TEST_LOGIN_PASSWORD'];
 $ns = 't141' . bin2hex(random_bytes(4));
 
