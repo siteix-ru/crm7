@@ -32,6 +32,7 @@ final class ModuleService
             'sla.resolution_hours' => ['type' => 'int', 'min' => 1, 'max' => 720, 'default' => 24],
             'stock.reserve_enabled' => ['type' => 'bool'],
             'stock.allow_zero' => ['type' => 'bool'],
+            'stock.track_lots_default' => ['type' => 'bool'],
         ],
         'stock_edit' => [
             'prices.levels' => ['type' => 'levels'],
@@ -312,7 +313,9 @@ final class ModuleService
             $type = (string) $definition['type'];
             $value = $input[$key];
 
-            if ($type === 'bool') {
+            if ($key === 'stock.track_lots_default') {
+                $result[$key] = $this->readTrackLotsDefaultSetting($value);
+            } elseif ($type === 'bool') {
                 $result[$key] = (bool) $value ? '1' : '0';
             } elseif ($type === 'int') {
                 $number = (int) $value;
@@ -327,6 +330,25 @@ final class ModuleService
         }
 
         return $result;
+    }
+
+    /**
+     * Strict validation for the lot-mode default. Other bool settings keep the
+     * legacy truthiness coercion to avoid changing existing API behaviour.
+     */
+    private function readTrackLotsDefaultSetting(mixed $value): string
+    {
+        if (is_bool($value)) {
+            return $value ? '1' : '0';
+        }
+        if (is_string($value) && in_array($value, ['0', '1'], true)) {
+            return $value;
+        }
+        if (is_int($value) && in_array($value, [0, 1], true)) {
+            return (string) $value;
+        }
+
+        throw new HttpException(422, 'validation_error', 'Некорректное значение stock.track_lots_default');
     }
 
     private function payload(): array
