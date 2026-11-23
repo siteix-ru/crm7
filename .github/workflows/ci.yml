@@ -63,7 +63,7 @@ jobs:
           for f in api/tests/*.php; do
             [ -e "$f" ] || continue
             case "$(basename "$f")" in
-              request-transition-api-integration.php|stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php|stock-reservation-concurrency-integration.php|stock-warehouse-collapse-integration.php|stock-abs-accounting-integration.php)
+              request-transition-api-integration.php|stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php|stock-reservation-concurrency-integration.php|stock-warehouse-collapse-integration.php|stock-abs-accounting-integration.php|track-lots-foundation.php)
                 echo "DB-dependent test routed to stock-import-integration: $f"
                 continue
                 ;;
@@ -105,6 +105,55 @@ jobs:
       - name: Deploy Python tests (backup/restore/permissions/exclusions)
         # Все тесты изолированы: temp-каталоги, mocks, FakeRunner; Docker/MariaDB не нужны.
         run: python -m unittest discover -s deploy/tests -p 'test_*.py' -v
+
+  track-lots-foundation:
+    needs: [php]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mariadb:
+        image: mariadb:10.11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: crm_lotfoundation_test
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql
+      - name: Install DB client
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
+      - name: Provision disposable guard
+        run: |
+          set -euo pipefail
+          SENTINEL=$(python3 -c 'import uuid; print(uuid.uuid4())')
+          echo "CRM7_TEST_DB_SENTINEL=$SENTINEL" >> "$GITHUB_ENV"
+          mariadb --ssl=0 -h 127.0.0.1 -P 3307 -uroot -proot crm_lotfoundation_test -e \
+            "CREATE TABLE IF NOT EXISTS crm_disposable_sentinel (id INT PRIMARY KEY, marker VARCHAR(64) NOT NULL); \
+             DELETE FROM crm_disposable_sentinel; \
+             INSERT INTO crm_disposable_sentinel (id,marker) VALUES (1,'$SENTINEL'); \
+             SELECT id FROM crm_disposable_sentinel;"
+      - name: Track lots foundation regression
+        env:
+          CRM7_TEST_DB_DSN: 'mysql:host=127.0.0.1;port=3307;dbname=crm_lotfoundation_test;charset=utf8mb4'
+          CRM7_TEST_DB_USER: root
+          CRM7_TEST_DB_PASS: root
+          CRM7_TEST_DB_PORT: '3307'
+          CRM7_TEST_DB_DISPOSABLE: '1'
+        run: php -d error_reporting=E_ALL api/tests/track-lots-foundation.php
+      - name: Cleanup disposable guard
+        if: always()
+        continue-on-error: true
+        run: |
+          mariadb --ssl=0 -h 127.0.0.1 -P 3307 -uroot -proot -e "DROP DATABASE IF EXISTS crm_lotfoundation_test;"
 
   stock-import-integration:
     needs: [php]
