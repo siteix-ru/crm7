@@ -2,8 +2,9 @@ import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 
-export default defineConfig(({ mode }) => {
+export function createConfig({ mode, command }: { mode: string; command: 'build' | 'serve' }) {
   const env = loadEnv(mode, '.', '');
+  const development = command === 'serve' || mode === 'development';
 
   return {
     plugins: [svelte()],
@@ -26,10 +27,13 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
-      sourcemap: true
+      // Production builds must not publish frontend source maps.
+      sourcemap: development
     },
     test: {
       setupFiles: ['./src/test-setup.ts']
     }
   };
-});
+}
+
+export default defineConfig(createConfig);
