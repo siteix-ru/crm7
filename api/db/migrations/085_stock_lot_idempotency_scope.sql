@@ -1,6 +1,13 @@
 -- Scoped idempotency registry for stock lot operations.
 -- Additive to 083/084: historical rows are preserved and backfilled with an
 -- empty payload hash (legacy replay stays idempotent without a new effect).
+--
+-- Backfill comparisons and concatenations explicitly COLLATE to the registry
+-- column collation (utf8mb4_unicode_ci). The application connection only
+-- specifies charset=utf8mb4, so its collation differs between supported
+-- MariaDB versions (utf8mb4_general_ci on 10.11, uca1400 on 11). Without an
+-- explicit COLLATE, comparisons between column values and literals/CASTs can
+-- fail with error 1267 on MariaDB 10.11.
 
 CREATE TABLE IF NOT EXISTS `stock_lot_idempotency` (
   `ID` bigint NOT NULL AUTO_INCREMENT,
@@ -22,12 +29,12 @@ INSERT INTO `stock_lot_idempotency`
 SELECT 'issue', 'request', CAST(o.REQUEST_ID AS CHAR), o.IDEMPOTENCY_KEY, '', o.ID
   FROM `stock_issue_operations` o
  WHERE o.IDEMPOTENCY_KEY IS NOT NULL
-   AND o.IDEMPOTENCY_KEY <> ''
+   AND o.IDEMPOTENCY_KEY <> '' COLLATE utf8mb4_unicode_ci
    AND NOT EXISTS (
      SELECT 1 FROM `stock_lot_idempotency` r
-      WHERE r.OPERATION = 'issue'
-        AND r.SCOPE_TYPE = 'request'
-        AND r.SCOPE_KEY = CAST(o.REQUEST_ID AS CHAR)
+      WHERE r.OPERATION = 'issue' COLLATE utf8mb4_unicode_ci
+        AND r.SCOPE_TYPE = 'request' COLLATE utf8mb4_unicode_ci
+        AND r.SCOPE_KEY = CAST(o.REQUEST_ID AS CHAR) COLLATE utf8mb4_unicode_ci
         AND r.IDEMPOTENCY_KEY = o.IDEMPOTENCY_KEY
    );
 
@@ -37,19 +44,24 @@ SELECT 'issue', 'request', CAST(o.REQUEST_ID AS CHAR), o.IDEMPOTENCY_KEY, '', o.
 INSERT INTO `stock_lot_idempotency`
   (`OPERATION`, `SCOPE_TYPE`, `SCOPE_KEY`, `IDEMPOTENCY_KEY`, `PAYLOAD_HASH`, `RESULT_ID`)
 SELECT 'receipt', 'lot',
-       CONCAT(CAST(m.STOCK_LEVEL_ID AS CHAR), ':', LOWER(TRIM(l.LOT_CODE))),
+       CONCAT(CAST(m.STOCK_LEVEL_ID AS CHAR) COLLATE utf8mb4_unicode_ci,
+              ':' COLLATE utf8mb4_unicode_ci,
+              LOWER(TRIM(l.LOT_CODE)) COLLATE utf8mb4_unicode_ci),
        m.IDEMPOTENCY_KEY, '', m.LOT_ID
   FROM `stock_lot_movements` m
   JOIN `stock_lots` l ON l.ID = m.LOT_ID
- WHERE m.TYPE = 'receipt'
+ WHERE m.TYPE = 'receipt' COLLATE utf8mb4_unicode_ci
    AND m.REVERSES_ID IS NULL
    AND m.IDEMPOTENCY_KEY IS NOT NULL
-   AND m.IDEMPOTENCY_KEY <> ''
+   AND m.IDEMPOTENCY_KEY <> '' COLLATE utf8mb4_unicode_ci
    AND NOT EXISTS (
      SELECT 1 FROM `stock_lot_idempotency` r
-      WHERE r.OPERATION = 'receipt'
-        AND r.SCOPE_TYPE = 'lot'
-        AND r.SCOPE_KEY = CONCAT(CAST(m.STOCK_LEVEL_ID AS CHAR), ':', LOWER(TRIM(l.LOT_CODE)))
+      WHERE r.OPERATION = 'receipt' COLLATE utf8mb4_unicode_ci
+        AND r.SCOPE_TYPE = 'lot' COLLATE utf8mb4_unicode_ci
+        AND r.SCOPE_KEY = CONCAT(CAST(m.STOCK_LEVEL_ID AS CHAR) COLLATE utf8mb4_unicode_ci,
+                                 ':' COLLATE utf8mb4_unicode_ci,
+                                 LOWER(TRIM(l.LOT_CODE)) COLLATE utf8mb4_unicode_ci)
+                            COLLATE utf8mb4_unicode_ci
         AND r.IDEMPOTENCY_KEY = m.IDEMPOTENCY_KEY
    );
 
@@ -63,14 +75,14 @@ SELECT 'reversal', 'issue', CAST(m.REVERSES_ID AS CHAR),
        SUBSTRING(m.IDEMPOTENCY_KEY, 5), '', m.REVERSES_ID
   FROM `stock_lot_movements` m
   JOIN `stock_issue_operations` o ON o.ID = m.REVERSES_ID
- WHERE m.TYPE = 'reversal'
+ WHERE m.TYPE = 'reversal' COLLATE utf8mb4_unicode_ci
    AND m.REVERSES_ID IS NOT NULL
-   AND m.IDEMPOTENCY_KEY LIKE 'rev:%'
+   AND m.IDEMPOTENCY_KEY LIKE 'rev:%' COLLATE utf8mb4_unicode_ci
    AND NOT EXISTS (
      SELECT 1 FROM `stock_lot_idempotency` r
-      WHERE r.OPERATION = 'reversal'
-        AND r.SCOPE_TYPE = 'issue'
-        AND r.SCOPE_KEY = CAST(m.REVERSES_ID AS CHAR)
+      WHERE r.OPERATION = 'reversal' COLLATE utf8mb4_unicode_ci
+        AND r.SCOPE_TYPE = 'issue' COLLATE utf8mb4_unicode_ci
+        AND r.SCOPE_KEY = CAST(m.REVERSES_ID AS CHAR) COLLATE utf8mb4_unicode_ci
         AND r.IDEMPOTENCY_KEY = SUBSTRING(m.IDEMPOTENCY_KEY, 5)
    );
 
