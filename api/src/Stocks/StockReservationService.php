@@ -7,6 +7,7 @@ namespace App\Stocks;
 use App\Http\HttpException;
 use App\Repositories\SettingsRepository;
 use App\Repositories\StockReservationRepository;
+use PDOException;
 
 final class StockReservationService
 {
@@ -89,11 +90,16 @@ final class StockReservationService
                 continue;
             }
 
-            if (!$this->reservations->adjustLevelAtomic($levelId, $change)) {
+            if (!$this->adjustLevelAtomically(
+                $levelId,
+                $change,
+                (float) ($desired[$levelId] ?? 0.0),
+                (float) ($current[$levelId] ?? 0.0)
+            )) {
                 throw $this->insufficientStock(
                     $levelId,
-                    $this->reservations->levelQuantity($levelId) + ($current[$levelId] ?? 0.0),
-                    $desired[$levelId] ?? 0.0
+                    $this->reservations->freshLevelQuantity($levelId) + ($current[$levelId] ?? 0.0),
+                    (float) ($desired[$levelId] ?? 0.0)
                 );
             }
         }
@@ -113,6 +119,38 @@ final class StockReservationService
             'Недостаточно остатка «' . $this->reservations->levelLabel($levelId) . '»: доступно '
                 . $this->formatQuantity($available) . ', запрошено ' . $this->formatQuantity($want)
         );
+    }
+
+    /**
+     * Applies the guarded balance change and translates only the confirmed
+     * MariaDB "record changed since last read" conflict (1020) into a domain
+     * decision. A consistent read earlier in the same transaction (for example
+     * of the settings row) pins a REPEATABLE READ snapshot, so the conditional
+     * UPDATE of a row changed by a committed competitor raises 1020 instead of
+     * simply failing its predicate. Re-reading the balance outside that
+     * snapshot distinguishes a genuinely insufficient remainder (normal 422)
+     * from a real DB conflict, which is rethrown rather than masked.
+     */
+    private function adjustLevelAtomically(int $levelId, float $change, float $want, float $current): bool
+    {
+        try {
+            return $this->reservations->adjustLevelAtomic($levelId, $change);
+        } catch (PDOException $e) {
+            if (!$this->isStockRowChangedConflict($e)) {
+                throw $e;
+            }
+            $available = $this->reservations->freshLevelQuantity($levelId) + $current;
+            if ($want > $available + self::EPSILON) {
+                throw $this->insufficientStock($levelId, $available, $want);
+            }
+            throw $e;
+        }
+    }
+
+    private function isStockRowChangedConflict(PDOException $e): bool
+    {
+        return (int) ($e->errorInfo[1] ?? 0) === 1020
+            && strpos($e->getMessage(), 'stock_levels') !== false;
     }
 
     /**

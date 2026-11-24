@@ -60,24 +60,16 @@ final class StockLotIdempotencyRepository
 
             return ['status' => 'new', 'claim_id' => (int) $pdo->lastInsertId()];
         } catch (PDOException $e) {
-            if ($e->getCode() !== '23000') {
+            if (!$this->isScopeKeyConflict($e)) {
                 throw $e;
             }
 
-            $existing = $pdo->prepare(
-                'SELECT ID, PAYLOAD_HASH, RESULT_ID
-                   FROM stock_lot_idempotency
-                  WHERE OPERATION = ? AND SCOPE_TYPE = ? AND SCOPE_KEY = ? AND IDEMPOTENCY_KEY = ?
-                  LIMIT 1'
-            );
-            $existing->execute([$operation, $scopeType, $scopeKey, $idempotencyKey]);
-            $row = $existing->fetch();
-            if ($row === false) {
-                // Another transaction is still inserting; retry once after it commits.
-                $existing->execute([$operation, $scopeType, $scopeKey, $idempotencyKey]);
-                $row = $existing->fetch();
-            }
-            if ($row === false) {
+            // A competing transaction may commit just after our duplicate-key
+            // error. Re-reading on the same connection keeps this transaction's
+            // REPEATABLE READ snapshot and can never see the committed row, so
+            // use an independent connection with a short bounded wait instead.
+            $row = $this->findCommittedClaim($operation, $scopeType, $scopeKey, $idempotencyKey);
+            if ($row === null) {
                 throw $e;
             }
 
@@ -95,6 +87,41 @@ final class StockLotIdempotencyRepository
                 'result_id' => $row['RESULT_ID'] === null ? null : (int) $row['RESULT_ID'],
             ];
         }
+    }
+
+    /**
+     * Only a duplicate on the scoped registry index is an idempotency signal.
+     * A 23000 from any other UNIQUE index must surface as a DB error instead of
+     * being mistaken for a replay of an independent operation.
+     */
+    private function isScopeKeyConflict(PDOException $e): bool
+    {
+        return (int) ($e->errorInfo[1] ?? 0) === 1062
+            && strpos($e->getMessage(), 'uq_lot_idem_scope') !== false;
+    }
+
+    private function findCommittedClaim(
+        string $operation,
+        string $scopeType,
+        string $scopeKey,
+        string $idempotencyKey
+    ): ?array {
+        $fresh = Database::freshPdo();
+        $sql = 'SELECT ID, PAYLOAD_HASH, RESULT_ID
+                  FROM stock_lot_idempotency
+                 WHERE OPERATION = ? AND SCOPE_TYPE = ? AND SCOPE_KEY = ? AND IDEMPOTENCY_KEY = ?
+                 LIMIT 1';
+        for ($attempt = 0; $attempt < 5; $attempt++) {
+            $stmt = $fresh->prepare($sql);
+            $stmt->execute([$operation, $scopeType, $scopeKey, $idempotencyKey]);
+            $row = $stmt->fetch();
+            if ($row !== false) {
+                return $row;
+            }
+            usleep(10000);
+        }
+
+        return null;
     }
 
     public function complete(int $claimId, int $resultId): void

@@ -92,6 +92,15 @@ final class StockReservationRepository
         return (float) ($stmt->fetchColumn() ?: 0.0);
     }
 
+    /** Latest committed balance, read outside the caller's REPEATABLE READ snapshot. */
+    public function freshLevelQuantity(int $levelId): float
+    {
+        $stmt = Database::freshPdo()->prepare('SELECT QUANTITY FROM stock_levels WHERE ID = ? LIMIT 1');
+        $stmt->execute([$levelId]);
+
+        return (float) ($stmt->fetchColumn() ?: 0.0);
+    }
+
     public function levelExists(int $levelId): bool
     {
         $stmt = Database::pdo()->prepare('SELECT 1 FROM stock_levels WHERE ID = ? LIMIT 1');

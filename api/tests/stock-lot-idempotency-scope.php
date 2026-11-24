@@ -6,6 +6,7 @@ require __DIR__ . '/../src/autoload.php';
 
 use App\Core\Database;
 use App\Http\HttpException;
+use App\Repositories\StockLotIdempotencyRepository;
 use App\Stocks\StockLotService;
 use App\Stocks\StockReservationService;
 use App\Support\Decimal;
@@ -445,6 +446,36 @@ check($claimInTx === 1 && $txLot !== []
 check($registryCount('idem-tx') === 0 && $lotRow($levIdem, 'IDEM-TX') === []
     && (string) $pdo->query("SELECT QUANTITY FROM stock_levels WHERE ID=$levIdem")->fetchColumn() === $beforeLevel,
     'identity rollback reverts claim and balance together', $failures);
+
+// 17. A competing claim committed after this transaction's snapshot must still
+// be recognized as the same scoped operation. A re-read on the same connection
+// keeps the REPEATABLE READ snapshot and cannot see the committed row.
+$competingHash = hash('sha256', 'idem-competing-snapshot');
+$pdo->exec("DELETE FROM stock_lot_idempotency WHERE IDEMPOTENCY_KEY='idem-competing-snapshot'");
+$pdo->beginTransaction();
+$pdo->query('SELECT COUNT(*) FROM stock_lot_idempotency')->fetchColumn();
+$otherPdo = new PDO($dsn, $dbUser, $dbPass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
+$otherPdo->exec(
+    "INSERT INTO stock_lot_idempotency (OPERATION,SCOPE_TYPE,SCOPE_KEY,IDEMPOTENCY_KEY,PAYLOAD_HASH,RESULT_ID) VALUES "
+    . "('issue','request','7777777','idem-competing-snapshot','$competingHash',4242)"
+);
+try {
+    $registry = new StockLotIdempotencyRepository();
+    $conflict = $registry->claim(
+        StockLotIdempotencyRepository::OPERATION_ISSUE,
+        StockLotIdempotencyRepository::SCOPE_REQUEST,
+        '7777777',
+        'idem-competing-snapshot',
+        $competingHash
+    );
+    check($conflict['status'] === 'applied' && (int) $conflict['result_id'] === 4242,
+        'idem competing claim committed after snapshot is replayed', $failures);
+} catch (Throwable $e) {
+    check(false, 'idem competing claim committed after snapshot is replayed (' . get_class($e) . ')', $failures);
+} finally {
+    $pdo->rollBack();
+    $pdo->exec("DELETE FROM stock_lot_idempotency WHERE IDEMPOTENCY_KEY='idem-competing-snapshot'");
+}
 
 if ($failures !== []) {
     fwrite(STDERR, sprintf("\nНеудавшихся проверок: %d\n", count($failures)));
