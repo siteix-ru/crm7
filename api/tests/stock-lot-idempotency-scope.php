@@ -104,23 +104,111 @@ function startProcess(string $phpCode, string $dsn, string $dbUser, string $dbPa
     $pipes = [];
     $proc = proc_open($cmd, [0 => ['pipe', 'r'], 1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes);
     if (!is_resource($proc)) {
-        return ['proc' => null];
+        $last = error_get_last();
+
+        return [
+            'proc' => null,
+            'started_at' => microtime(true),
+            'spawn_error' => (string) ($last['message'] ?? 'proc_open failed'),
+        ];
     }
     fclose($pipes[0]);
 
-    return ['proc' => $proc, 'out' => $pipes[1], 'err' => $pipes[2]];
+    // Read the PID while the child is still running: a later proc_get_status()
+    // can consume the exit code, but this early call cannot.
+    $status = @proc_get_status($proc);
+
+    return [
+        'proc' => $proc,
+        'out' => $pipes[1],
+        'err' => $pipes[2],
+        'started_at' => microtime(true),
+        'pid' => (int) ($status['pid'] ?? 0),
+        'spawn_error' => '',
+    ];
 }
 function finishProcess(array $handle): array
 {
+    $startedAt = (float) ($handle['started_at'] ?? microtime(true));
     if ($handle['proc'] === null) {
-        return ['exit' => -1, 'out' => '', 'err' => 'spawn failed'];
+        return [
+            'exit' => -1,
+            'out' => '',
+            'err' => 'spawn failed: ' . (string) ($handle['spawn_error'] ?? 'unknown'),
+            'pid' => 0,
+            'status' => [],
+            'wait_ms' => 0,
+            'status_error' => '',
+            'close_error' => '',
+            'spawn_error' => (string) ($handle['spawn_error'] ?? ''),
+        ];
     }
+
     $out = stream_get_contents($handle['out']);
     $err = stream_get_contents($handle['err']);
     fclose($handle['out']);
     fclose($handle['err']);
 
-    return ['exit' => proc_close($handle['proc']), 'out' => trim($out), 'err' => trim($err)];
+    // Diagnostics only: taken after the streams are drained so the final state
+    // is visible. proc_get_status() may consume the exit status, so its value
+    // is preferred when the child has already terminated.
+    $status = @proc_get_status($handle['proc']);
+    $statusError = '';
+    if (!is_array($status)) {
+        $last = error_get_last();
+        $statusError = (string) ($last['message'] ?? 'proc_get_status failed');
+        $status = [];
+    }
+    $closeExit = @proc_close($handle['proc']);
+    $closeError = '';
+    if ($closeExit === -1) {
+        $last = error_get_last();
+        $closeError = (string) ($last['message'] ?? '');
+    }
+    $statusExit = (int) ($status['exitcode'] ?? -1);
+
+    return [
+        'exit' => $statusExit >= 0 ? $statusExit : $closeExit,
+        'out' => trim($out),
+        'err' => trim($err),
+        'pid' => (int) ($handle['pid'] ?? 0),
+        'status' => [
+            'running' => (bool) ($status['running'] ?? false),
+            'signaled' => (bool) ($status['signaled'] ?? false),
+            'stopped' => (bool) ($status['stopped'] ?? false),
+            'exitcode' => $statusExit >= 0 ? $statusExit : null,
+            'termsig' => $status['termsig'] ?? null,
+            'stopsig' => $status['stopsig'] ?? null,
+        ],
+        'wait_ms' => (int) round((microtime(true) - $startedAt) * 1000),
+        'status_error' => $statusError,
+        'close_error' => $closeError,
+        'spawn_error' => '',
+    ];
+}
+/** Diagnostic dump for a failed parallel-scope check. Never called on success. */
+function parallelChildDiagnostics(string $label, array $child, int $requestId, string $key): string
+{
+    $status = is_array($child['status'] ?? null) ? $child['status'] : [];
+    $timeoutNote = ((int) ($child['wait_ms'] ?? 0) >= 25000)
+        ? ' (close to the 30s GET_LOCK timeout)'
+        : '';
+
+    return implode("\n", [
+        sprintf('  child %s: scope=request:%d key=%s pid=%s exit=%s wait_ms=%d%s',
+            $label, $requestId, $key, var_export($child['pid'] ?? 0, true),
+            var_export($child['exit'] ?? null, true), (int) ($child['wait_ms'] ?? 0), $timeoutNote),
+        sprintf('  child %s expected: exit=0, stdout contains "already_applied":false', $label),
+        '  child ' . $label . ' stdout: ' . var_export((string) ($child['out'] ?? ''), true),
+        '  child ' . $label . ' stderr: ' . var_export((string) ($child['err'] ?? ''), true),
+        '  child ' . $label . ' proc status: ' . json_encode($status),
+        '  child ' . $label . ' proc errors: '
+            . json_encode([
+                'spawn' => (string) ($child['spawn_error'] ?? ''),
+                'status' => (string) ($child['status_error'] ?? ''),
+                'close' => (string) ($child['close_error'] ?? ''),
+            ]),
+    ]);
 }
 
 // Own fixtures only.
@@ -283,10 +371,16 @@ $h7 = startProcess($code7, $dsn, $dbUser, $dbPass);
 $h8 = startProcess($code8, $dsn, $dbUser, $dbPass);
 $p7 = finishProcess($h7);
 $p8 = finishProcess($h8);
-check($p7['exit'] === 0 && $p8['exit'] === 0
+$parallelScopesOk = $p7['exit'] === 0 && $p8['exit'] === 0
     && strpos($p7['out'], '"already_applied":false') !== false
-    && strpos($p8['out'], '"already_applied":false') !== false,
-    'idem parallel different scopes both execute', $failures);
+    && strpos($p8['out'], '"already_applied":false') !== false;
+if (!$parallelScopesOk) {
+    fwrite(STDERR, "DIAG idem parallel different scopes both execute\n");
+    fwrite(STDERR, "  expected: two independent scopes with the same key both execute\n");
+    fwrite(STDERR, parallelChildDiagnostics('A', $p7, $r7, 'idem-parallel-diff') . "\n");
+    fwrite(STDERR, parallelChildDiagnostics('B', $p8, $r8, 'idem-parallel-diff') . "\n");
+}
+check($parallelScopesOk, 'idem parallel different scopes both execute', $failures);
 
 // 11. Rollback: a failed operation does not leave a registered key.
 $r9 = $newRequest('IDEM-TEST-9');
