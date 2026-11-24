@@ -217,16 +217,51 @@ final class StockReservationService
     }
 
     /**
+     * After a deadlock MariaDB has already rolled back the whole transaction.
+     * Re-read the committed balance on an independent connection and report a
+     * genuine legacy shortage with the standard domain error. Lot-mode levels
+     * are skipped: their own operation contract stays authoritative.
+     *
+     * @param array<int, array<string, mixed>> $items
+     */
+    public function assertAvailableAfterConflict(int $requestId, array $items): void
+    {
+        $legacy = [];
+        foreach ($this->aggregate($items) as $levelId => $want) {
+            if (!$this->lots->isLotLevel((int) $levelId)) {
+                $legacy[(int) $levelId] = $want;
+            }
+        }
+        if ($legacy === []) {
+            return;
+        }
+
+        $current = $this->reservations->forRequestFresh($requestId);
+        foreach ($legacy as $levelId => $want) {
+            $available = $this->reservations->lockedFreshLevelQuantity($levelId) + ($current[$levelId] ?? 0.0);
+            if ($want > $available + self::EPSILON) {
+                throw $this->insufficientStock($levelId, $available, $want);
+            }
+        }
+    }
+
+    /**
      * @param array<int, float> $desired
      * @param array<int, float> $current
      * @return array<int, int>
      */
     private function levelIds(array $desired, array $current): array
     {
-        return array_values(array_unique(array_map(
+        $ids = array_values(array_unique(array_map(
             'intval',
             array_merge(array_keys($desired), array_keys($current))
         )));
+        // A stable order is required even when apply() is called directly
+        // without the request-level pre-lock: two requests with the same set
+        // of levels listed in a different client order must not deadlock.
+        sort($ids, SORT_NUMERIC);
+
+        return $ids;
     }
 
     private function formatQuantity(float $value): string

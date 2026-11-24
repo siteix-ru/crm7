@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Core\Database;
+use PDO;
 
 final class RequestRepository
 {
@@ -621,10 +622,85 @@ final class RequestRepository
         $stmt->execute([$dueAt, $id]);
     }
 
+    /**
+     * Existing item levels read on an independent connection. This cannot pin
+     * a REPEATABLE READ snapshot on the caller's connection, so the caller can
+     * safely lock all old and new levels together before any other read.
+     *
+     * @return array<int, float>
+     */
+    public function itemLevelsForRequestFresh(int $requestId): array
+    {
+        $stmt = Database::freshPdo()->prepare(
+            'SELECT stock_level_id, quantity FROM request_items WHERE request_id = ?'
+        );
+        $stmt->execute([$requestId]);
+
+        $levels = [];
+        foreach ($stmt->fetchAll() ?: [] as $row) {
+            $levelId = (int) ($row['stock_level_id'] ?? 0);
+            if ($levelId > 0) {
+                $levels[$levelId] = (float) ($row['quantity'] ?? 0.0);
+            }
+        }
+
+        return $levels;
+    }
+
+    /**
+     * Lock every stock level referenced by an item change, in ascending ID
+     * order. Callers use this before touching request_items so concurrent
+     * requests that share levels acquire row locks in one deterministic order
+     * and can never form a cycle with the reservation updates in apply().
+     *
+     * @param array<int, array<string, mixed>> $items
+     * @param array<int, float> $current
+     */
+    public function lockStockLevelsForItems(array $items, array $current = []): void
+    {
+        $ids = [];
+        foreach ($items as $item) {
+            $levelId = (int) ($item['stock_level_id'] ?? 0);
+            if ($levelId > 0) {
+                $ids[$levelId] = true;
+            }
+        }
+        foreach (array_keys($current) as $levelId) {
+            $levelId = (int) $levelId;
+            if ($levelId > 0) {
+                $ids[$levelId] = true;
+            }
+        }
+        if ($ids === []) {
+            return;
+        }
+
+        $levelIds = array_keys($ids);
+        sort($levelIds, SORT_NUMERIC);
+        $placeholders = implode(',', array_fill(0, count($levelIds), '?'));
+        $stmt = Database::pdo()->prepare(
+            'SELECT ID FROM stock_levels WHERE ID IN (' . $placeholders . ') ORDER BY ID ASC FOR UPDATE'
+        );
+        $stmt->execute($levelIds);
+        $stmt->fetchAll();
+    }
+
     public function replaceItems(int $requestId, array $items): void
     {
-        $stmt = Database::pdo()->prepare('DELETE FROM request_items WHERE request_id = ?');
-        $stmt->execute([$requestId]);
+        // Resolve IDs with a non-locking read and delete by PRIMARY KEY. A plain
+        // `DELETE ... WHERE request_id = ?` takes an X next-key lock on the
+        // non-unique idx_request (including the supremum gap), which deadlocks
+        // with another request's insert intention on the same shared gap.
+        // Same-request writers are serialized by the request row lock held by
+        // the caller, so reading the IDs first cannot lose a concurrent change.
+        $select = Database::pdo()->prepare('SELECT ID FROM request_items WHERE request_id = ?');
+        $select->execute([$requestId]);
+        $ids = array_map('intval', $select->fetchAll(PDO::FETCH_COLUMN));
+        if ($ids !== []) {
+            $placeholders = implode(',', array_fill(0, count($ids), '?'));
+            $delete = Database::pdo()->prepare('DELETE FROM request_items WHERE ID IN (' . $placeholders . ')');
+            $delete->execute($ids);
+        }
 
         $this->createItems($requestId, $items);
 
