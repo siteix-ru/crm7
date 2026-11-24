@@ -289,6 +289,12 @@ $router->get('/stocks/warehouses/{id}/candidates', [$stocks, 'warehouseCandidate
 $router->post('/stocks/warehouses/{id}/access', [$stocks, 'addWarehouseUser']);
 $router->delete('/stocks/warehouses/{id}/access/{userSid}', [$stocks, 'removeWarehouseUser']);
 
+// Lot routes are registered before the generic /stocks/{id} and /requests/{id}
+// routes so a literal "lots" segment is never captured as an id.
+$router->get('/stocks/lots', [$stockLots, 'lots']);
+$router->post('/stocks/lots/receive', [$stockLots, 'receive']);
+$router->post('/stocks/lots/convert', [$stockLots, 'convert']);
+$router->get('/requests/{id}/lots', [$stockLots, 'requestLots']);
 $router->post('/requests/{id}/lots/issue', [$stockLots, 'issue']);
 $router->post('/stocks/lot-issues/{id}/reversal', [$stockLots, 'reversal']);
 

@@ -63,7 +63,7 @@ jobs:
           for f in api/tests/*.php; do
             [ -e "$f" ] || continue
             case "$(basename "$f")" in
-              request-transition-api-integration.php|stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php|stock-reservation-concurrency-integration.php|stock-warehouse-collapse-integration.php|stock-abs-accounting-integration.php|track-lots-foundation.php|stock-lot-lifecycle.php|stock-lot-idempotency-scope.php)
+              request-transition-api-integration.php|stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php|stock-reservation-concurrency-integration.php|stock-warehouse-collapse-integration.php|stock-abs-accounting-integration.php|track-lots-foundation.php|stock-lot-lifecycle.php|stock-lot-idempotency-scope.php|stock-lots-api-integration.php)
                 echo "DB-dependent test routed to a disposable MariaDB job: $f"
                 continue
                 ;;
@@ -233,6 +233,7 @@ jobs:
           set -euo pipefail
           php -d error_reporting=E_ALL api/tests/stock-lot-lifecycle.php
           php -d error_reporting=E_ALL api/tests/stock-lot-idempotency-scope.php
+          php -d error_reporting=E_ALL api/tests/stock-lots-api-integration.php
       - name: Cleanup disposable guard
         if: always()
         continue-on-error: true
