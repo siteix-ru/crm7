@@ -1380,6 +1380,16 @@ final class RequestService
                 throw new HttpException(404, 'not_found', 'Заявка не найдена');
             }
 
+            // Lock every level that release() will update BEFORE any consistent
+            // read pins a REPEATABLE READ snapshot. The level list is read on a
+            // separate connection so this connection keeps no snapshot. Without
+            // this, a concurrent reservation committing a stock_levels change
+            // makes MariaDB 11.8 raise ER_CHECKREAD (1020) on release's UPDATE.
+            $this->requests->lockStockLevelsForItems(
+                [],
+                $this->reservations->reservedLevelsMap($id)
+            );
+
             $this->assertCanView($user, $capabilities, $request);
 
             if (!$this->canTransition($user, $capabilities, $request)) {
