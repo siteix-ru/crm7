@@ -80,6 +80,7 @@ $expectedLot = [
     'stock-lot-idempotency-scope.php',
     'stock-lot-lifecycle.php',
     'stock-lots-api-integration.php',
+    'stock-legacy-compatibility.php',
 ];
 $expected = array_merge($expectedStock, $expectedFoundation, $expectedLot);
 sort($expected);

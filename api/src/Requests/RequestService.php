@@ -29,6 +29,7 @@ use App\Notifications\NotificationService;
 use App\Prices\PriceService;
 use App\Stocks\StockLotService;
 use App\Stocks\StockReservationService;
+use PDOException;
 use Throwable;
 
 final class RequestService
@@ -640,6 +641,8 @@ final class RequestService
         $createdClient = null;
 
         try {
+            $this->requests->lockStockLevelsForItems($items);
+
             if ($newClient !== null) {
                 $createdClient = $this->clientProvisioning->create($newClient, $user);
                 $clientId = (int) $createdClient['id'];
@@ -700,7 +703,9 @@ final class RequestService
 
             $pdo->commit();
         } catch (Throwable $exception) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $exception;
         } finally {
             if ($lockedRequest > 0) {
@@ -813,6 +818,15 @@ final class RequestService
                 throw new HttpException(404, 'not_found', 'Заявка не найдена');
             }
 
+            // Acquire ALL level locks (new items and levels that will be
+            // removed from the composition) before any consistent read pins a
+            // REPEATABLE READ snapshot on this connection. The old levels come
+            // from a separate connection, so they cannot create a snapshot.
+            $this->requests->lockStockLevelsForItems(
+                $items,
+                $this->requests->itemLevelsForRequestFresh($id)
+            );
+
             $this->assertCanView($user, $capabilities, $request);
 
             if (!$this->canEditItems($user, $capabilities, $request)) {
@@ -870,7 +884,18 @@ final class RequestService
 
             $pdo->commit();
         } catch (Throwable $exception) {
-            $pdo->rollBack();
+            // MariaDB rolls back the whole transaction itself after a deadlock.
+            // Never issue a second rollBack() on the now-inactive connection.
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            if ($this->isReservationDeadlock($exception)) {
+                // A loser of a concurrent reservation must see the same domain
+                // error as a sequential insufficient-stock request, not a raw
+                // 500 from the storage engine. Only legacy levels are checked;
+                // lot mode keeps its own error contract.
+                $this->reservations->assertAvailableAfterConflict($id, $items);
+            }
             throw $exception;
         } finally {
             if ($lockedRequest > 0) {
@@ -879,6 +904,13 @@ final class RequestService
         }
 
         return $this->detail($user, $capabilities, $id);
+    }
+
+    /** Only a confirmed deadlock from the storage engine is a retryable conflict. */
+    private function isReservationDeadlock(Throwable $exception): bool
+    {
+        return $exception instanceof PDOException
+            && (int) ($exception->errorInfo[1] ?? 0) === 1213;
     }
 
     private function canEdit(array $user, array $capabilities, array $request): bool
@@ -938,6 +970,11 @@ final class RequestService
             if ($request === null) {
                 throw new HttpException(404, 'not_found', 'Заявка не найдена');
             }
+
+            $this->requests->lockStockLevelsForItems(
+                $items,
+                $this->requests->itemLevelsForRequestFresh($id)
+            );
 
             $this->assertCanView($user, $capabilities, $request);
 
@@ -1064,7 +1101,9 @@ final class RequestService
 
             $pdo->commit();
         } catch (Throwable $exception) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $exception;
         } finally {
             if ($lockedRequest > 0) {
@@ -1256,7 +1295,9 @@ final class RequestService
 
             $pdo->commit();
         } catch (Throwable $exception) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $exception;
         } finally {
             if ($lockedRequest > 0) {
@@ -1437,7 +1478,9 @@ final class RequestService
 
             $pdo->commit();
         } catch (Throwable $exception) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $exception;
         } finally {
             if ($lockedRequest > 0) {
@@ -1490,7 +1533,9 @@ final class RequestService
 
             $pdo->commit();
         } catch (Throwable $exception) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $exception;
         } finally {
             if ($lockedRequest > 0) {
@@ -1629,7 +1674,9 @@ final class RequestService
 
             $pdo->commit();
         } catch (Throwable $exception) {
-            $pdo->rollBack();
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
             throw $exception;
         } finally {
             if ($lockedRequest > 0) {

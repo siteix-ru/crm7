@@ -101,6 +101,22 @@ final class StockReservationRepository
         return (float) ($stmt->fetchColumn() ?: 0.0);
     }
 
+    /**
+     * Latest committed balance obtained with a locking read. The call waits for
+     * a concurrent writer to commit, so a post-deadlock check cannot observe a
+     * stale balance merely because the winner has not committed yet.
+     */
+    public function lockedFreshLevelQuantity(int $levelId): float
+    {
+        // A separate connection has no REPEATABLE READ snapshot, so a locking
+        // read here cannot raise ER_CHECKREAD while still waiting for the
+        // competing transaction to release its row lock.
+        $stmt = Database::freshPdo()->prepare('SELECT QUANTITY FROM stock_levels WHERE ID = ? FOR UPDATE');
+        $stmt->execute([$levelId]);
+
+        return (float) ($stmt->fetchColumn() ?: 0.0);
+    }
+
     public function levelExists(int $levelId): bool
     {
         $stmt = Database::pdo()->prepare('SELECT 1 FROM stock_levels WHERE ID = ? LIMIT 1');
