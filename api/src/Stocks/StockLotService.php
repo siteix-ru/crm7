@@ -967,8 +967,15 @@ final class StockLotService
 
     private function assertRequestOpen(int $requestId): void
     {
+        // Locking read on the request row only. A plain SELECT here would pin a
+        // REPEATABLE READ snapshot before the lot-reservation locking read below;
+        // with MariaDB 11.8 snapshot isolation a competing committed change to a
+        // reserved row would then raise SQLSTATE 1020 (ER_CHECKREAD) on that read.
+        // requests.status_id already holds request_statuses.code (the old JOIN
+        // compared s.code = r.status_id), so the closed/canceled semantics are
+        // unchanged and no shared status row is locked.
         $stmt = Database::pdo()->prepare(
-            'SELECT s.code FROM requests r JOIN request_statuses s ON s.code = r.status_id WHERE r.id = ? LIMIT 1'
+            'SELECT status_id FROM requests WHERE id = ? LIMIT 1 FOR UPDATE'
         );
         $stmt->execute([$requestId]);
         $code = $stmt->fetchColumn();

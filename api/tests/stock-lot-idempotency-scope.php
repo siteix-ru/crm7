@@ -382,6 +382,24 @@ if (!$parallelScopesOk) {
 }
 check($parallelScopesOk, 'idem parallel different scopes both execute', $failures);
 
+// Both independent effects must be durable exactly once, with no lost update
+// and no negative balance left behind by the concurrent transactions.
+check($issueCount($r7, 'idem-parallel-diff') === 1
+    && $issueCount($r8, 'idem-parallel-diff') === 1
+    && $registryCount('idem-parallel-diff') === 2,
+    'idem parallel different scopes: both effects persisted once', $failures);
+foreach ([$r7, $r8] as $requestId) {
+    $left = (string) $pdo->query(
+        'SELECT COALESCE(SUM(quantity), 0) FROM stock_reservations WHERE request_id=' . $requestId
+    )->fetchColumn();
+    check(Decimal::compare($left, '17.00000') === 0,
+        'idem parallel different scopes: reservation reduced exactly once (' . $requestId . ')', $failures);
+}
+check((int) $pdo->query(
+    'SELECT COUNT(*) FROM stock_lots WHERE QUANTITY_AVAILABLE < 0 OR QUANTITY_RESERVED < 0'
+)->fetchColumn() === 0,
+    'idem parallel different scopes: no negative lot balance', $failures);
+
 // 11. Rollback: a failed operation does not leave a registered key.
 $r9 = $newRequest('IDEM-TEST-9');
 $apply($r9, $levels['IDEM-L3'], 20.0);
