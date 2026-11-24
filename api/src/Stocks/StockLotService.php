@@ -243,14 +243,19 @@ final class StockLotService
         return $row;
     }
 
-    /** Receipt increases both a lot and the aggregate available balance. */
+    /**
+     * Receipt increases both a lot and the aggregate available balance.
+     *
+     * @return array{lot_id: int, already_applied: bool} identity of the lot the
+     *         receipt was applied to (also on an idempotent replay).
+     */
     public function receive(
         int $levelId,
         string $lotCode,
         string $quantity,
         ?string $expiresAt = null,
         ?string $idempotencyKey = null
-    ): void {
+    ): array {
         if (!$this->isLotLevel($levelId)) {
             throw new HttpException(422, 'invalid_mode_transition', 'Lot mode is not enabled');
         }
@@ -297,7 +302,10 @@ final class StockLotService
                         $pdo->commit();
                     }
 
-                    return;
+                    return [
+                        'lot_id' => (int) ($claim['result_id'] ?? $lotId),
+                        'already_applied' => true,
+                    ];
                 }
             }
 
@@ -315,6 +323,8 @@ final class StockLotService
             if ($ownsTransaction) {
                 $pdo->commit();
             }
+
+            return ['lot_id' => $lotId, 'already_applied' => false];
         } catch (\Throwable $e) {
             if ($ownsTransaction && $pdo->inTransaction()) {
                 $pdo->rollBack();
@@ -828,12 +838,15 @@ final class StockLotService
         }
     }
 
-    /** Rights required for physical stock operations (server-side only). */
-    public function assertIssueRights(array $user, array $capabilities, int $requestId, int $levelId): void
+    /**
+     * Rights required for any operation on a stock level (server-side only).
+     *
+     * Kept as the single warehouse check used by issue/reversal and by the
+     * read/receive/convert API. Never trust client-side warehouse scopes.
+     */
+    public function assertLevelRights(array $user, array $capabilities, int $levelId): void
     {
-        if (!in_array('stocks.edit', $capabilities, true)) {
-            throw new HttpException(403, 'forbidden', 'Недостаточно прав склада');
-        }
+        $this->assertEditCapability($capabilities);
 
         $stmt = Database::pdo()->prepare(
             'SELECT s.SID AS warehouse_sid, s.LEVEL AS warehouse_level
@@ -845,19 +858,109 @@ final class StockLotService
             throw new HttpException(404, 'not_found', 'Склад не найден');
         }
 
+        $this->assertWarehouseAccess(
+            $user,
+            $capabilities,
+            (string) $warehouse['warehouse_sid'],
+            (string) $warehouse['warehouse_level']
+        );
+    }
+
+    /** Warehouse-side counterpart of assertLevelRights (listing filter). */
+    public function assertWarehouseRights(array $user, array $capabilities, int $warehouseId): void
+    {
+        $this->assertEditCapability($capabilities);
+
+        $stmt = Database::pdo()->prepare(
+            'SELECT SID AS warehouse_sid, LEVEL AS warehouse_level FROM stocks WHERE ID = ? LIMIT 1'
+        );
+        $stmt->execute([$warehouseId]);
+        $warehouse = $stmt->fetch();
+        if ($warehouse === false) {
+            throw new HttpException(404, 'not_found', 'Склад не найден');
+        }
+
+        $this->assertWarehouseAccess(
+            $user,
+            $capabilities,
+            (string) $warehouse['warehouse_sid'],
+            (string) $warehouse['warehouse_level']
+        );
+    }
+
+    /** Read-only counterpart of assertLevelRights: no stocks.edit requirement. */
+    public function assertLevelViewRights(array $user, array $capabilities, int $levelId): void
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT s.SID AS warehouse_sid, s.LEVEL AS warehouse_level
+               FROM stock_levels l JOIN stocks s ON s.SID = l.STOCK_SID WHERE l.ID = ? LIMIT 1'
+        );
+        $stmt->execute([$levelId]);
+        $warehouse = $stmt->fetch();
+        if ($warehouse === false) {
+            throw new HttpException(404, 'not_found', 'Склад не найден');
+        }
+
+        $this->assertWarehouseAccess(
+            $user,
+            $capabilities,
+            (string) $warehouse['warehouse_sid'],
+            (string) $warehouse['warehouse_level']
+        );
+    }
+
+    /** Read-only counterpart of assertWarehouseRights. */
+    public function assertWarehouseViewRights(array $user, array $capabilities, int $warehouseId): void
+    {
+        $stmt = Database::pdo()->prepare(
+            'SELECT SID AS warehouse_sid, LEVEL AS warehouse_level FROM stocks WHERE ID = ? LIMIT 1'
+        );
+        $stmt->execute([$warehouseId]);
+        $warehouse = $stmt->fetch();
+        if ($warehouse === false) {
+            throw new HttpException(404, 'not_found', 'Склад не найден');
+        }
+
+        $this->assertWarehouseAccess(
+            $user,
+            $capabilities,
+            (string) $warehouse['warehouse_sid'],
+            (string) $warehouse['warehouse_level']
+        );
+    }
+
+    private function assertEditCapability(array $capabilities): void
+    {
+        if (!in_array('stocks.edit', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав склада');
+        }
+    }
+
+    private function assertWarehouseAccess(
+        array $user,
+        array $capabilities,
+        string $warehouseSid,
+        string $warehouseLevel
+    ): void {
         $level = (int) $user['LEVEL'];
-        $byLevel = str_contains((string) $warehouse['warehouse_level'], '{' . $level . '}');
+        $byLevel = str_contains($warehouseLevel, '{' . $level . '}');
         $byAccess = false;
         if (!$byLevel) {
             $access = Database::pdo()->prepare(
                 'SELECT 1 FROM user_level_stock WHERE USER_SID = ? AND STOCK_SID = ? AND STATUS = ? AND ACTIVE = ? LIMIT 1'
             );
-            $access->execute([(string) $user['SID'], (string) $warehouse['warehouse_sid'], 'Y', 'Y']);
+            $access->execute([(string) $user['SID'], $warehouseSid, 'Y', 'Y']);
             $byAccess = $access->fetchColumn() !== false;
         }
         if (!$byLevel && !$byAccess && !in_array('stocks.warehouses.manage', $capabilities, true)) {
             throw new HttpException(403, 'forbidden', 'Нет доступа к складу');
         }
+    }
+
+    /** Rights required for physical stock operations (server-side only). */
+    public function assertIssueRights(array $user, array $capabilities, int $requestId, int $levelId): void
+    {
+        $this->assertLevelRights($user, $capabilities, $levelId);
 
         // Request management is checked by RequestService::canManageRequest in the controller.
     }

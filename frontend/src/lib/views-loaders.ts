@@ -17,6 +17,7 @@ export const views = {
   substitutionEdit: () => import('../views/SubstitutionEdit.svelte'),
   chat: () => import('../views/Chat.svelte'),
   stocks: () => import('../views/Stocks.svelte'),
+  stockLots: () => import('../views/StockLots.svelte'),
   stockGroups: () => import('../views/StockGroups.svelte'),
   stockGroupEdit: () => import('../views/StockGroupEdit.svelte'),
   stockTypes: () => import('../views/StockTypes.svelte'),

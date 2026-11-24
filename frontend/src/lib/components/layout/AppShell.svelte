@@ -82,6 +82,15 @@
 
   const showAudit = $derived(auth.can('audit.view'));
 
+  const showStockLots = $derived(
+    appSettings.stockEditEnabled &&
+      (auth.can('stocks.edit') ||
+        auth.can('stocks.view') ||
+        auth.can('stocks.import') ||
+        auth.can('stocks.delete') ||
+        auth.can('stocks.warehouses.view_all'))
+  );
+
   const canViewReports = $derived(auth.can('reports.view.all') || auth.can('reports.view.own'));
 
   const showReports = $derived(appSettings.reportsEnabled && canViewReports);
@@ -194,6 +203,15 @@
         icon: 'cart',
         active: path === '/cart',
         badge: cart.count
+      });
+    }
+    if (showStockLots) {
+      items.push({
+        path: '/stock-lots',
+        label: 'Партии',
+        icon: 'tags',
+        active: path === '/stock-lots',
+        badge: 0
       });
     }
     items.push({ path: '/about', label: 'О программе', icon: 'info', active: path === '/about', badge: 0 });
@@ -363,6 +381,17 @@
           <Icon name="stocks" size={20} />
           <span class="nav-label">Номенклатура</span>
         </a>
+        {#if showStockLots}
+          <a
+            href="#/stock-lots"
+            class:active={path === '/stock-lots'}
+            aria-current={path === '/stock-lots' ? 'page' : undefined}
+            title="Партии"
+          >
+            <Icon name="tags" size={20} />
+            <span class="nav-label">Партии</span>
+          </a>
+        {/if}
         {#if appSettings.requestsEnabled}
           <a
             href="#/requests"

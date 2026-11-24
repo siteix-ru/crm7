@@ -28,6 +28,10 @@ export const pageBadges: Record<string, PageBadge> = {
   '/staff/substitutions/:id': { id: 'STAFF-SUBST-EDIT', task: '' },
   '/chat': { id: 'CHAT', task: '' },
   '/stocks': { id: 'STK-LIST', task: '' },
+  '/stock-lots': {
+    id: 'STK-LOTS',
+    task: 'Складские партии: просмотр, приёмка и конвертация остатков'
+  },
   '/stocks/groups': { id: 'STK-GROUPS', task: '' },
   '/stocks/groups/new': { id: 'STK-GROUP-NEW', task: '' },
   '/stocks/groups/:id': { id: 'STK-GROUP-EDIT', task: '' },

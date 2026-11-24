@@ -19,6 +19,7 @@
     ariaInvalid?: boolean;
     ariaDescribedby?: string;
     id?: string;
+    list?: string;
     onblur?: (event: FocusEvent) => void;
     inline?: boolean;
   }
@@ -41,6 +42,7 @@
     ariaInvalid,
     ariaDescribedby,
     id,
+    list,
     onblur,
     inline = false
   }: Props = $props();
@@ -67,6 +69,7 @@
     {step}
     {maxlength}
     {id}
+    {list}
     aria-label={ariaLabel}
     aria-invalid={invalid ? 'true' : undefined}
     aria-describedby={describedBy}

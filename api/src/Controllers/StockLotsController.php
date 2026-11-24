@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Core\Database;
 use App\Http\HttpException;
 use App\Http\Request;
 use App\Http\Response;
 use App\Repositories\RequestRepository;
+use App\Repositories\StockLotRepository;
+use App\Repositories\StocksRepository;
 use App\Requests\RequestService;
 use App\Stocks\StockLotService;
 use App\Support\Decimal;
@@ -17,7 +20,9 @@ final class StockLotsController extends ApiController
     public function __construct(
         private readonly StockLotService $lots = new StockLotService(),
         private readonly RequestService $requests = new RequestService(),
-        private readonly RequestRepository $repository = new RequestRepository()
+        private readonly RequestRepository $repository = new RequestRepository(),
+        private readonly StockLotRepository $lotRepository = new StockLotRepository(),
+        private readonly StocksRepository $stocks = new StocksRepository()
     ) {
         parent::__construct();
     }
@@ -76,6 +81,198 @@ final class StockLotsController extends ApiController
     }
 
     /**
+     * GET /stocks/lots — read-only list of lots with canonical decimal strings.
+     */
+    public function lots(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $this->assertViewCapability($capabilities);
+
+        $itemId = (int) $request->queryParam('item_id', '0');
+        $warehouseId = (int) $request->queryParam('warehouse_id', '0');
+        $lotCode = $request->queryParam('lot_code');
+        $expiresBefore = $this->queryDate($request, 'expires_before');
+        $expiresAfter = $this->queryDate($request, 'expires_after');
+        $status = $request->queryParam('status');
+        if ($status !== '' && !in_array($status, ['active', 'reserved', 'expired', 'empty'], true)) {
+            throw new HttpException(422, 'validation_error', 'Некорректный статус партии');
+        }
+
+        $page = max(1, (int) $request->queryParam('page', '1'));
+        $perPage = (int) $request->queryParam('per_page', '50');
+        $perPage = $perPage <= 0 ? 50 : min(200, $perPage);
+
+        // A targeted level/warehouse is authorized explicitly. Without a
+        // filter the list itself is narrowed to the caller's warehouses, so
+        // an inaccessible warehouse can never leak into the response.
+        $stockSids = $this->accessibleStockSids($user, $capabilities);
+        if ($itemId > 0) {
+            $this->lots->assertLevelViewRights($user, $capabilities, $itemId);
+            $stockSids = null;
+        }
+        if ($warehouseId > 0) {
+            $warehouse = $this->stocks->find($warehouseId);
+            if ($warehouse === null) {
+                throw new HttpException(404, 'not_found', 'Склад не найден');
+            }
+            $this->lots->assertWarehouseViewRights($user, $capabilities, $warehouseId);
+            $stockSids = null;
+        }
+
+        $result = $this->lotRepository->list(
+            [
+                'item_id' => $itemId,
+                'warehouse_id' => $warehouseId,
+                'lot_code' => $lotCode,
+                'expires_before' => $expiresBefore,
+                'expires_after' => $expiresAfter,
+                'status' => $status,
+                'today' => date('Y-m-d'),
+            ],
+            $stockSids,
+            $page,
+            $perPage
+        );
+
+        return Response::ok([
+            'items' => $result['items'],
+            'total' => $result['total'],
+            'page' => $page,
+            'per_page' => $perPage,
+        ]);
+    }
+
+    /**
+     * POST /stocks/lots/receive — receipt into an existing or a new lot.
+     */
+    public function receive(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $this->assertEditCapability($capabilities);
+
+        $levelId = (int) $request->input('stock_level_id', 0);
+        if ($levelId <= 0) {
+            throw new HttpException(422, 'validation_error', 'Некорректный склад');
+        }
+        $lotCode = $this->stringValue($request->input('lot_code', null), 'lot_code', 128);
+        $quantity = $this->quantity($request);
+        $expiresAt = $this->dateValue($request->input('expires_at', null), 'expires_at');
+        $idempotencyKey = $this->stringKey($request->input('idempotency_key', null));
+
+        $this->requireLotRights($user, $capabilities, [$levelId]);
+
+        $result = $this->lots->receive($levelId, $lotCode, $quantity, $expiresAt, $idempotencyKey);
+        $lotId = (int) ($result['lot_id'] ?? 0);
+        if ($lotId <= 0) {
+            // Idempotent replay may not carry a freshly created identity.
+            $lotId = $this->lotRepository->findLotId($levelId, $lotCode) ?? 0;
+        }
+
+        return Response::ok([
+            'lot_id' => $lotId > 0 ? $lotId : null,
+            'already_applied' => (bool) ($result['already_applied'] ?? false),
+            'level_id' => $levelId,
+            'quantity' => $quantity,
+        ]);
+    }
+
+    /**
+     * POST /stocks/lots/convert — initial distribution of a balance into lots.
+     */
+    public function convert(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $this->assertEditCapability($capabilities);
+
+        $levelId = (int) $request->input('stock_level_id', 0);
+        if ($levelId <= 0) {
+            throw new HttpException(422, 'validation_error', 'Некорректный склад');
+        }
+
+        $rawLots = $request->input('lots', null);
+        if (!is_array($rawLots) || $rawLots === [] || count($rawLots) > 50) {
+            throw new HttpException(422, 'validation_error', 'Некорректный список партий');
+        }
+
+        $lots = [];
+        foreach ($rawLots as $lot) {
+            if (!is_array($lot)) {
+                throw new HttpException(422, 'validation_error', 'Некорректная партия');
+            }
+            $lots[] = [
+                'lot_code' => $this->stringValue($lot['lot_code'] ?? null, 'lot_code', 128),
+                'quantity' => $this->quantityValue($lot['quantity'] ?? null),
+                'expires_at' => $this->dateValue($lot['expires_at'] ?? null, 'expires_at'),
+            ];
+        }
+
+        // Accepted for API symmetry; convert() itself has no idempotency scope.
+        $this->stringKey($request->input('idempotency_key', null));
+
+        $this->requireLotRights($user, $capabilities, [$levelId]);
+
+        $pdo = Database::pdo();
+        $pdo->beginTransaction();
+        try {
+            // convert() takes SELECT QUANTITY ... FOR UPDATE on the level and
+            // validates the distribution under that row lock.
+            $this->lots->convert($levelId, $lots);
+            $total = '0.00000';
+            foreach ($lots as $lot) {
+                $total = Decimal::add($total, $lot['quantity']);
+            }
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            if ($pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+
+        return Response::ok([
+            'stock_level_id' => $levelId,
+            'quantity' => $total,
+            'lots' => array_map(static fn (array $lot): array => [
+                'lot_code' => $lot['lot_code'],
+                'quantity' => $lot['quantity'],
+            ], $lots),
+        ]);
+    }
+
+    /**
+     * GET /requests/{id}/lots — lot reservations and issue history of a request.
+     */
+    public function requestLots(Request $request, array $params): Response
+    {
+        [$user, $capabilities] = $this->context($request);
+        $this->assertViewCapability($capabilities);
+
+        $requestId = (int) ($params['id'] ?? 0);
+        $row = $this->repository->findById($requestId);
+        if ($row === null) {
+            throw new HttpException(404, 'not_found', 'Заявка не найдена');
+        }
+
+        if (!$this->requests->canManageRequest($user, $capabilities, $row)) {
+            // A warehouse worker may not manage requests but still needs to see
+            // the lots of every reserved warehouse. Read-only access is enough.
+            $levels = $this->lots->reservedLevels($requestId);
+            foreach ($levels as $levelId) {
+                $this->lots->assertLevelViewRights($user, $capabilities, (int) $levelId);
+            }
+        }
+
+        return Response::ok(array_merge(
+            ['request_id' => $requestId],
+            [
+                'levels' => $this->lotRepository->requestLevels($requestId),
+                'reservations' => $this->lotRepository->requestReservations($requestId),
+                'issues' => $this->lotRepository->requestIssues($requestId),
+            ]
+        ));
+    }
+
+    /**
      * @param array<int, int> $levels
      */
     private function assertRights(array $user, array $capabilities, int $requestId, array $levels): void
@@ -90,10 +287,72 @@ final class StockLotsController extends ApiController
         }
     }
 
+    private function assertEditCapability(array $capabilities): void
+    {
+        if (!in_array('stocks.edit', $capabilities, true)) {
+            throw new HttpException(403, 'forbidden', 'Недостаточно прав склада');
+        }
+    }
+
+    /** Read-only lot data is available to anyone who may view the stock module. */
+    private function assertViewCapability(array $capabilities): void
+    {
+        $viewCapabilities = [
+            'stocks.view',
+            'stocks.edit',
+            'stocks.import',
+            'stocks.delete',
+            'stocks.warehouses.view_all',
+            'stocks.warehouses.manage',
+        ];
+        foreach ($viewCapabilities as $capability) {
+            if (in_array($capability, $capabilities, true)) {
+                return;
+            }
+        }
+        throw new HttpException(403, 'forbidden', 'Недостаточно прав для просмотра склада');
+    }
+
+    /** Server-side warehouse rights for every level resolved from a payload. */
+    private function requireLotRights(array $user, array $capabilities, array $levels): void
+    {
+        $this->assertEditCapability($capabilities);
+        foreach ($levels as $levelId) {
+            $this->lots->assertLevelRights($user, $capabilities, (int) $levelId);
+        }
+    }
+
+    /**
+     * @return string[]|null null means every warehouse is visible
+     */
+    private function accessibleStockSids(array $user, array $capabilities): ?array
+    {
+        if (in_array('stocks.warehouses.view_all', $capabilities, true)
+            || in_array('stocks.warehouses.manage', $capabilities, true)) {
+            return null;
+        }
+
+        $rows = $this->stocks->warehousesForUser(
+            (int) ($user['LEVEL'] ?? 0),
+            (string) ($user['SID'] ?? ''),
+            false
+        );
+
+        return array_values(array_unique(array_map(
+            static fn (array $row): string => (string) $row['SID'],
+            $rows
+        )));
+    }
+
     /** F-05/N-04: strict quantity validation, no internal exceptions leak to the API. */
     private function quantity(Request $request): string
     {
-        $raw = $request->input('quantity', null);
+        return $this->quantityValue($request->input('quantity', null));
+    }
+
+    /** Same validation as quantity(), for values nested in a lots[] payload. */
+    private function quantityValue(mixed $raw): string
+    {
         if (is_string($raw)) {
             $text = trim($raw);
         } elseif (is_int($raw)) {
@@ -176,5 +435,40 @@ final class StockLotsController extends ApiController
         $text = (string) $value;
 
         return preg_match('/^[A-Za-z0-9_-]{1,128}$/', $text) === 1 ? $text : null;
+    }
+
+    private function stringValue(mixed $value, string $field, int $maxLength): string
+    {
+        if (!is_string($value)) {
+            throw new HttpException(422, 'validation_error', 'Некорректное значение: ' . $field);
+        }
+        $text = trim($value);
+        if ($text === '' || mb_strlen($text) > $maxLength) {
+            throw new HttpException(422, 'validation_error', 'Некорректное значение: ' . $field);
+        }
+
+        return $text;
+    }
+
+    private function dateValue(mixed $value, string $field): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1) {
+            return $value;
+        }
+
+        throw new HttpException(422, 'validation_error', 'Некорректная дата: ' . $field);
+    }
+
+    private function queryDate(Request $request, string $field): string
+    {
+        $value = $request->queryParam($field);
+        if ($value !== '' && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) !== 1) {
+            throw new HttpException(422, 'validation_error', 'Некорректная дата: ' . $field);
+        }
+
+        return $value;
     }
 }

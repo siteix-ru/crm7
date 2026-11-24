@@ -144,6 +144,10 @@
       <LazyView load={views.chat} />
     {:else if route === '/stocks'}
       <LazyView load={views.stocks} />
+    {:else if route === '/stock-lots' && (!appSettings.stockEditEnabled || !(auth.can('stocks.edit') || auth.can('stocks.view') || auth.can('stocks.import') || auth.can('stocks.delete') || auth.can('stocks.warehouses.view_all')))}
+      <NotFound />
+    {:else if route === '/stock-lots'}
+      <LazyView load={views.stockLots} />
     {:else if (route === '/stocks/groups' || route === '/stocks/groups/new' || groupEditMatch) && (!auth.can('settings.manage') || !appSettings.stockEditEnabled || !appSettings.groupsConfigured)}
       <NotFound />
     {:else if route === '/stocks/groups'}

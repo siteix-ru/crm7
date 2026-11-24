@@ -42,6 +42,17 @@
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+  import Input from '../lib/components/ui/Input.svelte';
+  import Select from '../lib/components/ui/Select.svelte';
+  import EmptyState from '../lib/components/ui/EmptyState.svelte';
+  import {
+    getRequestLotState,
+    issueStockLots,
+    listStockLots,
+    reverseStockIssue,
+    type RequestLotState
+  } from '../lib/api/stock-lots';
+  import { formatLotQuantity } from '../lib/stocks/lot-format';
   import { formatDate, formatDateTime, formatPrice, formatSize, priorityLabel } from '../lib/format';
   import { sortItems, type ItemsSortKey } from '../lib/items-sort';
 
@@ -58,6 +69,25 @@
   let error = $state('');
   let actionError = $state('');
   let busy = $state(false);
+
+  // Состояние партий загружается отдельно и не блокирует карточку заявки.
+  let lotState = $state<RequestLotState | null>(null);
+  let lotLoading = $state(false);
+  let lotError = $state('');
+  let lotsBusy = $state(false);
+  let lotCodes = $state(new Map<number, string>());
+  let lotIssueOpen = $state(false);
+  let lotIssueLevelId = $state(0);
+  let lotIssueQuantity = $state('');
+  let lotIssueKey = $state('');
+  let lotIssueNotice = $state('');
+  let lotReturnOpen = $state(false);
+  let lotReturnIssue = $state<RequestLotState['issues'][number] | null>(null);
+  let lotReturnQuantity = $state('');
+  let lotReturnKey = $state('');
+  let lotReturnNotice = $state('');
+
+  type LotIssue = RequestLotState['issues'][number];
 
   const showPrices = $derived(detail !== null && detail.prices?.enabled === true);
   const totalQuantity = $derived(
@@ -387,6 +417,67 @@
 
   const isStaff = $derived(auth.level >= 10);
 
+  // Бэкенд может отдавать признак партийного учёта в позициях; поле пока не
+  // гарантировано контрактом, поэтому читаем его защитно.
+  function isLotTrackedItem(item: RequestItemRow): boolean {
+    const flags = item as unknown as { track_lots?: boolean | number | string; TRACK_LOTS?: boolean | number | string };
+    const value = flags.track_lots ?? flags.TRACK_LOTS;
+
+    return value === true || value === 1 || value === '1' || value === 'true';
+  }
+
+  const showLotsCard = $derived(
+    detail !== null
+    && (detail.items.some(isLotTrackedItem) || (lotState?.levels.length ?? 0) > 0)
+  );
+  const lotsRequestOpen = $derived(
+    detail !== null && !detail.can.closed && !detail.request.status.is_final
+  );
+  const canEditLots = $derived(isStaff && auth.can('stocks.edit'));
+  const lotIssueLevel = $derived(
+    lotState?.levels.find((level) => level.stock_level_id === lotIssueLevelId) ?? null
+  );
+
+  /** Сравнение десятичных строк без float: API хранит DECIMAL(20,5). */
+  function compareLotDecimals(left: string, right: string): number | null {
+    const parse = (raw: string): { units: bigint; scale: number } | null => {
+      const text = String(raw ?? '').trim().replace(/\s/g, '').replace(',', '.');
+
+      if (!/^\d+(?:\.\d+)?$/.test(text)) {
+        return null;
+      }
+
+      const [whole, fraction = ''] = text.split('.');
+
+      return { units: BigInt(whole + fraction), scale: fraction.length };
+    };
+    const a = parse(left);
+    const b = parse(right);
+
+    if (a === null || b === null) {
+      return null;
+    }
+
+    const scale = Math.max(a.scale, b.scale);
+    const av = a.units * 10n ** BigInt(scale - a.scale);
+    const bv = b.units * 10n ** BigInt(scale - b.scale);
+
+    return av < bv ? -1 : av > bv ? 1 : 0;
+  }
+
+  function isValidLotQuantity(raw: string, limit: string): boolean {
+    const positive = compareLotDecimals(raw, '0');
+    const withinLimit = compareLotDecimals(raw, limit);
+
+    return positive === 1 && (withinLimit === -1 || withinLimit === 0);
+  }
+
+  function newIdempotencyKey(): string {
+    return typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `lot-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  }
+
   let transferTarget = $state(0);
   let transferComment = $state('');
 
@@ -529,6 +620,7 @@
     const seq = ++loadSeq;
     const detailRef = detail;
     const previousVersion = detail?.request.version ?? null;
+    const lotAbort = new AbortController();
 
     if (!silent) {
       loading = true;
@@ -556,6 +648,7 @@
 
       detail = data;
       chatUnread = detail.chat.unread ?? 0;
+      void loadLotData(id, seq, lotAbort.signal);
 
       if (
         silent
@@ -593,16 +686,72 @@
       if (cause instanceof ApiError && cause.status === 404) {
         detail = null;
         attachments = [];
+        lotState = null;
+        lotError = '';
         error = 'Заявка удалена или недоступна';
         return;
       }
 
       error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить заявку';
     } finally {
+      if (seq !== loadSeq) {
+        lotAbort.abort();
+      }
+
       if (seq === loadSeq && !silent) {
         loading = false;
       }
     }
+  }
+
+  async function loadLotCodes(signal: AbortSignal): Promise<void> {
+    try {
+      const data = await listStockLots({ per_page: 200 }, signal);
+      const codes = new Map<number, string>();
+
+      for (const lot of data.items) {
+        codes.set(lot.id, lot.lot_code);
+      }
+
+      if (!signal.aborted) {
+        lotCodes = codes;
+      }
+    } catch {
+      // Справочник кодов партий необязателен: карточка должна открываться без него.
+    }
+  }
+
+  async function loadLotData(requestId: number, seq: number, signal: AbortSignal): Promise<void> {
+    lotLoading = true;
+    lotError = '';
+
+    try {
+      const [state] = await Promise.all([
+        getRequestLotState(requestId, signal),
+        loadLotCodes(signal)
+      ]);
+
+      if (seq !== loadSeq || signal.aborted) {
+        return;
+      }
+
+      lotState = state;
+    } catch (cause) {
+      if (seq !== loadSeq || signal.aborted) {
+        return;
+      }
+
+      lotState = null;
+      lotError = cause instanceof ApiError ? cause.message : 'Не удалось загрузить партии';
+    } finally {
+      if (seq === loadSeq && !signal.aborted) {
+        lotLoading = false;
+      }
+    }
+  }
+
+  function retryLotLoad(): void {
+    void load({ silent: true, force: true });
   }
 
   function anyModalOpen(): boolean {
@@ -617,7 +766,9 @@
       || fileDeleteOpen
       || itemsSortOpen
       || copyOpen
-      || pickerOpen;
+      || pickerOpen
+      || lotIssueOpen
+      || lotReturnOpen;
   }
 
   function autoRefreshAllowed(): boolean {
@@ -625,7 +776,7 @@
       return false;
     }
 
-    if (loading || busy || uploading || chatBusy || chatLoading) {
+    if (loading || busy || lotsBusy || uploading || chatBusy || chatLoading) {
       return false;
     }
 
@@ -677,6 +828,8 @@
     itemsSortOpen = false;
     copyOpen = false;
     pickerOpen = false;
+    lotIssueOpen = false;
+    lotReturnOpen = false;
   }
 
   function handleActionError(cause: unknown, fallback: string): void {
@@ -702,6 +855,96 @@
     }
 
     actionError = fallback;
+  }
+
+  function openLotIssue(): void {
+    lotIssueLevelId = lotState?.levels[0]?.stock_level_id ?? 0;
+    lotIssueQuantity = '';
+    lotIssueKey = newIdempotencyKey();
+    lotIssueNotice = '';
+    actionError = '';
+    lotIssueOpen = true;
+  }
+
+  function openLotReturn(issue: LotIssue): void {
+    lotReturnIssue = issue;
+    lotReturnQuantity = '';
+    lotReturnKey = newIdempotencyKey();
+    lotReturnNotice = '';
+    actionError = '';
+    lotReturnOpen = true;
+  }
+
+  function normalizedLotQuantity(raw: string): string {
+    return raw.trim().replace(',', '.');
+  }
+
+  async function submitLotIssue(): Promise<void> {
+    if (lotsBusy || detail === null || lotIssueLevel === null) {
+      return;
+    }
+
+    if (!isValidLotQuantity(lotIssueQuantity, lotIssueLevel.reserved)) {
+      return;
+    }
+
+    lotsBusy = true;
+    actionError = '';
+    lotIssueNotice = '';
+
+    try {
+      const result = await issueStockLots(
+        detail.request.id,
+        normalizedLotQuantity(lotIssueQuantity),
+        lotIssueKey.trim()
+      );
+      const notice = result.already_applied
+        ? 'Операция уже была применена'
+        : 'Списание выполнено';
+
+      lotIssueNotice = notice;
+      await load();
+      lotIssueOpen = false;
+      actionNotice = notice;
+    } catch (cause) {
+      handleActionError(cause, 'Не удалось списать партии');
+    } finally {
+      lotsBusy = false;
+    }
+  }
+
+  async function submitLotReturn(): Promise<void> {
+    if (lotsBusy || lotReturnIssue === null) {
+      return;
+    }
+
+    if (!isValidLotQuantity(lotReturnQuantity, lotReturnIssue.remaining_quantity)) {
+      return;
+    }
+
+    lotsBusy = true;
+    actionError = '';
+    lotReturnNotice = '';
+
+    try {
+      const result = await reverseStockIssue(
+        lotReturnIssue.id,
+        normalizedLotQuantity(lotReturnQuantity),
+        lotReturnKey.trim()
+      );
+      const notice = result.already_applied
+        ? 'Операция уже была применена'
+        : 'Возврат выполнен';
+
+      lotReturnNotice = notice;
+      await load();
+      lotReturnOpen = false;
+      actionNotice = notice;
+    } catch (cause) {
+      handleActionError(cause, 'Не удалось вернуть партии');
+    } finally {
+      lotsBusy = false;
+    }
   }
 
   function onUploadFileSelected(event: Event): void {
@@ -1463,7 +1706,7 @@
             </button>
           </div>
 
-          {#if (appSettings.salesEnabled && auth.can('requests.create')) || detail.can.claim}
+          {#if (appSettings.salesEnabled && auth.can('requests.create')) || detail.can.claim || (canEditLots && lotsRequestOpen)}
             <span class="hero-divider" aria-hidden="true"></span>
           {/if}
 
@@ -1478,6 +1721,21 @@
               >
                 <Icon name="copy" size={16} />
               </button>
+            {/if}
+
+            {#if canEditLots && lotsRequestOpen}
+              <Button
+                size="sm"
+                variant="ghost"
+                title="Списать партии"
+                ariaLabel="Списать партии"
+                loading={busy}
+                disabled={busy || lotsBusy}
+                onclick={openLotIssue}
+              >
+                <Icon name="tags" size={14} />
+                Списать партии
+              </Button>
             {/if}
 
             {#if detail.can.claim}
@@ -2095,6 +2353,150 @@
           {/if}
         {/if}
       </div>
+
+      {#if showLotsCard}
+        <div class="card lots-card">
+          <div class="card-head">
+            <h2>Партии и списания</h2>
+            {#if lotState && !lotLoading && lotError === ''}
+              <span class="items-meta">
+                {lotState.levels.length} поз. · {lotState.reservations.length} рез. · {lotState.issues.length} спис.
+              </span>
+            {/if}
+          </div>
+
+          {#if lotLoading && lotState === null}
+            <div class="lots-loading"><Spinner size={18} /></div>
+          {:else if lotError !== ''}
+            <div class="alert" role="alert">
+              <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
+              <span>{lotError}</span>
+              <button type="button" class="link-btn" onclick={retryLotLoad}>Повторить</button>
+            </div>
+          {:else if lotState === null || (lotState.levels.length === 0 && lotState.reservations.length === 0 && lotState.issues.length === 0)}
+            <EmptyState icon="tags" title="По этой заявке партий нет" />
+          {:else if lotState}
+            {@const state = lotState}
+            {@const orphanReservations = state.reservations.filter(
+              (reservation) => !state.levels.some(
+                (level) => level.stock_level_id === reservation.stock_level_id
+              )
+            )}
+
+            {#if state.levels.length > 0}
+              <div class="lots-levels">
+                {#each state.levels as level (level.stock_level_id)}
+                  <div class="lot-level">
+                    <div class="lot-level-title">
+                      <strong>{level.item_name}</strong>
+                      <span class="muted">{level.warehouse_name}</span>
+                    </div>
+                    <div class="lot-level-nums">
+                      <span>Доступно: <strong>{formatLotQuantity(level.available)}</strong></span>
+                      <span>Зарезервировано: <strong>{formatLotQuantity(level.reserved)}</strong></span>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+            {/if}
+
+            {#if state.reservations.length > 0}
+              <section class="lots-section">
+                <h3 class="lots-subtitle">Зарезервировано по партиям</h3>
+
+                {#each state.levels as level (level.stock_level_id)}
+                  {@const levelReservations = state.reservations.filter(
+                    (reservation) => reservation.stock_level_id === level.stock_level_id
+                  )}
+                  {#if levelReservations.length > 0}
+                    <div class="lots-group">
+                      <div class="lots-group-head">
+                        <strong>{level.item_name}</strong>
+                        <span class="muted">{level.warehouse_name}</span>
+                      </div>
+                      <div class="lots-table">
+                        <div class="lot-row lot-head">
+                          <span>Партия</span>
+                          <span>Срок годности</span>
+                          <span class="lot-qty">Количество</span>
+                        </div>
+                        {#each levelReservations as reservation (`${reservation.stock_level_id}-${reservation.lot_id}`)}
+                          <div class="lot-row">
+                            <span class="lot-code">{reservation.lot_code}</span>
+                            <span>{reservation.expires_at ? formatDate(reservation.expires_at) : '—'}</span>
+                            <span class="lot-qty">{formatLotQuantity(reservation.quantity)}</span>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                {/each}
+
+                {#if orphanReservations.length > 0}
+                  <div class="lots-group">
+                    <div class="lots-group-head">
+                      <strong>Прочие партии</strong>
+                    </div>
+                    <div class="lots-table">
+                      <div class="lot-row lot-head">
+                        <span>Партия</span>
+                        <span>Срок годности</span>
+                        <span class="lot-qty">Количество</span>
+                      </div>
+                      {#each orphanReservations as reservation (reservation.lot_id)}
+                        <div class="lot-row">
+                          <span class="lot-code">{reservation.lot_code}</span>
+                          <span>{reservation.expires_at ? formatDate(reservation.expires_at) : '—'}</span>
+                          <span class="lot-qty">{formatLotQuantity(reservation.quantity)}</span>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              </section>
+            {/if}
+
+            {#if state.issues.length > 0}
+              <section class="lots-section">
+                <h3 class="lots-subtitle">История списаний</h3>
+                <div class="lots-table issues-table">
+                  <div class="lot-row lot-head issue">
+                    <span>Дата</span>
+                    <span>Партия</span>
+                    <span class="lot-qty">Количество</span>
+                    <span class="lot-qty">Возвращено</span>
+                    <span class="lot-qty">Остаток</span>
+                    <span></span>
+                  </div>
+                  {#each state.issues as issue (issue.id)}
+                    <div class="lot-row issue">
+                      <span class="lot-date">{formatDateTime(issue.created_at)}</span>
+                      <span class="lot-code">
+                        {lotCodes.get(issue.lot_id) ?? issue.lot_code ?? `Партия ${issue.lot_id}`}
+                      </span>
+                      <span class="lot-qty">{formatLotQuantity(issue.quantity)}</span>
+                      <span class="lot-qty">{formatLotQuantity(issue.reversed_quantity)}</span>
+                      <span class="lot-qty">{formatLotQuantity(issue.remaining_quantity)}</span>
+                      <span class="lot-action">
+                        {#if canEditLots && lotsRequestOpen && compareLotDecimals(issue.remaining_quantity, '0') === 1}
+                          <button
+                            type="button"
+                            class="link-btn"
+                            disabled={busy || lotsBusy}
+                            onclick={() => openLotReturn(issue)}
+                          >
+                            Вернуть
+                          </button>
+                        {/if}
+                      </span>
+                    </div>
+                  {/each}
+                </div>
+              </section>
+            {/if}
+          {/if}
+        </div>
+      {/if}
     {/if}
 
     {#snippet eventList()}
@@ -2832,6 +3234,147 @@
         </div>
       </div>
     </Modal>
+
+    {#if canEditLots}
+      <Modal open={lotIssueOpen} title="Списать партии" onclose={() => (lotIssueOpen = false)}>
+        <div class="form">
+          {#if (lotState?.levels.length ?? 0) === 0}
+            <p class="muted">Нет партий, доступных для списания.</p>
+            <div class="row">
+              <Button variant="ghost" onclick={() => (lotIssueOpen = false)}>Закрыть</Button>
+            </div>
+          {:else}
+            <p class="muted">Списание уменьшает зарезервированное количество по выбранной позиции.</p>
+
+            <Select label="Позиция" bind:value={lotIssueLevelId} disabled={lotsBusy}>
+              {#each lotState?.levels ?? [] as level (level.stock_level_id)}
+                <option value={level.stock_level_id}>
+                  {level.item_name} · {level.warehouse_name}
+                </option>
+              {/each}
+            </Select>
+
+            {#if lotIssueLevel}
+              <p class="muted lot-limits">
+                Зарезервировано: {formatLotQuantity(lotIssueLevel.reserved)} ·
+                Доступно: {formatLotQuantity(lotIssueLevel.available)}
+              </p>
+            {/if}
+
+            <Input
+              label="Количество"
+              bind:value={lotIssueQuantity}
+              inputmode="decimal"
+              step="0.00001"
+              min="0"
+              placeholder="0.00000"
+              disabled={lotsBusy}
+            />
+
+            <Input
+              label="Ключ идемпотентности"
+              bind:value={lotIssueKey}
+              placeholder="Сгенерированный ключ"
+              disabled={lotsBusy}
+            />
+            <p class="muted">Ключ можно заменить — он защищает от повторного списания.</p>
+
+            {#if lotIssueNotice !== ''}
+              <div class="notice" role="status">
+                <span class="notice-icon"><Icon name="check-circle" size={16} /></span>
+                <span>{lotIssueNotice}</span>
+              </div>
+            {/if}
+
+            <div class="modal-actions">
+              <Button
+                variant="ghost"
+                disabled={lotsBusy}
+                onclick={() => (lotIssueOpen = false)}
+              >
+                Отмена
+              </Button>
+              <Button
+                loading={lotsBusy}
+                disabled={lotIssueKey.trim() === '' || !isValidLotQuantity(
+                  lotIssueQuantity,
+                  lotIssueLevel?.reserved ?? ''
+                )}
+                onclick={() => void submitLotIssue()}
+              >
+                Списать
+              </Button>
+            </div>
+          {/if}
+        </div>
+      </Modal>
+
+      <Modal open={lotReturnOpen} title="Вернуть партию" onclose={() => (lotReturnOpen = false)}>
+        <div class="form">
+          {#if lotReturnIssue === null}
+            <p class="muted">Списание не выбрано.</p>
+            <div class="row">
+              <Button variant="ghost" onclick={() => (lotReturnOpen = false)}>Закрыть</Button>
+            </div>
+          {:else}
+            {@const issue = lotReturnIssue}
+            <p class="muted">
+              Партия: {lotCodes.get(issue.lot_id) ?? issue.lot_code ?? `Партия ${issue.lot_id}`}
+            </p>
+            <p class="muted lot-limits">
+              Списано: {formatLotQuantity(issue.quantity)} ·
+              Возвращено: {formatLotQuantity(issue.reversed_quantity)} ·
+              Остаток: {formatLotQuantity(issue.remaining_quantity)}
+            </p>
+
+            <Input
+              label="Количество к возврату"
+              bind:value={lotReturnQuantity}
+              inputmode="decimal"
+              step="0.00001"
+              min="0"
+              placeholder="0.00000"
+              disabled={lotsBusy}
+            />
+
+            <Input
+              label="Ключ идемпотентности"
+              bind:value={lotReturnKey}
+              placeholder="Сгенерированный ключ"
+              disabled={lotsBusy}
+            />
+            <p class="muted">Ключ можно заменить — он защищает от повторного возврата.</p>
+
+            {#if lotReturnNotice !== ''}
+              <div class="notice" role="status">
+                <span class="notice-icon"><Icon name="check-circle" size={16} /></span>
+                <span>{lotReturnNotice}</span>
+              </div>
+            {/if}
+
+            <div class="modal-actions">
+              <Button
+                variant="ghost"
+                disabled={lotsBusy}
+                onclick={() => (lotReturnOpen = false)}
+              >
+                Отмена
+              </Button>
+              <Button
+                loading={lotsBusy}
+                disabled={lotReturnKey.trim() === '' || !isValidLotQuantity(
+                  lotReturnQuantity,
+                  issue.remaining_quantity
+                )}
+                onclick={() => void submitLotReturn()}
+              >
+                Вернуть
+              </Button>
+            </div>
+          {/if}
+        </div>
+      </Modal>
+    {/if}
 
     <ItemsPicker
       open={pickerOpen}
@@ -4792,6 +5335,131 @@
     display: grid;
     place-items: center;
     padding: var(--space-6);
+  }
+
+  .lots-loading {
+    display: grid;
+    place-items: center;
+    padding: var(--space-4);
+  }
+
+  .lots-card .alert .link-btn {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+
+  .lots-levels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: var(--space-2);
+  }
+
+  .lot-level {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+  }
+
+  .lot-level-title {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+    font-size: 13px;
+  }
+
+  .lot-level-nums {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .lot-level-nums strong {
+    color: var(--text);
+  }
+
+  .lots-section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+
+  .lots-subtitle {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+  }
+
+  .lots-group {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .lots-group-head {
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-2);
+    font-size: 13px;
+  }
+
+  .lots-table {
+    border: 1px solid var(--border-secondary);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+  }
+
+  .lot-row {
+    display: grid;
+    grid-template-columns: minmax(100px, 1.4fr) minmax(90px, 1fr) minmax(80px, 0.7fr);
+    gap: var(--space-2);
+    padding: 6px 10px;
+    border-bottom: 1px solid var(--border-secondary);
+    font-size: 13px;
+  }
+
+  .lot-row:last-child {
+    border-bottom: none;
+  }
+
+  .lot-head {
+    background: var(--fill-tertiary);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .lot-qty {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lot-code {
+    overflow-wrap: anywhere;
+  }
+
+  .lot-date {
+    color: var(--muted);
+  }
+
+  .lot-action {
+    text-align: right;
+  }
+
+  .issues-table {
+    overflow-x: auto;
+  }
+
+  .lot-row.issue {
+    grid-template-columns: minmax(120px, 1.2fr) minmax(90px, 1fr) repeat(3, minmax(70px, 0.6fr)) minmax(60px, 0.5fr);
+    min-width: 560px;
+  }
+
+  .lot-limits {
+    margin-top: -4px;
   }
 
   /*
