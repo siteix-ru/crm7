@@ -27,6 +27,7 @@ use App\Repositories\UserRepository;
 use App\Repositories\ViewLogRepository;
 use App\Notifications\NotificationService;
 use App\Prices\PriceService;
+use App\Stocks\StockLotService;
 use App\Stocks\StockReservationService;
 use Throwable;
 
@@ -55,7 +56,8 @@ final class RequestService
         private readonly StockReservationService $reservations = new StockReservationService(),
         private readonly PriceService $prices = new PriceService(),
         private readonly StocksRepository $stocks = new StocksRepository(),
-        private readonly ClientProvisioningService $clientProvisioning = new ClientProvisioningService()
+        private readonly ClientProvisioningService $clientProvisioning = new ClientProvisioningService(),
+        private readonly StockLotService $lots = new StockLotService()
     ) {
     }
 
@@ -1328,6 +1330,9 @@ final class RequestService
         $pdo->beginTransaction();
 
         try {
+            // F-03: acquire the unified request advisory lock before any row lock.
+            $this->reservations->lock($id);
+            $lockedRequest = $id;
             $request = $this->requests->findByIdForUpdate($id);
 
             if ($request === null) {
@@ -1409,8 +1414,13 @@ final class RequestService
             $this->requests->applyTransition($id, $toStatus, $timestampOps);
 
             if ($toStatus === 'canceled') {
-                $this->reservations->lock($id);
-                $lockedRequest = $id;
+                $this->reservations->release($id);
+            }
+
+            // Lot mode: closed is administrative closure, not physical issue.
+            // Release the unused part of the reservation in the same transaction.
+            // The advisory lock is already held from the start of this transaction.
+            if ($toStatus === 'closed' && $this->lots->hasLotReservations($id)) {
                 $this->reservations->release($id);
             }
 

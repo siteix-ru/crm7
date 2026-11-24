@@ -63,8 +63,8 @@ jobs:
           for f in api/tests/*.php; do
             [ -e "$f" ] || continue
             case "$(basename "$f")" in
-              request-transition-api-integration.php|stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php|stock-reservation-concurrency-integration.php|stock-warehouse-collapse-integration.php|stock-abs-accounting-integration.php|track-lots-foundation.php)
-                echo "DB-dependent test routed to stock-import-integration: $f"
+              request-transition-api-integration.php|stock-import-fencing-integration.php|stock-import-idempotency-cleanup.php|stock-import-idempotency-integration.php|stock-import-idempotency-recover.php|stock-import-lock-integration.php|stock-import-two-pdo-integration.php|stock-reservation-concurrency-integration.php|stock-warehouse-collapse-integration.php|stock-abs-accounting-integration.php|track-lots-foundation.php|stock-lot-lifecycle.php|stock-lot-idempotency-scope.php)
+                echo "DB-dependent test routed to a disposable MariaDB job: $f"
                 continue
                 ;;
             esac
@@ -155,6 +155,89 @@ jobs:
         run: |
           mariadb --ssl=0 -h 127.0.0.1 -P 3307 -uroot -proot -e "DROP DATABASE IF EXISTS crm_lotfoundation_test;"
 
+  lot-lifecycle-db:
+    needs: [php]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    concurrency:
+      group: lot-lifecycle-db-${{ github.ref }}
+      cancel-in-progress: false
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: crm_lotlifecycle_test
+        ports:
+          - 3308:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: '3308'
+      DB_NAME: crm_lotlifecycle_test
+      DB_USER: root
+      DB_PASS: root
+      CRM7_TEST_DB_DSN: 'mysql:host=127.0.0.1;port=3308;dbname=crm_lotlifecycle_test;charset=utf8mb4'
+      CRM7_TEST_DB_USER: root
+      CRM7_TEST_DB_PASS: root
+      CRM7_TEST_DB_PORT: '3308'
+      CRM7_TEST_DB_DISPOSABLE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, mbstring, gd, openssl
+      - name: Install DB client
+        run: sudo apt-get update && sudo apt-get install -y mariadb-client
+      - name: Configure API
+        run: |
+          cp api/config/.env.example api/config/.env
+          sed -i 's/^DB_HOST=.*/DB_HOST=127.0.0.1/' api/config/.env
+          sed -i 's/^DB_PORT=.*/DB_PORT=3308/' api/config/.env
+          sed -i 's/^DB_NAME=.*/DB_NAME=crm_lotlifecycle_test/' api/config/.env
+          sed -i 's/^DB_USER=.*/DB_USER=root/' api/config/.env
+          sed -i 's/^DB_PASS=.*/DB_PASS=root/' api/config/.env
+          sed -i "s/^APP_KEY=.*/APP_KEY=$(openssl rand -hex 32)/" api/config/.env
+          sed -i "s/^DB_CONFIG_KEY=.*/DB_CONFIG_KEY=$(openssl rand -hex 32)/" api/config/.env
+      - name: Provision disposable guard
+        run: |
+          set -euo pipefail
+          SENTINEL=$(python3 -c 'import uuid; print(uuid.uuid4())')
+          echo "CRM7_TEST_DB_SENTINEL=$SENTINEL" >> "$GITHUB_ENV"
+          mariadb --ssl=0 -h 127.0.0.1 -P 3308 -uroot -proot crm_lotlifecycle_test -e \
+            "CREATE TABLE IF NOT EXISTS crm_disposable_sentinel (id INT PRIMARY KEY, marker VARCHAR(64) NOT NULL); \
+             DELETE FROM crm_disposable_sentinel; \
+             INSERT INTO crm_disposable_sentinel (id,marker) VALUES (1,'$SENTINEL'); \
+             SELECT id FROM crm_disposable_sentinel;"
+      - name: Apply migrations
+        run: php api/bin/migrate.php --allow-destructive
+      - name: Verify lot schema
+        run: |
+          set -euo pipefail
+          for table in stock_lots stock_lot_reservations stock_issue_operations stock_issue_lines stock_lot_movements stock_lot_idempotency; do
+            mariadb --ssl=0 -h 127.0.0.1 -P 3308 -uroot -proot crm_lotlifecycle_test -e "DESCRIBE \`$table\`" > /dev/null
+          done
+          INDEX_COUNT=$(mariadb --ssl=0 -N -h 127.0.0.1 -P 3308 -uroot -proot crm_lotlifecycle_test -e \
+            "SELECT COUNT(DISTINCT INDEX_NAME) FROM information_schema.STATISTICS \
+              WHERE TABLE_SCHEMA='crm_lotlifecycle_test' \
+                AND ((TABLE_NAME='stock_lot_idempotency' AND INDEX_NAME='uq_lot_idem_scope') \
+                  OR (TABLE_NAME='stock_issue_operations' AND INDEX_NAME='uq_issue_scope_key'));")
+          test "$INDEX_COUNT" = "2"
+      - name: Lot lifecycle regression tests
+        run: |
+          set -euo pipefail
+          php -d error_reporting=E_ALL api/tests/stock-lot-lifecycle.php
+          php -d error_reporting=E_ALL api/tests/stock-lot-idempotency-scope.php
+      - name: Cleanup disposable guard
+        if: always()
+        continue-on-error: true
+        run: mariadb --ssl=0 -h 127.0.0.1 -P 3308 -uroot -proot -e "DROP DATABASE IF EXISTS crm_lotlifecycle_test;"
+
   stock-import-integration:
     needs: [php]
     runs-on: ubuntu-latest
@@ -164,7 +247,7 @@ jobs:
       cancel-in-progress: false
     services:
       mariadb:
-        image: mariadb:10.11
+        image: mariadb:11
         env:
           MARIADB_ROOT_PASSWORD: root
           MARIADB_DATABASE: crm_cistock_test
@@ -704,7 +787,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mariadb:
-        image: mariadb:10.11
+        image: mariadb:11
         env:
           MARIADB_ROOT_PASSWORD: root
           MARIADB_DATABASE: crm_ci
@@ -786,7 +869,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mariadb:
-        image: mariadb:10.11
+        image: mariadb:11
         env:
           MARIADB_ROOT_PASSWORD: root
           MARIADB_DATABASE: crm_ci
@@ -871,7 +954,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       mariadb:
-        image: mariadb:10.11
+        image: mariadb:11
         env:
           MARIADB_ROOT_PASSWORD: root
           MARIADB_DATABASE: crm_ci_demo

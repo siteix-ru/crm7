@@ -106,9 +106,59 @@ It is **not** changed in Stage 3.4.221 and is proposed as the scope of Stage 3.4
 3. Decide when to extend native backup/restore for future lot tables.
 4. Decide whether `track_lots` should be exposed in `GET /stocks` / ItemCard API responses (not done here to avoid contract changes).
 
-## 11. Next stages
+## 11. Stage 3.4.222 implementation status `[IMPLEMENTED 3.4.222]`
 
-- **3.4.222** — issue/reversal + request lifecycle fix (XL).
-- **3.4.223** — lot tables, domain layer, FIFO reservation and conversion (XL).
-- **3.4.224** — import/export, API and UI (L).
-- **3.4.225** — backup/restore extension and full integration matrix (L).
+- Migration `083_stock_lot_lifecycle.sql` adds `stock_lots`, `stock_lot_reservations`,
+  `stock_issue_operations` and append-only `stock_lot_movements`.
+- `StockLotService` implements conversion, receipts, FIFO reservation/release,
+  partial/full issue, idempotent issue/reversal and server-side rights checks.
+- `StockReservationService` routes `TRACK_LOTS=1` levels through the lot path and
+  keeps the legacy `TRACK_LOTS=0` path unchanged.
+- `RequestService::transition()` releases the unused lot reservation atomically
+  on `closed`; issue remains a separate action and is forbidden after closure.
+- API: `POST /api/v2/requests/{id}/lots/issue` and
+  `POST /api/v2/stocks/lot-issues/{id}/reversal` require `stocks.edit`,
+  staff-side `canManageRequest()` and warehouse access.
+- DB-dependent regression test: `api/tests/stock-lot-lifecycle.php` (guarded disposable DB).
+
+Still deferred: lot UI, lot import/export, dedicated backup/restore extension for
+lot history, full FEFO/expiry automation, and the separate `requests.transition`
+enforcement task.
+
+### 3.4.222R remediation of audit findings (Stage 3.4.223A)
+
+- **F-01** `StockReservationService::apply()` now calls
+  `StockLotService::releaseLevel()` for every lot level present in the current
+  reservation map but absent from the desired composition **before**
+  `replace()` deletes the parent reservations. No orphan allocations remain;
+  rollback in the same transaction restores everything.
+- **F-02** The API re-reads `StockLotService::reservedLevels()` inside the lock
+  and authorizes **every** involved warehouse (`assertIssueRights` per level)
+  plus `canManageRequest()`; a denial on one warehouse aborts the whole issue.
+  Reversals use `issueLevels()` for the same check.
+- **F-03** One advisory lock `crm7:stock_request:<requestId>` with a 30 s timeout
+  (`StockRequestLock`) is used by `apply`, `release`, `issue` and `reversal`.
+  The lock is acquired before row locks, released in `finally`, and conflicts
+  return HTTP 409 `stock_operation_conflict`. Row-level `FOR UPDATE` locks are
+  still used, so the advisory lock is not treated as a substitute.
+- **F-04** Migration `084_stock_issue_lines.sql` stores an immutable per-lot
+  breakdown of every issue. Reversals restore the original lots/levels; a
+  partial reversal is allocated in the original issue order
+  (`stock_issue_lines.ID ASC`, i.e. FIFO of lots at issue time). Issues created
+  before 084 (no lines) fall back to the attribution recorded on the operation
+  and never invent lots.
+- **F-05** `StockLotsController::quantity()` strictly validates presence,
+  scalar type, format (max 5 decimals, no exponent/NaN/Infinity) and positive
+  value; invalid input returns 422 `validation_error` without leaking internal
+  exceptions.
+- **F-08** A lot-mode level with no lots is rejected with 422
+  `lot_conversion_required` in both reservation modes; `stock.reserve_enabled=0`
+  cannot bypass the check. Lots are never created implicitly during
+  reservation; `StockLotService::convert()` remains the explicit, exact
+  reconciliation operation (and is protected against re-conversion).
+
+## 12. Next stages
+
+- **3.4.223** — lot import/export, API expansion and UI (L).
+- **3.4.224** — backup/restore extension and full integration matrix (L).
+- Separate task — `requests.transition` enforcement (out of lot scope).

@@ -21,6 +21,7 @@ use App\Controllers\ReportScheduleController;
 use App\Controllers\RequestController;
 use App\Controllers\RequestDraftController;
 use App\Controllers\StocksController;
+use App\Controllers\StockLotsController;
 use App\Controllers\SubstitutionController;
 use App\Controllers\UpdateController;
 use App\Controllers\UserController;
@@ -139,6 +140,7 @@ $substitutions = new SubstitutionController();
 $update = new UpdateController();
 $chat = new ChatController();
 $stocks = new StocksController();
+$stockLots = new StockLotsController();
 $audit = new AuditController();
 $legal = new LegalController();
 $profile = new ProfileController();
@@ -286,6 +288,9 @@ $router->get('/stocks/warehouses/{id}/access', [$stocks, 'warehouseAccess']);
 $router->get('/stocks/warehouses/{id}/candidates', [$stocks, 'warehouseCandidates']);
 $router->post('/stocks/warehouses/{id}/access', [$stocks, 'addWarehouseUser']);
 $router->delete('/stocks/warehouses/{id}/access/{userSid}', [$stocks, 'removeWarehouseUser']);
+
+$router->post('/requests/{id}/lots/issue', [$stockLots, 'issue']);
+$router->post('/stocks/lot-issues/{id}/reversal', [$stockLots, 'reversal']);
 
 $router->get('/admin/legal', [$legal, 'index']);
 $router->post('/admin/legal/{code}', [$legal, 'save']);

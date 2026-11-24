@@ -304,6 +304,8 @@ $out1 = $out;
 $successes = count(array_filter($out, static fn (array $r): bool => ($r['outcome'] ?? '') === 'success'));
 check($successes === 1, 'S1 exactly one reservation succeeded');
 check(count(array_filter($out, 'insufficient')) === 1, 'S1 loser got insufficient_stock/422');
+check(count(array_filter($out, static fn (array $r): bool => ($r['class'] ?? '') === 'PDOException')) === 0,
+    'S1 conflict is not a raw PDOException');
 check(abs(quantity($pdo, $level1) - 1.0) < 0.00001, 'S1 final quantity is 1');
 
 // Scenario 2: quantity 5, concurrent 5 and 1.
