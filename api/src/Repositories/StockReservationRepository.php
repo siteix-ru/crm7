@@ -108,7 +108,7 @@ final class StockReservationRepository
     public function lockRequest(int $requestId): bool
     {
         $stmt = Database::pdo()->prepare('SELECT GET_LOCK(?, 30)');
-        $stmt->execute(['crm7:stock_reservation:' . $requestId]);
+        $stmt->execute(['crm7:stock_request:' . $requestId]);
 
         return (int) $stmt->fetchColumn() === 1;
     }
@@ -116,7 +116,7 @@ final class StockReservationRepository
     public function unlockRequest(int $requestId): void
     {
         $stmt = Database::pdo()->prepare('SELECT RELEASE_LOCK(?)');
-        $stmt->execute(['crm7:stock_reservation:' . $requestId]);
+        $stmt->execute(['crm7:stock_request:' . $requestId]);
     }
 
     /**

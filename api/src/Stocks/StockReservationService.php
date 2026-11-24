@@ -14,7 +14,8 @@ final class StockReservationService
 
     public function __construct(
         private readonly StockReservationRepository $reservations = new StockReservationRepository(),
-        private readonly SettingsRepository $settings = new SettingsRepository()
+        private readonly SettingsRepository $settings = new SettingsRepository(),
+        private readonly StockLotService $lots = new StockLotService()
     ) {
     }
 
@@ -28,14 +29,12 @@ final class StockReservationService
      */
     public function lock(int $requestId): void
     {
-        if (!$this->reservations->lockRequest($requestId)) {
-            throw new \RuntimeException('stock reservation is busy');
-        }
+        StockRequestLock::lock($requestId);
     }
 
     public function unlock(int $requestId): void
     {
-        $this->reservations->unlockRequest($requestId);
+        StockRequestLock::unlock($requestId);
     }
 
     public function apply(int $requestId, array $items): void
@@ -51,14 +50,36 @@ final class StockReservationService
             // Preserve the legacy check-only behaviour when reservation is disabled.
             if (!$allowZero) {
                 $this->assertAvailable($desired, $this->reservations->forRequestFresh($requestId));
+                foreach ($desired as $levelId => $quantity) {
+                    if ($this->lots->isLotLevel((int) $levelId)) {
+                        $this->lots->assertAvailable((int) $levelId, number_format((float) $quantity, 5, '.', ''));
+                    }
+                }
             }
 
             return;
         }
 
         $current = $this->reservations->forRequestFresh($requestId);
+        $lotDesired = [];
+
+        // F-01: a lot level that disappears from the composition must have its
+        // allocations released BEFORE replace() deletes the parent reservation.
+        foreach (array_keys($current) as $levelId) {
+            if (!array_key_exists($levelId, $desired) && $this->lots->isLotLevel((int) $levelId)) {
+                $this->lots->releaseLevel($requestId, (int) $levelId);
+            }
+        }
 
         foreach ($this->levelIds($desired, $current) as $levelId) {
+            if ($this->lots->isLotLevel($levelId)) {
+                // Lot levels keep A/R/P in sync inside StockLotService.
+                if (isset($desired[$levelId])) {
+                    $lotDesired[$levelId] = number_format((float) $desired[$levelId], 5, '.', '');
+                }
+                continue;
+            }
+
             $delta = ($desired[$levelId] ?? 0.0) - ($current[$levelId] ?? 0.0);
             $change = -$delta;
 
@@ -78,6 +99,10 @@ final class StockReservationService
         }
 
         $this->reservations->replace($requestId, $desired);
+
+        if ($lotDesired !== []) {
+            $this->lots->reserve($requestId, $lotDesired);
+        }
     }
 
     private function insufficientStock(int $levelId, float $available, float $want): HttpException
@@ -102,8 +127,17 @@ final class StockReservationService
             return;
         }
 
+        $hasLots = false;
         foreach ($current as $levelId => $quantity) {
+            if ($this->lots->isLotLevel((int) $levelId)) {
+                $hasLots = true;
+                continue;
+            }
             $this->reservations->adjustLevel($levelId, $quantity);
+        }
+
+        if ($hasLots) {
+            $this->lots->release($requestId);
         }
 
         $this->reservations->deleteForRequest($requestId);
