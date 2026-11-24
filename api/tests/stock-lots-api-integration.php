@@ -122,15 +122,18 @@ $pdo->exec("DELETE FROM nomenclature WHERE NAME_1C LIKE 'LAPI-%'");
 $pdo->exec("DELETE FROM stocks WHERE SID LIKE 'LAPI-%'");
 
 $pdo->exec("INSERT INTO settings (`key`,value) VALUES ('stock.reserve_enabled','1'),('module.warehouses','1') ON DUPLICATE KEY UPDATE value=VALUES(value)");
-$pdo->exec("INSERT INTO stocks (SID,NAME,NAME_1C,LEVEL,STATUS,ACTIVE) VALUES ('LAPI-WS-A','Lot A','LAPI-WS-A','{90}','Y','Y'),('LAPI-WS-B','Lot B','LAPI-WS-B','{91}','Y','Y')");
-$pdo->exec("INSERT INTO nomenclature (SID,NAME,NAME_1C,UNIT,TRACK_LOTS) VALUES ('LAPI-ITEM','Lot item','LAPI-ITEM','pcs',1),('LAPI-LEGACY','Legacy item','LAPI-LEGACY','pcs',0)");
+// NAME is UNIQUE in both stocks and nomenclature, and the preceding lifecycle
+// tests leave their own fixtures in the shared disposable DB. Keep every name
+// in this test's namespace so a rerun never collides with another test.
+$pdo->exec("INSERT INTO stocks (SID,NAME,NAME_1C,LEVEL,STATUS,ACTIVE) VALUES ('LAPI-WS-A','LAPI Warehouse A','LAPI-WS-A','{90}','Y','Y'),('LAPI-WS-B','LAPI Warehouse B','LAPI-WS-B','{91}','Y','Y')");
+$pdo->exec("INSERT INTO nomenclature (SID,NAME,NAME_1C,UNIT,TRACK_LOTS) VALUES ('LAPI-ITEM','LAPI Item','LAPI-ITEM','pcs',1),('LAPI-LEGACY','LAPI Legacy Item','LAPI-LEGACY','pcs',0)");
 foreach ([
     ['LAPI-L1', 100.0], ['LAPI-L2', 50.0], ['LAPI-L3', 10.0],
     ['LAPI-L4', 0.0], ['LAPI-L5', 20.0], ['LAPI-L6', 30.0],
 ] as [$sid, $qty]) {
-    $pdo->exec("INSERT INTO stock_levels (SID,STOCK_SID,NAME,NAME_SID,UNIT,QUANTITY) VALUES ('$sid','" . (str_ends_with($sid, 'L2') ? 'LAPI-WS-B' : 'LAPI-WS-A') . "','Lot item','LAPI-ITEM','pcs',$qty)");
+    $pdo->exec("INSERT INTO stock_levels (SID,STOCK_SID,NAME,NAME_SID,UNIT,QUANTITY) VALUES ('$sid','" . (str_ends_with($sid, 'L2') ? 'LAPI-WS-B' : 'LAPI-WS-A') . "','LAPI Item','LAPI-ITEM','pcs',$qty)");
 }
-$pdo->exec("INSERT INTO stock_levels (SID,STOCK_SID,NAME,NAME_SID,UNIT,QUANTITY) VALUES ('LAPI-LEG','LAPI-WS-A','Legacy item','LAPI-LEGACY','pcs',50.0)");
+$pdo->exec("INSERT INTO stock_levels (SID,STOCK_SID,NAME,NAME_SID,UNIT,QUANTITY) VALUES ('LAPI-LEG','LAPI-WS-A','LAPI Legacy Item','LAPI-LEGACY','pcs',50.0)");
 $pdo->exec("INSERT INTO request_statuses (code,title,sort,is_final) VALUES ('new','New',10,0) ON DUPLICATE KEY UPDATE title=VALUES(title)");
 
 // Deterministic capabilities: A manages requests but only sees warehouse A;
@@ -224,7 +227,7 @@ check(array_keys($list['items'][0]) === [
 ], 'list: exact item shape', $failures);
 check($list['items'][0]['quantity_available'] === '60.00000'
     && $list['items'][0]['quantity_total'] === '60.00000'
-    && $list['items'][0]['warehouse_name'] === 'Lot A', 'list: canonical quantities and joins', $failures);
+    && $list['items'][0]['warehouse_name'] === 'LAPI Warehouse A', 'list: canonical quantities and joins', $failures);
 
 $res = $controller->lots($request('GET', '/stocks/lots', [
     'item_id' => (string) $lev1, 'lot_code' => 'alpha',
@@ -257,7 +260,7 @@ check($data($res)['per_page'] === 200, 'list: per_page capped at 200', $failures
 
 $res = $controller->lots($request('GET', '/stocks/lots', [], [], $tokenB), []);
 $list = $data($res);
-check($list['total'] === 1 && $list['items'][0]['warehouse_name'] === 'Lot B', 'list: user sees only accessible warehouses', $failures);
+check($list['total'] === 1 && $list['items'][0]['warehouse_name'] === 'LAPI Warehouse B', 'list: user sees only accessible warehouses', $failures);
 expectHttp(static fn () => $controller->lots($request('GET', '/stocks/lots', [], [], $tokenClient), []),
     403, 'forbidden', 'list: no stock view capability denied', $failures);
 
@@ -266,7 +269,7 @@ expectHttp(static fn () => $controller->lots($request('GET', '/stocks/lots', [],
 $res = $controller->lots($request('GET', '/stocks/lots', [], [], $tokenViewer), []);
 $viewerList = $data($res);
 check($res->status === 200 && $viewerList['total'] === 2
-    && $viewerList['items'][0]['warehouse_name'] === 'Lot A',
+    && $viewerList['items'][0]['warehouse_name'] === 'LAPI Warehouse A',
     'list: stocks.view can read accessible lots', $failures);
 expectHttp(static fn () => $controller->lots($request('GET', '/stocks/lots', [
     'warehouse_id' => (string) $wsB,
@@ -368,7 +371,7 @@ $res = $controller->requestLots($request('GET', '/requests/' . $r1 . '/lots', []
 $detail = $data($res);
 check($res->status === 200 && $detail['request_id'] === $r1, 'request lots: response envelope', $failures);
 check(count($detail['levels']) === 1 && $detail['levels'][0]['stock_level_id'] === $lev1
-    && $detail['levels'][0]['warehouse_name'] === 'Lot A'
+    && $detail['levels'][0]['warehouse_name'] === 'LAPI Warehouse A'
     && Decimal::compare($detail['levels'][0]['reserved'], '16.00000') === 0
     && Decimal::compare($detail['levels'][0]['available'], '81.00000') === 0,
     'request lots: levels with reserved/available', $failures);
