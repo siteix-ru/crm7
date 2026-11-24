@@ -6,6 +6,7 @@ namespace App\Stocks;
 
 use App\Core\Database;
 use App\Http\HttpException;
+use App\Repositories\StockLotIdempotencyRepository;
 use App\Support\Decimal;
 
 /**
@@ -23,6 +24,22 @@ use App\Support\Decimal;
  */
 final class StockLotService
 {
+    public function __construct(
+        private readonly StockLotIdempotencyRepository $idempotency = new StockLotIdempotencyRepository()
+    ) {
+    }
+
+    /** Canonical SHA-256 of the significant operation parameters (key excluded). */
+    private function payloadHash(array $payload): string
+    {
+        ksort($payload, SORT_STRING);
+
+        return hash('sha256', (string) json_encode(
+            $payload,
+            JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
+        ));
+    }
+
     public function isLotLevel(int $levelId): bool
     {
         $stmt = Database::pdo()->prepare(
@@ -177,6 +194,55 @@ final class StockLotService
         }
     }
 
+    /**
+     * Find or create a lot using the SAME database predicate (and therefore the
+     * same utf8mb4_unicode_ci collation) for lookup and insertion. Returns the
+     * actual stock_lots row identity, which is the only safe basis for the
+     * receipt idempotency scope.
+     *
+     * @return array{ID: int, QUANTITY_AVAILABLE: string, QUANTITY_RESERVED: string}
+     */
+    private function ensureLot(int $levelId, string $lotCode): array
+    {
+        $pdo = Database::pdo();
+        $nameStmt = $pdo->prepare('SELECT NAME_SID FROM stock_levels WHERE ID = ? LIMIT 1');
+        $nameStmt->execute([$levelId]);
+        $nameSid = $nameStmt->fetchColumn();
+        if ($nameSid === false) {
+            throw new HttpException(404, 'not_found', 'Склад не найден');
+        }
+
+        $select = $pdo->prepare(
+            'SELECT ID, QUANTITY_AVAILABLE, QUANTITY_RESERVED
+               FROM stock_lots WHERE STOCK_LEVEL_ID = ? AND LOT_CODE = ? FOR UPDATE'
+        );
+        $select->execute([$levelId, $lotCode]);
+        $row = $select->fetch();
+        if ($row !== false) {
+            return $row;
+        }
+
+        // Plain INSERT keeps lastInsertId reliable. Concurrent callers are
+        // serialized by the lot advisory lock held for the whole receipt.
+        $pdo->prepare(
+            'INSERT INTO stock_lots
+             (STOCK_LEVEL_ID, NAME_SID, LOT_CODE, QUANTITY_AVAILABLE, QUANTITY_RESERVED, RECEIVED_AT)
+             VALUES (?, ?, ?, 0.00000, 0.00000, NOW())'
+        )->execute([$levelId, $nameSid, $lotCode]);
+        $lotId = (int) $pdo->lastInsertId();
+
+        $stmt = $pdo->prepare(
+            'SELECT ID, QUANTITY_AVAILABLE, QUANTITY_RESERVED FROM stock_lots WHERE ID = ? FOR UPDATE'
+        );
+        $stmt->execute([$lotId]);
+        $row = $stmt->fetch();
+        if ($row === false) {
+            throw new HttpException(404, 'not_found', 'Партия не найдена');
+        }
+
+        return $row;
+    }
+
     /** Receipt increases both a lot and the aggregate available balance. */
     public function receive(
         int $levelId,
@@ -185,45 +251,96 @@ final class StockLotService
         ?string $expiresAt = null,
         ?string $idempotencyKey = null
     ): void {
-        if ($idempotencyKey !== null) {
-            $existing = Database::pdo()->prepare(
-                'SELECT ID FROM stock_lot_movements WHERE IDEMPOTENCY_KEY = ? LIMIT 1'
-            );
-            $existing->execute([$idempotencyKey]);
-            if ($existing->fetchColumn() !== false) {
-                return;
-            }
-        }
-
         if (!$this->isLotLevel($levelId)) {
             throw new HttpException(422, 'invalid_mode_transition', 'Lot mode is not enabled');
+        }
+        if (trim($lotCode) === '') {
+            throw new HttpException(422, 'lot_code_required', 'LOT_CODE обязателен');
         }
         $qty = Decimal::parse($quantity);
         if (Decimal::compare($qty, '0.00000') <= 0) {
             throw new HttpException(422, 'validation_error', 'Receipt quantity must be positive');
         }
+        $expires = $this->nullableDate($expiresAt);
 
-        $stmt = Database::pdo()->prepare(
-            'SELECT ID, QUANTITY_AVAILABLE, QUANTITY_RESERVED
-               FROM stock_lots WHERE STOCK_LEVEL_ID = ? AND LOT_CODE = ? FOR UPDATE'
-        );
-        $stmt->execute([$levelId, $lotCode]);
-        $row = $stmt->fetch();
+        // Serialize lot creation per stock level. The advisory lock is taken
+        // before any row lock and released in finally, including on rollback.
+        $lockName = $this->lockLotReceipt($levelId);
+        try {
+        $pdo = Database::pdo();
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) {
+            $pdo->beginTransaction();
+        }
+        try {
+            // Identity first, using DB collation; then claim, then mutate.
+            $lot = $this->ensureLot($levelId, $lotCode);
+            $lotId = (int) $lot['ID'];
+            $hash = $this->payloadHash([
+                'level_id' => $levelId,
+                'lot_id' => $lotId,
+                'quantity' => $qty,
+                'expires_at' => $expires,
+            ]);
 
-        if ($row === false) {
-            $this->createLot($levelId, $lotCode, $qty, $this->nullableDate($expiresAt), 'receipt', null, $idempotencyKey);
-        } else {
-            $before = Decimal::parse((string) $row['QUANTITY_AVAILABLE']);
+            $claim = null;
+            if ($idempotencyKey !== null) {
+                $claim = $this->idempotency->claim(
+                    StockLotIdempotencyRepository::OPERATION_RECEIPT,
+                    StockLotIdempotencyRepository::SCOPE_LOT,
+                    StockLotIdempotencyRepository::lotScopeKey($levelId, $lotId),
+                    $idempotencyKey,
+                    $hash
+                );
+                if ($claim['status'] === 'applied') {
+                    if ($ownsTransaction) {
+                        $pdo->commit();
+                    }
+
+                    return;
+                }
+            }
+
+            $before = Decimal::parse((string) $lot['QUANTITY_AVAILABLE']);
             $after = Decimal::add($before, $qty);
-            // A receipt does not change the reservation: record its actual value
-            // before and after instead of passing null to non-nullable parameters.
-            $reserved = Decimal::parse((string) $row['QUANTITY_RESERVED']);
-            $this->updateLot((int) $row['ID'], $after, null);
-            $this->movement((int) $row['ID'], $levelId, 'receipt', $qty, $before, $after,
+            $reserved = Decimal::parse((string) $lot['QUANTITY_RESERVED']);
+            $this->updateLot($lotId, $after, null);
+            $this->movement($lotId, $levelId, 'receipt', $qty, $before, $after,
                 $reserved, $reserved, null, $idempotencyKey);
+
+            $this->changeLevel($levelId, $qty);
+            if ($claim !== null) {
+                $this->idempotency->complete((int) $claim['claim_id'], $lotId);
+            }
+            if ($ownsTransaction) {
+                $pdo->commit();
+            }
+        } catch (\Throwable $e) {
+            if ($ownsTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
+        } finally {
+            $this->unlockLotReceipt($lockName);
+        }
+    }
+
+    private function lockLotReceipt(int $levelId): string
+    {
+        $name = 'crm7:stock_lot_receipt:' . $levelId;
+        $stmt = Database::pdo()->prepare('SELECT GET_LOCK(?, 30)');
+        $stmt->execute([$name]);
+        if ((int) $stmt->fetchColumn() !== 1) {
+            throw new HttpException(409, 'stock_operation_conflict', 'Складская операция уже выполняется');
         }
 
-        $this->changeLevel($levelId, $qty);
+        return $name;
+    }
+
+    private function unlockLotReceipt(string $name): void
+    {
+        Database::pdo()->prepare('SELECT RELEASE_LOCK(?)')->execute([$name]);
     }
 
     /**
@@ -411,23 +528,37 @@ final class StockLotService
      */
     public function issue(int $requestId, string $quantity, ?string $idempotencyKey = null): array
     {
-        if ($idempotencyKey !== null) {
-            $existing = Database::pdo()->prepare(
-                'SELECT ID FROM stock_issue_operations WHERE IDEMPOTENCY_KEY = ? LIMIT 1'
-            );
-            $existing->execute([$idempotencyKey]);
-            if ($existing->fetchColumn() !== false) {
-                return ['already_applied' => true];
-            }
-        }
-
-        $this->assertRequestOpen($requestId);
         $qty = Decimal::parse($quantity);
         if (Decimal::compare($qty, '0.00000') <= 0) {
             throw new HttpException(422, 'validation_error', 'Issue quantity must be positive');
         }
+        $hash = $this->payloadHash(['request_id' => $requestId, 'quantity' => $qty]);
 
         $pdo = Database::pdo();
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) {
+            $pdo->beginTransaction();
+        }
+        try {
+        $claim = null;
+        if ($idempotencyKey !== null) {
+            $claim = $this->idempotency->claim(
+                StockLotIdempotencyRepository::OPERATION_ISSUE,
+                StockLotIdempotencyRepository::SCOPE_REQUEST,
+                (string) $requestId,
+                $idempotencyKey,
+                $hash
+            );
+            if ($claim['status'] === 'applied') {
+                if ($ownsTransaction) {
+                    $pdo->commit();
+                }
+
+                return ['already_applied' => true, 'result_id' => $claim['result_id']];
+            }
+        }
+
+        $this->assertRequestOpen($requestId);
         $rows = $pdo->prepare(
             'SELECT r.ID AS reservation_row, r.RESERVATION_ID, r.LOT_ID, r.QUANTITY,
                     l.STOCK_LEVEL_ID, l.QUANTITY_AVAILABLE, l.QUANTITY_RESERVED,
@@ -514,7 +645,20 @@ final class StockLotService
             $lineStmt->execute([$issueId, $line['lot_id'], $line['level_id'], $line['quantity']]);
         }
 
-        return ['already_applied' => false, 'operations' => [$issueId]];
+        if ($claim !== null) {
+            $this->idempotency->complete((int) $claim['claim_id'], $issueId);
+        }
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
+
+        return ['already_applied' => false, 'operations' => [$issueId], 'result_id' => $issueId];
+        } catch (\Throwable $e) {
+            if ($ownsTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     /** API entry point for reversals (same lock/transaction contract). */
@@ -550,17 +694,36 @@ final class StockLotService
      */
     public function reversal(int $issueId, string $quantity, ?string $idempotencyKey = null): array
     {
+        $qty = Decimal::parse($quantity);
+        if (Decimal::compare($qty, '0.00000') <= 0) {
+            throw new HttpException(422, 'validation_error', 'Reversal quantity must be positive');
+        }
+        $hash = $this->payloadHash(['issue_id' => $issueId, 'quantity' => $qty]);
+
+        $pdo = Database::pdo();
+        $ownsTransaction = !$pdo->inTransaction();
+        if ($ownsTransaction) {
+            $pdo->beginTransaction();
+        }
+        try {
+        $claim = null;
         if ($idempotencyKey !== null) {
-            $existing = Database::pdo()->prepare(
-                'SELECT ID FROM stock_lot_movements WHERE IDEMPOTENCY_KEY = ? LIMIT 1'
+            $claim = $this->idempotency->claim(
+                StockLotIdempotencyRepository::OPERATION_REVERSAL,
+                StockLotIdempotencyRepository::SCOPE_ISSUE,
+                (string) $issueId,
+                $idempotencyKey,
+                $hash
             );
-            $existing->execute(['rev:' . $idempotencyKey]);
-            if ($existing->fetchColumn() !== false) {
-                return ['already_applied' => true];
+            if ($claim['status'] === 'applied') {
+                if ($ownsTransaction) {
+                    $pdo->commit();
+                }
+
+                return ['already_applied' => true, 'result_id' => $claim['result_id']];
             }
         }
 
-        $pdo = Database::pdo();
         $stmt = $pdo->prepare(
             'SELECT ID, LOT_ID, STOCK_LEVEL_ID, QUANTITY, REVERSED_QUANTITY
                FROM stock_issue_operations WHERE ID = ? FOR UPDATE'
@@ -571,10 +734,6 @@ final class StockLotService
             throw new HttpException(404, 'not_found', 'Issue operation not found');
         }
 
-        $qty = Decimal::parse($quantity);
-        if (Decimal::compare($qty, '0.00000') <= 0) {
-            throw new HttpException(422, 'validation_error', 'Reversal quantity must be positive');
-        }
         $remaining = Decimal::sub(
             Decimal::parse((string) $issue['QUANTITY']),
             Decimal::parse((string) $issue['REVERSED_QUANTITY'])
@@ -653,7 +812,20 @@ final class StockLotService
         $pdo->prepare('UPDATE stock_issue_operations SET REVERSED_QUANTITY = REVERSED_QUANTITY + ? WHERE ID = ?')
             ->execute([$qty, $issueId]);
 
-        return ['already_applied' => false];
+        if ($claim !== null) {
+            $this->idempotency->complete((int) $claim['claim_id'], $issueId);
+        }
+        if ($ownsTransaction) {
+            $pdo->commit();
+        }
+
+        return ['already_applied' => false, 'result_id' => $issueId];
+        } catch (\Throwable $e) {
+            if ($ownsTransaction && $pdo->inTransaction()) {
+                $pdo->rollBack();
+            }
+            throw $e;
+        }
     }
 
     /** Rights required for physical stock operations (server-side only). */
@@ -730,7 +902,7 @@ final class StockLotService
         string $type,
         ?int $requestId,
         ?string $idempotencyKey = null
-    ): void {
+    ): int {
         if (trim($code) === '') {
             throw new HttpException(422, 'lot_code_required', 'LOT_CODE обязателен');
         }
@@ -742,6 +914,8 @@ final class StockLotService
         $stmt->execute([$code, $qty, $expiresAt, $levelId]);
         $lotId = (int) $pdo->lastInsertId();
         $this->movement($lotId, $levelId, $type, $qty, '0.00000', $qty, '0.00000', '0.00000', $requestId, $idempotencyKey);
+
+        return $lotId;
     }
 
     private function updateLot(int $lotId, string $available, ?string $reserved): void
