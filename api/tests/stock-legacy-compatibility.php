@@ -105,6 +105,23 @@ function readSignal(string $dir, string $name): array
     return is_array($decoded) ? $decoded : [];
 }
 
+/** Safe diagnostic payload for a worker failure (never includes tokens). */
+function workerErrorDiagnostics(Throwable $e): array
+{
+    $outcome = ['outcome' => 'error', 'class' => get_class($e), 'message' => $e->getMessage()];
+    if ($e instanceof HttpException) {
+        $outcome['status'] = $e->status;
+        $outcome['code'] = $e->errorCode;
+    }
+    if ($e instanceof PDOException) {
+        $outcome['sqlstate'] = $e->errorInfo[0] ?? null;
+        $outcome['driver_code'] = $e->errorInfo[1] ?? null;
+        $outcome['driver_message'] = $e->errorInfo[2] ?? null;
+    }
+
+    return $outcome;
+}
+
 function waitForSignal(string $dir, string $name, float $timeoutSec = 30): bool
 {
     $deadline = microtime(true) + $timeoutSec;
@@ -157,7 +174,7 @@ if ($role === 'l264-worker') {
 
     $version = (int) $workerPdo->query('SELECT version FROM requests WHERE ID=' . $requestId)->fetchColumn();
     try {
-        $controller->items(new Request(
+        $response = $controller->items(new Request(
             'POST',
             '/requests/' . $requestId . '/items',
             [],
@@ -173,14 +190,13 @@ if ($role === 'l264-worker') {
             ['authorization' => 'Bearer ' . $token],
             '127.0.0.1'
         ), ['id' => (string) $requestId]);
-        writeSignal($dir, 'done_' . $slot, ['outcome' => 'success']);
+        writeSignal($dir, 'done_' . $slot, [
+            'outcome' => 'success',
+            'status' => $response->status,
+            'response' => $response->payload,
+        ]);
     } catch (Throwable $e) {
-        $outcome = ['outcome' => 'error', 'class' => get_class($e), 'message' => $e->getMessage()];
-        if ($e instanceof HttpException) {
-            $outcome['status'] = $e->status;
-            $outcome['code'] = $e->errorCode;
-        }
-        writeSignal($dir, 'done_' . $slot, $outcome);
+        writeSignal($dir, 'done_' . $slot, workerErrorDiagnostics($e));
     }
     exit(0);
 }
@@ -212,7 +228,7 @@ if ($role === 'l264-cancel') {
 
     $version = (int) $workerPdo->query('SELECT version FROM requests WHERE ID=' . $requestId)->fetchColumn();
     try {
-        (new RequestController())->transition(new Request(
+        $response = (new RequestController())->transition(new Request(
             'POST',
             '/requests/' . $requestId . '/transition',
             [],
@@ -220,14 +236,13 @@ if ($role === 'l264-cancel') {
             ['authorization' => 'Bearer ' . $token],
             '127.0.0.1'
         ), ['id' => (string) $requestId]);
-        writeSignal($dir, 'done_' . $slot, ['outcome' => 'success']);
+        writeSignal($dir, 'done_' . $slot, [
+            'outcome' => 'success',
+            'status' => $response->status,
+            'response' => $response->payload,
+        ]);
     } catch (Throwable $e) {
-        $outcome = ['outcome' => 'error', 'class' => get_class($e), 'message' => $e->getMessage()];
-        if ($e instanceof HttpException) {
-            $outcome['status'] = $e->status;
-            $outcome['code'] = $e->errorCode;
-        }
-        writeSignal($dir, 'done_' . $slot, $outcome);
+        writeSignal($dir, 'done_' . $slot, workerErrorDiagnostics($e));
     }
     exit(0);
 }
@@ -671,7 +686,8 @@ $runPair = static function (array $specs) use ($dsn, $dbUser, $dbPass): array {
         if (isset($spec['qty'])) {
             $cmd .= ' --qty=' . escapeshellarg((string) $spec['qty']);
         }
-        proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $pipes[$slot]);
+        $process = proc_open($cmd, [1 => ['pipe', 'w'], 2 => ['pipe', 'w']], $handles);
+        $pipes[$slot] = ['proc' => $process, 'out' => $handles[1] ?? null, 'err' => $handles[2] ?? null];
     }
     foreach (array_keys($specs) as $slot) {
         waitForSignal($dir, 'ready_' . $slot, 30);
@@ -682,13 +698,22 @@ $runPair = static function (array $specs) use ($dsn, $dbUser, $dbPass): array {
         waitForSignal($dir, 'done_' . $slot, 60);
         $outcomes[$slot] = readSignal($dir, 'done_' . $slot);
     }
-    foreach ($pipes as $handles) {
-        if (is_resource($handles[1] ?? null)) {
-            fclose($handles[1]);
+    foreach ($pipes as $slot => $handles) {
+        $stdout = is_resource($handles['out']) ? (string) stream_get_contents($handles['out']) : '';
+        $stderr = is_resource($handles['err']) ? (string) stream_get_contents($handles['err']) : '';
+        if (is_resource($handles['out'])) {
+            fclose($handles['out']);
         }
-        if (is_resource($handles[2] ?? null)) {
-            fclose($handles[2]);
+        if (is_resource($handles['err'])) {
+            fclose($handles['err']);
         }
+        $exit = is_resource($handles['proc']) ? proc_close($handles['proc']) : -1;
+        $outcomes[$slot]['exit_code'] = $exit;
+        $outcomes[$slot]['stdout'] = trim($stdout);
+        $outcomes[$slot]['stderr'] = trim($stderr);
+        $ready = readSignal($dir, 'ready_' . $slot);
+        $outcomes[$slot]['pid'] = $ready['pid'] ?? null;
+        $outcomes[$slot]['db_conn'] = $ready['conn'] ?? null;
     }
     foreach (glob($dir . '/*') ?: [] as $file) {
         unlink($file);
@@ -738,6 +763,33 @@ $outG = $runPair([
     'A' => ['role' => 'l264-cancel', 'request' => $reqG1, 'token' => $tokenA],
     'B' => ['role' => 'l264-worker', 'request' => $reqG2, 'level' => $levG, 'qty' => '4.00000', 'token' => $tokenB],
 ]);
+foreach (['A', 'B'] as $slot) {
+    $worker = $outG[$slot] ?? [];
+    echo 'DIAG G ' . $slot . ' ' . json_encode([
+        'pid' => $worker['pid'] ?? null,
+        'db_conn' => $worker['db_conn'] ?? null,
+        'exit_code' => $worker['exit_code'] ?? null,
+        'outcome' => $worker['outcome'] ?? null,
+        'status' => $worker['status'] ?? null,
+        'code' => $worker['code'] ?? null,
+        'class' => $worker['class'] ?? null,
+        'message' => $worker['message'] ?? null,
+        'sqlstate' => $worker['sqlstate'] ?? null,
+        'driver_code' => $worker['driver_code'] ?? null,
+        'response' => $worker['response'] ?? null,
+        'stdout' => $worker['stdout'] ?? '',
+        'stderr' => $worker['stderr'] ?? '',
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n";
+}
+echo 'DIAG G A/R/P ' . json_encode([
+    'A' => $available($levG), 'R' => $reserved($levG), 'P' => $physical($levG),
+]) . "\n";
+echo 'DIAG G status/activity ' . json_encode([
+    'canceled_request_status' => $pdo->query("SELECT status_id FROM requests WHERE ID=$reqG1")->fetchColumn(),
+    'item_activities' => (int) $pdo->query(
+        "SELECT COUNT(*) FROM request_activities WHERE request_id IN ($reqG1,$reqG2) AND type_code='items'"
+    )->fetchColumn(),
+]) . "\n";
 check(count(array_filter($outG, static fn (array $r): bool => ($r['outcome'] ?? '') === 'success')) === 2,
     'G: both cancel and reserve succeeded', $failures);
 check(count(array_filter($outG, static fn (array $r): bool => ($r['class'] ?? '') === 'PDOException')) === 0,
