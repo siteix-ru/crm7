@@ -105,6 +105,16 @@ function readSignal(string $dir, string $name): array
     return is_array($decoded) ? $decoded : [];
 }
 
+/** Per-slot start signal for deterministic ordering, with legacy fallback. */
+function workerWaitForGo(string $dir, string $slot): bool
+{
+    if (waitForSignal($dir, 'go_' . $slot, 60)) {
+        return true;
+    }
+
+    return waitForSignal($dir, 'go', 60);
+}
+
 /** Safe diagnostic payload for a worker failure (never includes tokens). */
 function workerErrorDiagnostics(Throwable $e): array
 {
@@ -167,12 +177,13 @@ if ($role === 'l264-worker') {
 
     $controller = new RequestController();
     writeSignal($dir, 'ready_' . $slot, ['pid' => getmypid(), 'conn' => (int) $workerPdo->query('SELECT CONNECTION_ID()')->fetchColumn()]);
-    if (!waitForSignal($dir, 'go', 60)) {
+    if (!workerWaitForGo($dir, $slot)) {
         writeSignal($dir, 'done_' . $slot, ['outcome' => 'error', 'code' => 'go_timeout']);
         exit(0);
     }
 
     $version = (int) $workerPdo->query('SELECT version FROM requests WHERE ID=' . $requestId)->fetchColumn();
+    writeSignal($dir, 'started_' . $slot, ['at' => microtime(true), 'pid' => getmypid()]);
     try {
         $response = $controller->items(new Request(
             'POST',
@@ -221,12 +232,13 @@ if ($role === 'l264-cancel') {
     (new ReflectionProperty(Database::class, 'pdo'))->setValue(null, $workerPdo);
 
     writeSignal($dir, 'ready_' . $slot, ['pid' => getmypid(), 'conn' => (int) $workerPdo->query('SELECT CONNECTION_ID()')->fetchColumn()]);
-    if (!waitForSignal($dir, 'go', 60)) {
+    if (!workerWaitForGo($dir, $slot)) {
         writeSignal($dir, 'done_' . $slot, ['outcome' => 'error', 'code' => 'go_timeout']);
         exit(0);
     }
 
     $version = (int) $workerPdo->query('SELECT version FROM requests WHERE ID=' . $requestId)->fetchColumn();
+    writeSignal($dir, 'started_' . $slot, ['at' => microtime(true), 'pid' => getmypid()]);
     try {
         $response = (new RequestController())->transition(new Request(
             'POST',
@@ -393,6 +405,9 @@ $pdo->exec("INSERT INTO stock_levels (SID,STOCK_SID,NAME,NAME_SID,UNIT,QUANTITY)
     ('L264-MC','L264-WS-A','L264 Legacy Item','L264-LEGACY','pcs',10.00000),
     ('L264-F','L264-WS-A','L264 Legacy Item','L264-LEGACY','pcs',10.00000),
     ('L264-G','L264-WS-A','L264 Legacy Item','L264-LEGACY','pcs',10.00000),
+    ('L264-K','L264-WS-A','L264 Legacy Item','L264-LEGACY','pcs',10.00000),
+    ('L264-LD','L264-WS-A','L264 Legacy Item','L264-LEGACY','pcs',10.00000),
+    ('L264-M','L264-WS-A','L264 Legacy Item','L264-LEGACY','pcs',10.00000),
     ('L264-LOT-L','L264-WS-A','L264 Lot Item','L264-LOT','pcs',10.00000)");
 $pdo->exec("INSERT INTO request_statuses (code,title,sort,is_final,is_active) VALUES
     ('new','New',10,0,1),('canceled','Canceled',70,1,1)
@@ -437,8 +452,11 @@ $levMb = $levelId('L264-MB');
 $levMc = $levelId('L264-MC');
 $levF = $levelId('L264-F');
 $levG = $levelId('L264-G');
+$levK = $levelId('L264-K');
+$levLv = $levelId('L264-LD');
+$levM = $levelId('L264-M');
 $levLot = $levelId('L264-LOT-L');
-$levelIds = [$levL, $levAcl, $levConc, $levMa, $levMb, $levMc, $levF, $levG, $levLot];
+$levelIds = [$levL, $levAcl, $levConc, $levMa, $levMb, $levMc, $levF, $levG, $levK, $levLv, $levM, $levLot];
 
 $reqA = $newFixtureRequest('L264-REQ-A');
 $reqD = $newFixtureRequest('L264-REQ-LOT');
@@ -454,7 +472,17 @@ $pdo->exec("UPDATE requests SET manager_id=291 WHERE ID=$reqF2");
 $reqG1 = $newFixtureRequest('L264-REQ-G1');
 $reqG2 = $newFixtureRequest('L264-REQ-G2');
 $pdo->exec("UPDATE requests SET manager_id=291 WHERE ID=$reqG2");
-$requestIds = [$reqA, $reqD, $reqConcA, $reqConcB, $reqMultiA, $reqMultiB, $reqF1, $reqF2, $reqG1, $reqG2];
+$reqK1 = $newFixtureRequest('L264-REQ-K1');
+$reqK2 = $newFixtureRequest('L264-REQ-K2');
+$pdo->exec("UPDATE requests SET manager_id=291 WHERE ID=$reqK2");
+$reqL1 = $newFixtureRequest('L264-REQ-L1');
+$reqL2 = $newFixtureRequest('L264-REQ-L2');
+$pdo->exec("UPDATE requests SET manager_id=291 WHERE ID=$reqL2");
+$reqM1 = $newFixtureRequest('L264-REQ-M1');
+$reqM2 = $newFixtureRequest('L264-REQ-M2');
+$pdo->exec("UPDATE requests SET manager_id=291 WHERE ID=$reqM2");
+$requestIds = [$reqA, $reqD, $reqConcA, $reqConcB, $reqMultiA, $reqMultiB, $reqF1, $reqF2,
+    $reqG1, $reqG2, $reqK1, $reqK2, $reqL1, $reqL2, $reqM1, $reqM2];
 
 // A = available (stock_levels.QUANTITY), R = SUM(stock_reservations.quantity),
 // P = A + R. All comparisons use Decimal, never floats.
@@ -577,7 +605,9 @@ foreach ($specs as $slot => $spec) {
 foreach (array_keys($specs) as $slot) {
     check(waitForSignal($dir, 'ready_' . $slot, 30), 'B: worker ' . $slot . ' ready', $failures);
 }
-writeSignal($dir, 'go', ['at' => microtime(true)]);
+foreach (array_keys($specs) as $slot) {
+    writeSignal($dir, 'go_' . $slot, ['at' => microtime(true)]);
+}
 $outcomes = [];
 foreach (array_keys($specs) as $slot) {
     check(waitForSignal($dir, 'done_' . $slot, 60), 'B: worker ' . $slot . ' finished', $failures);
@@ -669,7 +699,7 @@ check((int) $pdo->query("SELECT COUNT(*) FROM request_activities WHERE request_i
     'C: exactly two item activities (no duplicate side effects)', $failures);
 
 /** Run two real child processes against independent connections with a file barrier. */
-$runPair = static function (array $specs) use ($dsn, $dbUser, $dbPass): array {
+$runPair = static function (array $specs, bool $ordered = false) use ($dsn, $dbUser, $dbPass): array {
     $dir = sys_get_temp_dir() . '/crm_l264_pair_' . bin2hex(random_bytes(6));
     mkdir($dir, 0700, true);
     $pipes = [];
@@ -692,7 +722,19 @@ $runPair = static function (array $specs) use ($dsn, $dbUser, $dbPass): array {
     foreach (array_keys($specs) as $slot) {
         waitForSignal($dir, 'ready_' . $slot, 30);
     }
-    writeSignal($dir, 'go', ['at' => microtime(true)]);
+    if ($ordered) {
+        // Deterministic start: release slot A first, wait until it confirms it
+        // is inside the operation, then release slot B. No sleeps involved.
+        $slots = array_keys($specs);
+        writeSignal($dir, 'go_' . $slots[0], ['at' => microtime(true)]);
+        waitForSignal($dir, 'started_' . $slots[0], 60);
+        writeSignal($dir, 'go_' . $slots[1], ['at' => microtime(true)]);
+        waitForSignal($dir, 'started_' . $slots[1], 60);
+    } else {
+        foreach (array_keys($specs) as $slot) {
+            writeSignal($dir, 'go_' . $slot, ['at' => microtime(true)]);
+        }
+    }
     $outcomes = [];
     foreach (array_keys($specs) as $slot) {
         waitForSignal($dir, 'done_' . $slot, 60);
@@ -712,8 +754,10 @@ $runPair = static function (array $specs) use ($dsn, $dbUser, $dbPass): array {
         $outcomes[$slot]['stdout'] = trim($stdout);
         $outcomes[$slot]['stderr'] = trim($stderr);
         $ready = readSignal($dir, 'ready_' . $slot);
+        $started = readSignal($dir, 'started_' . $slot);
         $outcomes[$slot]['pid'] = $ready['pid'] ?? null;
         $outcomes[$slot]['db_conn'] = $ready['conn'] ?? null;
+        $outcomes[$slot]['started_at'] = $started['at'] ?? null;
     }
     foreach (glob($dir . '/*') ?: [] as $file) {
         unlink($file);
@@ -799,6 +843,104 @@ check(Decimal::compare($available($levG), '6.00000') === 0
     && Decimal::compare($physical($levG), '10.00000') === 0,
     'G: A=6 R=4 P=10', $failures);
 $assertNoLotRows('G');
+
+// Generic seed for deterministic-order scenarios.
+$seedReservation = static function (int $requestId, int $levelId, string $qty)
+    use ($requestController, $apiRequest, $tokenA): void {
+    $requestController->items($apiRequest('POST', '/requests/' . $requestId . '/items', [], [
+        'items' => [[
+            'stock_level_id' => $levelId,
+            'quantity' => $qty,
+            'name' => 'L264 Legacy Item',
+            'unit' => 'pcs',
+        ]],
+        'version' => 1,
+    ], $tokenA), ['id' => (string) $requestId]);
+};
+
+// --- K. Deterministic reserve -> cancel --------------------------------------
+$seedReservation($reqK1, $levK, '4.00000');
+check(Decimal::compare($available($levK), '6.00000') === 0
+    && Decimal::compare($reserved($levK), '4.00000') === 0,
+    'K: initial A=6 R=4', $failures);
+$outK = $runPair([
+    'A' => ['role' => 'l264-worker', 'request' => $reqK2, 'level' => $levK, 'qty' => '4.00000', 'token' => $tokenB],
+    'B' => ['role' => 'l264-cancel', 'request' => $reqK1, 'token' => $tokenA],
+], true);
+check((float) ($outK['A']['started_at'] ?? 0) < (float) ($outK['B']['started_at'] ?? 0),
+    'K: deterministic reserve started before cancel', $failures);
+check(count(array_filter($outK, static fn (array $r): bool => ($r['outcome'] ?? '') === 'success')) === 2,
+    'K: both operations succeeded', $failures);
+check(count(array_filter($outK, static fn (array $r): bool => ($r['class'] ?? '') === 'PDOException')) === 0,
+    'K: no raw PDOException', $failures);
+check(Decimal::compare($available($levK), '6.00000') === 0
+    && Decimal::compare($reserved($levK), '4.00000') === 0
+    && Decimal::compare($physical($levK), '10.00000') === 0,
+    'K: A=6 R=4 P=10', $failures);
+check($pdo->query("SELECT status_id FROM requests WHERE ID=$reqK1")->fetchColumn() === 'canceled',
+    'K: request canceled', $failures);
+check((int) $pdo->query("SELECT COUNT(*) FROM request_activities WHERE request_id IN ($reqK1,$reqK2) AND type_code='items'")->fetchColumn() === 2,
+    'K: exactly two item activities', $failures);
+$assertNoLotRows('K');
+
+// --- L. Deterministic cancel -> reserve --------------------------------------
+$seedReservation($reqL1, $levLv, '4.00000');
+check(Decimal::compare($available($levLv), '6.00000') === 0
+    && Decimal::compare($reserved($levLv), '4.00000') === 0,
+    'L: initial A=6 R=4', $failures);
+$outL = $runPair([
+    'A' => ['role' => 'l264-cancel', 'request' => $reqL1, 'token' => $tokenA],
+    'B' => ['role' => 'l264-worker', 'request' => $reqL2, 'level' => $levLv, 'qty' => '4.00000', 'token' => $tokenB],
+], true);
+check((float) ($outL['A']['started_at'] ?? 0) < (float) ($outL['B']['started_at'] ?? 0),
+    'L: deterministic cancel started before reserve', $failures);
+check(count(array_filter($outL, static fn (array $r): bool => ($r['outcome'] ?? '') === 'success')) === 2,
+    'L: both operations succeeded', $failures);
+check(count(array_filter($outL, static fn (array $r): bool => ($r['class'] ?? '') === 'PDOException')) === 0,
+    'L: no raw PDOException', $failures);
+check(Decimal::compare($available($levLv), '6.00000') === 0
+    && Decimal::compare($reserved($levLv), '4.00000') === 0
+    && Decimal::compare($physical($levLv), '10.00000') === 0,
+    'L: A=6 R=4 P=10', $failures);
+check($pdo->query("SELECT status_id FROM requests WHERE ID=$reqL1")->fetchColumn() === 'canceled',
+    'L: request canceled', $failures);
+check((int) $pdo->query("SELECT COUNT(*) FROM request_activities WHERE request_id IN ($reqL1,$reqL2) AND type_code='items'")->fetchColumn() === 2,
+    'L: exactly two item activities', $failures);
+$assertNoLotRows('L');
+
+// --- M. Deterministic cancel -> cancel ---------------------------------------
+$seedReservation($reqM1, $levM, '4.00000');
+$versionM = (int) $pdo->query("SELECT version FROM requests WHERE ID=$reqM2")->fetchColumn();
+$requestController->items($apiRequest('POST', '/requests/' . $reqM2 . '/items', [], [
+    'items' => [[
+        'stock_level_id' => $levM, 'quantity' => '4.00000',
+        'name' => 'L264 Legacy Item', 'unit' => 'pcs',
+    ]],
+    'version' => $versionM,
+], $tokenB), ['id' => (string) $reqM2]);
+check(Decimal::compare($available($levM), '2.00000') === 0
+    && Decimal::compare($reserved($levM), '8.00000') === 0,
+    'M: initial A=2 R=8', $failures);
+$outM = $runPair([
+    'A' => ['role' => 'l264-cancel', 'request' => $reqM1, 'token' => $tokenA],
+    'B' => ['role' => 'l264-cancel', 'request' => $reqM2, 'token' => $tokenB],
+], true);
+check((float) ($outM['A']['started_at'] ?? 0) < (float) ($outM['B']['started_at'] ?? 0),
+    'M: deterministic first cancel started before second', $failures);
+check(count(array_filter($outM, static fn (array $r): bool => ($r['outcome'] ?? '') === 'success')) === 2,
+    'M: both cancels succeeded', $failures);
+check(count(array_filter($outM, static fn (array $r): bool => ($r['class'] ?? '') === 'PDOException')) === 0,
+    'M: no raw PDOException', $failures);
+check(Decimal::compare($available($levM), '10.00000') === 0
+    && Decimal::compare($reserved($levM), '0.00000') === 0
+    && Decimal::compare($physical($levM), '10.00000') === 0,
+    'M: A=10 R=0 P=10', $failures);
+check($pdo->query("SELECT status_id FROM requests WHERE ID=$reqM1")->fetchColumn() === 'canceled'
+    && $pdo->query("SELECT status_id FROM requests WHERE ID=$reqM2")->fetchColumn() === 'canceled',
+    'M: both requests canceled', $failures);
+check((int) $pdo->query("SELECT COUNT(*) FROM request_activities WHERE request_id IN ($reqM1,$reqM2) AND type_code='items'")->fetchColumn() === 2,
+    'M: exactly two item activities', $failures);
+$assertNoLotRows('M');
 
 // --- H. ACL: stocks.edit without warehouse A access -> 403 -------------------
 $beforeAclAvailable = $available($levAcl);

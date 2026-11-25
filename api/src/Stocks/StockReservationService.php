@@ -216,6 +216,12 @@ final class StockReservationService
         }
     }
 
+    /** Current reservation levels, read on an independent connection. */
+    public function reservedLevelsMap(int $requestId): array
+    {
+        return $this->reservations->forRequestFresh($requestId);
+    }
+
     /**
      * After a deadlock MariaDB has already rolled back the whole transaction.
      * Re-read the committed balance on an independent connection and report a
