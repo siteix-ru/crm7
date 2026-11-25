@@ -55,6 +55,7 @@ if ($markerRow === false || !isset($markerRow['marker']) || !hash_equals($sentin
 }
 (new ReflectionProperty(Database::class, 'pdo'))->setValue(null, $pdo);
 
+$capabilitySnapshot = [];
 $failures = [];
 function check(bool $ok, string $name, array &$failures): void
 {
@@ -75,13 +76,23 @@ $fakeSecret = 'r292-fake-token-' . bin2hex(random_bytes(6));
 $logFile = sys_get_temp_dir() . '/crm7-r292-' . bin2hex(random_bytes(5)) . '.log';
 ini_set('error_log', $logFile);
 
-$cleanup = static function () use ($pdo, &$adminId, &$managerId, &$clientId, $channelSnapshot, $logFile): void {
+$cleanup = static function (bool $restoreCapabilities = false) use ($pdo, &$adminId, &$managerId, &$clientId, $channelSnapshot, &$capabilitySnapshot, $logFile): void {
     $ids = array_filter([$adminId, $managerId, $clientId]);
     if ($ids !== []) {
         $in = implode(',', $ids);
         $pdo->exec("DELETE FROM user_tokens WHERE user_id IN ($in)");
         $pdo->exec("DELETE FROM messenger_bind_codes WHERE user_id IN ($in)");
         $pdo->exec("DELETE FROM users WHERE ID IN ($in)");
+    }
+    if ($restoreCapabilities) {
+        $pdo->exec('DELETE FROM level_capabilities WHERE level IN (90,10,5)');
+        $restoreCapability = $pdo->prepare('INSERT IGNORE INTO level_capabilities (level,capability_code) VALUES (?, ?)');
+        foreach ($capabilitySnapshot as $capability) {
+            $restoreCapability->execute([
+                (int) $capability['level'],
+                (string) $capability['capability_code'],
+            ]);
+        }
     }
     $pdo->exec('DELETE FROM messenger_webhook_events WHERE provider IN (\'max\',\'telegram\')');
     foreach ($channelSnapshot as $row) {
@@ -100,6 +111,17 @@ $cleanup = static function () use ($pdo, &$adminId, &$managerId, &$clientId, $ch
     }
 };
 $cleanup();
+
+// Earlier tests in the same CI job reset level_capabilities for levels 90/91/5
+// and keep only their own grants. Restore the grants this test needs, snapshot
+// first so the shared disposable DB is left exactly as it was.
+$capabilitySnapshot = $pdo->query(
+    'SELECT level, capability_code FROM level_capabilities WHERE level IN (90,10,5)'
+)->fetchAll();
+$pdo->exec("INSERT IGNORE INTO level_capabilities (level,capability_code) VALUES
+    (90,'messengers.manage'), (90,'notifications.use'),
+    (10,'notifications.use'), (5,'notifications.use')");
+$pdo->exec("DELETE FROM level_capabilities WHERE level=10 AND capability_code='messengers.manage'");
 
 $hash = password_hash('Secret123', PASSWORD_DEFAULT);
 $pdo->exec("INSERT INTO users (ID,SID,LOGIN,PASSWORD,LEVEL,FULL_NAME,EMAIL,ACTIVE,STATUS,reg_state) VALUES
@@ -239,7 +261,7 @@ foreach ([
 }
 
 ini_restore('error_log');
-$cleanup();
+$cleanup(true);
 
 if ($failures !== []) {
     fwrite(STDERR, sprintf("\nНеудавшихся проверок: %d (%s)\n", count($failures), implode('; ', $failures)));
