@@ -20,6 +20,11 @@ export function defaultPeriod(days = 30): { from: string; to: string } {
   return { from: daysAgoIso(days - 1), to: todayIso() };
 }
 
+/** No lower bound: lists should show the whole history by default. */
+export function allTimePeriod(): { from: string; to: string } {
+  return { from: '', to: '' };
+}
+
 export function clampDates(from: string, to: string): { from: string; to: string } {
   const today = todayIso();
   let nextFrom = from;
@@ -41,6 +46,10 @@ export function clampDates(from: string, to: string): { from: string; to: string
 }
 
 export function clampPeriod(from: string, to: string): { from: string; to: string } {
+  if (from === '' && to === '') {
+    return allTimePeriod();
+  }
+
   const fallback = defaultPeriod();
   const validFrom = /^\d{4}-\d{2}-\d{2}$/.test(from) ? from : fallback.from;
   const validTo = /^\d{4}-\d{2}-\d{2}$/.test(to) ? to : fallback.to;

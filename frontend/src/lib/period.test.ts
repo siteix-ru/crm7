@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { clampDates, clampPeriod, daysAgoIso, defaultPeriod, todayIso } from './period';
+import { allTimePeriod, clampDates, clampPeriod, daysAgoIso, defaultPeriod, todayIso } from './period';
 
 describe('period helpers', () => {
-  it('defaults to the last 30 days', () => {
+  it('defaults to the last 30 days for reports', () => {
     const period = defaultPeriod();
 
     expect(period.to).toBe(todayIso());
     expect(period.from).toBe(daysAgoIso(29));
+  });
+
+  it('has an unbounded period for lists', () => {
+    expect(allTimePeriod()).toEqual({ from: '', to: '' });
+    expect(clampPeriod('', '')).toEqual({ from: '', to: '' });
+  });
+
+  it('keeps the new unbounded period when applying filters', () => {
+    expect(clampPeriod(allTimePeriod().from, allTimePeriod().to)).toEqual(allTimePeriod());
   });
 
   it('does not allow dates in the future', () => {
