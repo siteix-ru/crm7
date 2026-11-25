@@ -181,6 +181,11 @@ jobs:
       DB_NAME: crm_lotlifecycle_test
       DB_USER: root
       DB_PASS: root
+      # Deterministic non-production key: Crypto::encrypt() is used by the
+      # notification regression test to prepare a fake SMTP password. The test
+      # injects its PDO directly and does not load .env, so it needs the key
+      # from the process environment.
+      APP_KEY: crm7-disposable-notification-test-key
       CRM7_TEST_DB_DSN: 'mysql:host=127.0.0.1;port=3308;dbname=crm_lotlifecycle_test;charset=utf8mb4'
       CRM7_TEST_DB_USER: root
       CRM7_TEST_DB_PASS: root
