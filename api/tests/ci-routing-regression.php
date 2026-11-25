@@ -86,6 +86,7 @@ $expectedLot = [
     'messenger-max.php',
     'telegram-provider-mock.php',
     'messenger-reliability.php',
+    'messenger-router-integration.php',
 ];
 $expected = array_merge($expectedStock, $expectedFoundation, $expectedLot);
 sort($expected);

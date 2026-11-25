@@ -23,19 +23,19 @@ final class MessengerLinkController extends ApiController
         return Response::ok($this->links->status((int) $user['ID']));
     }
 
-    public function bindStart(Request $request, string $channel): Response
+    public function bindStart(Request $request, array $params): Response
     {
         $user = $this->requireUser($request);
-        $this->assertChannel($channel);
+        $channel = $this->channel($params);
         $result = $this->links->startBind((int) $user['ID'], $channel);
 
         return Response::ok($result ?? ['code' => '', 'expires_in' => 0]);
     }
 
-    public function unlink(Request $request, string $channel): Response
+    public function unlink(Request $request, array $params): Response
     {
         $user = $this->requireUser($request);
-        $this->assertChannel($channel);
+        $channel = $this->channel($params);
 
         return Response::ok(['unlinked' => $this->links->unlink((int) $user['ID'], $channel)]);
     }
@@ -50,10 +50,14 @@ final class MessengerLinkController extends ApiController
         return $user;
     }
 
-    private function assertChannel(string $channel): void
+    /** Router passes route parameters as an array; validate before use. */
+    private function channel(array $params): string
     {
-        if (!in_array($channel, ['max', 'telegram'], true)) {
+        $channel = $params['channel'] ?? null;
+        if (!is_string($channel) || !in_array($channel, ['max', 'telegram'], true)) {
             throw new HttpException(404, 'not_found', 'Неизвестный канал');
         }
+
+        return $channel;
     }
 }
