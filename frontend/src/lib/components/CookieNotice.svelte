@@ -4,6 +4,7 @@
   const STORAGE_KEY = 'crm.cookie.accepted';
 
   let visible = $state(false);
+  let expanded = $state(false);
   let bannerEl = $state<HTMLDivElement | null>(null);
 
   $effect(() => {
@@ -65,11 +66,31 @@
 
 {#if visible}
   <div class="cookie" role="dialog" aria-label="Использование cookie" bind:this={bannerEl}>
-    <p>
-      Мы используем cookie, чтобы сохранять сессию и настройки. Продолжая работу, вы соглашаетесь
-      с <button type="button" class="link" onclick={() => router.navigate('/legal/privacy')}>политикой обработки персональных данных</button>
-      и <button type="button" class="link" onclick={() => router.navigate('/legal/terms')}>пользовательским соглашением</button>.
-    </p>
+    <div class="notice">
+      <p class="full">
+        Мы используем cookie, чтобы сохранять сессию и настройки. Продолжая работу, вы соглашаетесь
+        с <button type="button" class="link" onclick={() => router.navigate('/legal/privacy')}>политикой обработки персональных данных</button>
+        и <button type="button" class="link" onclick={() => router.navigate('/legal/terms')}>пользовательским соглашением</button>.
+      </p>
+      <div class="compact">
+        <span>Используем cookie для сессии и настроек</span>
+        <button
+          type="button"
+          class="details-toggle"
+          aria-expanded={expanded}
+          onclick={() => (expanded = !expanded)}
+        >
+          {expanded ? 'Свернуть' : 'Подробнее'}
+        </button>
+      </div>
+      {#if expanded}
+        <p class="details">
+          Продолжая работу, вы соглашаетесь
+          с <button type="button" class="link" onclick={() => router.navigate('/legal/privacy')}>политикой обработки персональных данных</button>
+          и <button type="button" class="link" onclick={() => router.navigate('/legal/terms')}>пользовательским соглашением</button>.
+        </p>
+      {/if}
+    </div>
     <button type="button" class="accept" onclick={accept}>Принять</button>
   </div>
 {/if}
@@ -95,8 +116,17 @@
     font-size: 13px;
   }
 
+  .notice {
+    min-width: 0;
+  }
+
   .cookie p {
     margin: 0;
+  }
+
+  .compact,
+  .details {
+    display: none;
   }
 
   .link {
@@ -122,10 +152,45 @@
   }
 
   @media (max-width: 720px) {
+    /* Компактная строка занимает меньше места, чем полный текст,
+       поэтому форма остаётся доступной даже до принятия cookie. */
     .cookie {
-      flex-direction: column;
-      align-items: stretch;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-2) var(--space-3);
       bottom: calc(84px + env(safe-area-inset-bottom));
+    }
+
+    .full {
+      display: none;
+    }
+
+    .compact {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      font-size: 12px;
+    }
+
+    .details {
+      display: block;
+      margin-top: 4px;
+      font-size: 12px;
+    }
+
+    .details-toggle {
+      border: none;
+      background: none;
+      padding: 0;
+      color: var(--primary);
+      cursor: pointer;
+      font: inherit;
+      text-decoration: underline;
+    }
+
+    .accept {
+      padding: 8px 12px;
     }
   }
 </style>
