@@ -81,6 +81,10 @@ $cleanup = static function () use ($pdo): void {
 };
 $cleanup();
 
+// The disposable DB is shared by the whole CI job. Only *new* email rows can
+// be attributed to MAX processing; earlier tests may leave their own rows.
+$emailQueueBaseline = (int) $pdo->query("SELECT COUNT(*) FROM email_queue WHERE channel='email'")->fetchColumn();
+
 // Earlier tests in the same CI job reset level_capabilities for levels 90/91/5
 // and keep only their own grants. Restore exactly the grants this test needs,
 // using the same idempotent statements as migration 089.
@@ -212,8 +216,9 @@ check($limiter->waitSeconds('max', '9001', 322) > 0, 'MAX per-dialog rate limit 
 $pdo->exec("UPDATE messenger_channels SET enabled=0 WHERE channel='max'");
 check($queue->enqueue(322, 'max', new NotificationMessage(322, 'request.comment', 'Другой', '', '', 'evt-2')) === false,
     'disabled channel receives no messages', $failures);
-check((int) $pdo->query("SELECT COUNT(*) FROM email_queue WHERE channel='email'")->fetchColumn() === 0,
-    'MAX failures do not create email deliveries', $failures);
+check((int) $pdo->query("SELECT COUNT(*) FROM email_queue WHERE channel='email'")->fetchColumn()
+    === $emailQueueBaseline,
+    'MAX failures create no new email deliveries', $failures);
 
 // 8. Token deletion.
 $pdo->exec("UPDATE messenger_channels SET enabled=1 WHERE channel='max'");
