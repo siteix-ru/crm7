@@ -82,6 +82,7 @@ $expectedLot = [
     'stock-lots-api-integration.php',
     'stock-legacy-compatibility.php',
     'request-comment-notification.php',
+    'email-photo-attachments.php',
 ];
 $expected = array_merge($expectedStock, $expectedFoundation, $expectedLot);
 sort($expected);

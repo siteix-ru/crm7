@@ -1823,6 +1823,8 @@ final class RequestService
             'request.activity',
             'Событие по заявке ' . (string) $request['number'] . ': ' . $subject,
             $body !== '' ? $body : null,
+            // The upload itself emits request.photo with the file ID; emitting
+            // here as well would notify the same action twice.
             [],
             !$isInternal
         );

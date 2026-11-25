@@ -21,6 +21,10 @@ final class SmtpMailer
         @fclose($socket);
     }
 
+    /**
+     * @param array<string,mixed>|null $attachment Legacy single attachment or a list of attachments.
+     *                                             Each entry: {file_name, content, mime}.
+     */
     public function send(
         string $from,
         string $fromName,
@@ -29,6 +33,7 @@ final class SmtpMailer
         string $body,
         ?array $attachment = null
     ): void {
+        $attachments = $this->normalizeAttachments($attachment);
         $socket = $this->connect();
 
         try {
@@ -37,13 +42,13 @@ final class SmtpMailer
             $this->command($socket, 'DATA', 354);
 
             $boundary = 'crm-' . bin2hex(random_bytes(12));
-            $payload = $attachment === null
+            $payload = $attachments === []
                 ? $this->normalizeBody($body)
-                : $this->attachmentBody($body, $attachment, $boundary);
+                : $this->attachmentBody($body, $attachments, $boundary);
 
             fwrite(
                 $socket,
-                $this->headers($from, $fromName, $to, $subject, $attachment, $boundary)
+                $this->headers($from, $fromName, $to, $subject, $attachments, $boundary)
                 . "\r\n"
                 . $payload
                 . "\r\n.\r\n"
@@ -54,6 +59,22 @@ final class SmtpMailer
         } finally {
             @fclose($socket);
         }
+    }
+
+    /** Normalize the legacy single-assoc attachment and the new list form into a list. */
+    private function normalizeAttachments(?array $attachment): array
+    {
+        if ($attachment === null || $attachment === []) {
+            return [];
+        }
+
+        // A single attachment is an assoc array with "file_name"; a list of
+        // attachments is a sequential array of such assoc arrays.
+        if (!array_is_list($attachment)) {
+            return [$attachment];
+        }
+
+        return array_values(array_filter($attachment, 'is_array'));
     }
 
     private function connect()
@@ -136,7 +157,7 @@ final class SmtpMailer
         string $fromName,
         string $to,
         string $subject,
-        ?array $attachment,
+        array $attachments,
         string $boundary
     ): string {
         $fromHeader = $fromName !== ''
@@ -152,7 +173,7 @@ final class SmtpMailer
             'MIME-Version: 1.0',
         ];
 
-        if ($attachment === null) {
+        if ($attachments === []) {
             $lines[] = 'Content-Type: text/plain; charset=UTF-8';
             $lines[] = 'Content-Transfer-Encoding: 8bit';
         } else {
@@ -162,25 +183,40 @@ final class SmtpMailer
         return implode("\r\n", $lines);
     }
 
-    private function attachmentBody(string $body, array $attachment, string $boundary): string
+    private function attachmentBody(string $body, array $attachments, string $boundary): string
     {
-        $fileName = (string) $attachment['file_name'];
-        $asciiName = (string) preg_replace('/[^\x20-\x7E]/', '_', $fileName);
-
+        // Text part first.
         $parts = [
             '--' . $boundary,
             'Content-Type: text/plain; charset=UTF-8',
             'Content-Transfer-Encoding: 8bit',
             '',
             $this->normalizeBody($body),
-            '--' . $boundary,
-            'Content-Type: ' . (string) $attachment['mime'] . '; name="' . $asciiName . '"',
-            'Content-Transfer-Encoding: base64',
-            'Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($fileName),
-            '',
-            rtrim(chunk_split(base64_encode((string) $attachment['content']), 76, "\r\n"), "\r\n"),
-            '--' . $boundary . '--',
         ];
+
+        foreach ($attachments as $attachment) {
+            $fileName = (string) ($attachment['file_name'] ?? '');
+            // Strip quotes, backslashes and control/non-ASCII bytes from the
+            // quoted header parameter to avoid header injection.
+            $asciiName = (string) preg_replace('/[^A-Za-z0-9._\- ]/', '_', $fileName);
+            if ($asciiName === '') {
+                $asciiName = 'attachment';
+            }
+            // MIME comes from a trusted resolver, but keep it header-safe.
+            $mime = (string) preg_replace('/[^\x20-\x7E]/', '', (string) ($attachment['mime'] ?? ''));
+            if ($mime === '') {
+                $mime = 'application/octet-stream';
+            }
+
+            $parts[] = '--' . $boundary;
+            $parts[] = 'Content-Type: ' . $mime . '; name="' . $asciiName . '"';
+            $parts[] = 'Content-Transfer-Encoding: base64';
+            $parts[] = 'Content-Disposition: attachment; filename="' . $asciiName . '"; filename*=UTF-8\'\'' . rawurlencode($fileName);
+            $parts[] = '';
+            $parts[] = rtrim(chunk_split(base64_encode((string) ($attachment['content'] ?? '')), 76, "\r\n"), "\r\n");
+        }
+
+        $parts[] = '--' . $boundary . '--';
 
         return implode("\r\n", $parts);
     }
