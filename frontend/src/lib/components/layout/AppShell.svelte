@@ -735,6 +735,8 @@
     align-items: center;
     gap: var(--space-5);
     height: 100%;
+    min-width: 0;
+    flex: 1 1 auto;
   }
 
   .brand {
@@ -752,6 +754,7 @@
     align-items: stretch;
     gap: 0;
     height: 100%;
+    min-width: 0;
   }
 
   nav a {
@@ -798,8 +801,14 @@
     }
   }
 
+  /* До 1180 px подписи разделов не помещаются вместе с панелью действий.
+     Пункты меню остаются иконками с title/aria-label — функции не теряются. */
   @media (max-width: 1180px) {
     .brand > span:last-child {
+      display: none;
+    }
+
+    .desktop-nav .nav-label {
       display: none;
     }
 
@@ -810,16 +819,11 @@
     }
   }
 
-  @media (max-width: 980px) {
-    .desktop-nav .nav-label {
-      display: none;
-    }
-  }
-
   .user {
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    flex: 0 0 auto;
   }
 
   .name {
