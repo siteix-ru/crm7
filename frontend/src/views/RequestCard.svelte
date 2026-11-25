@@ -4585,7 +4585,7 @@
 
   h1 {
     margin: 0;
-    font-size: 20px;
+    font-size: var(--font-xl);
   }
 
   h2 {

@@ -1,9 +1,9 @@
 :root {
-  --bg: #f5f5f5;
+  --bg: #f6f7f9;
   --surface: #ffffff;
   --text: rgba(0, 0, 0, 0.88);
   --muted: rgba(0, 0, 0, 0.65);
-  --border: #d9d9d9;
+  --border: #e2e5ea;
   --border-secondary: #f0f0f0;
   --fill-tertiary: rgba(0, 0, 0, 0.02);
   --fill-hover: rgba(0, 0, 0, 0.06);
@@ -27,13 +27,18 @@
   --warning: #faad14;
   --warning-bg: #fffbe6;
   --warning-text: #a86300;
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-md: 14px;
+  --font-lg: 18px;
+  --font-xl: 24px;
   --radius-xs: 4px;
-  --radius-sm: 6px;
-  --radius-md: 8px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 6px -1px rgba(0, 0, 0, 0.02),
     0 2px 4px 0 rgba(0, 0, 0, 0.02);
-  --shadow-md: 0 6px 16px 0 rgba(0, 0, 0, 0.08), 0 3px 6px -4px rgba(0, 0, 0, 0.12),
-    0 9px 28px 8px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 6px 16px 0 rgba(0, 0, 0, 0.06), 0 3px 6px -4px rgba(0, 0, 0, 0.1),
+    0 9px 28px 4px rgba(0, 0, 0, 0.04);
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -56,7 +61,7 @@ body {
 
 body {
   font-family: var(--font);
-  font-size: 14px;
+  font-size: var(--font-md);
   line-height: 1.5714;
   color: var(--text);
   background: var(--bg);
@@ -69,6 +74,18 @@ h3 {
   margin: 0 0 var(--space-3);
   font-weight: 600;
   line-height: 1.25;
+}
+
+h1 {
+  font-size: var(--font-xl);
+}
+
+h2 {
+  font-size: var(--font-lg);
+}
+
+h3 {
+  font-size: var(--font-md);
 }
 
 p {
@@ -360,7 +377,7 @@ html.cookie-visible main {
 .page-hero h1 {
   margin: 0;
   color: var(--text);
-  font-size: 20px;
+  font-size: var(--font-xl);
   font-weight: 600;
   line-height: 1.4;
   overflow-wrap: anywhere;
@@ -418,6 +435,11 @@ html.cookie-visible main {
 .page-icon-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.page-icon-btn svg {
+  width: 18px;
+  height: 18px;
 }
 
 /* Shared view/filter modal styles */

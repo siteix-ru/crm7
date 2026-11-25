@@ -780,7 +780,7 @@
 
   .head h1 {
     margin: 0;
-    font-size: 20px;
+    font-size: var(--font-xl);
     font-weight: 600;
     line-height: 1.4;
   }
