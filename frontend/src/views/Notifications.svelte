@@ -232,6 +232,7 @@
 
   .tabs {
     display: flex;
+    flex-wrap: wrap;
     gap: var(--space-2);
   }
 
@@ -305,6 +306,8 @@
   }
 
   .title {
+    min-width: 0;
+    overflow-wrap: anywhere;
     font-weight: 500;
   }
 
@@ -316,8 +319,15 @@
   }
 
   .body {
+    display: -webkit-box;
+    overflow: hidden;
+    min-width: 0;
     color: var(--muted);
     font-size: 14px;
+    overflow-wrap: anywhere;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
   }
 
   .date {

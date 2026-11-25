@@ -367,6 +367,7 @@
         bind:value={searchInput}
         historyKey="clients"
         placeholder="Поиск: имя, компания, ИНН, телефон"
+        compactPlaceholder="Поиск по клиентам"
         onclear={() => {
           search = '';
           applySearch();

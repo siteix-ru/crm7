@@ -84,7 +84,7 @@
 
   .icon-trigger:hover {
     border-color: var(--primary-hover);
-    color: var(--primary-hover);
+    color: var(--primary);
   }
 
   .icon-trigger.active {

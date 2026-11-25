@@ -1199,17 +1199,6 @@
       gap: 2px;
     }
 
-    .bell {
-      width: 30px;
-      height: 30px;
-    }
-
-    .avatar {
-      width: 28px;
-      height: 28px;
-      font-size: 12px;
-    }
-
     main {
       padding: var(--space-3);
       padding-bottom: calc(84px + env(safe-area-inset-bottom));
