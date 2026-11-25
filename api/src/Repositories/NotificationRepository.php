@@ -11,7 +11,7 @@ final class NotificationRepository
     public function settingsFor(int $userId): array
     {
         $stmt = Database::pdo()->prepare(
-            'SELECT event_code, in_app, email FROM notification_settings WHERE user_id = ?'
+            'SELECT event_code, in_app, email, max, telegram FROM notification_settings WHERE user_id = ?'
         );
         $stmt->execute([$userId]);
 
@@ -21,6 +21,8 @@ final class NotificationRepository
             $result[(string) $row['event_code']] = [
                 'in_app' => (bool) $row['in_app'],
                 'email' => (bool) $row['email'],
+                'max' => (bool) $row['max'],
+                'telegram' => (bool) $row['telegram'],
             ];
         }
 
@@ -31,9 +33,10 @@ final class NotificationRepository
     {
         $pdo = Database::pdo();
         $stmt = $pdo->prepare(
-            'INSERT INTO notification_settings (user_id, event_code, in_app, email)
-             VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE in_app = VALUES(in_app), email = VALUES(email)'
+            'INSERT INTO notification_settings (user_id, event_code, in_app, email, max, telegram)
+             VALUES (?, ?, ?, ?, ?, ?)
+             ON DUPLICATE KEY UPDATE in_app = VALUES(in_app), email = VALUES(email),
+                                    max = VALUES(max), telegram = VALUES(telegram)'
         );
 
         foreach ($items as $item) {
@@ -42,6 +45,8 @@ final class NotificationRepository
                 (string) $item['event'],
                 !empty($item['in_app']) ? 1 : 0,
                 !empty($item['email']) ? 1 : 0,
+                !empty($item['max']) ? 1 : 0,
+                !empty($item['telegram']) ? 1 : 0,
             ]);
         }
     }

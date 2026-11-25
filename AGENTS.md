@@ -125,6 +125,7 @@ CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build
 - [`docs/deploy.md`](docs/deploy.md), [`docs/images.md`](docs/images.md), [`docs/migrations.md`](docs/migrations.md).
 - [`docs/server.md`](docs/server.md) — сервер `172.30.173.240`: доступ, карта контейнеров, домены, сборка и релиз.
 - [`docs/manual-update.md`](docs/manual-update.md) — ручное обновление Git и Docker через консоль.
+- [`docs/messengers.md`](docs/messengers.md) — настройка MAX/Telegram, webhook, привязка сотрудников, шифрование токенов.
 
 ## Поддержание инструкций
 

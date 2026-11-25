@@ -9,6 +9,12 @@
     saveNotificationSettings,
     type NotificationSettingItem
   } from '../lib/api/notifications';
+  import {
+    listMessengerLinks,
+    startMessengerBind,
+    unlinkMessenger,
+    type MessengerLink
+  } from '../lib/api/messengers';
   import { auth } from '../lib/stores/auth.svelte';
   import { avatars } from '../lib/stores/avatar.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
@@ -60,6 +66,9 @@
   let settingsLoaded = $state(false);
   let settingsBusy = $state(false);
   let settingsNotice = $state('');
+  let messengerLinks = $state<MessengerLink[]>([]);
+  let bindCodes = $state<Record<string, string>>({});
+  let messengerNotice = $state('');
 
   let current = $state('');
   let next = $state('');
@@ -139,6 +148,14 @@
     if (auth.user) {
       void avatars.load(auth.user.id);
     }
+
+    void listMessengerLinks()
+      .then((data) => {
+        messengerLinks = data.items;
+      })
+      .catch(() => {
+        messengerLinks = [];
+      });
 
     void getNotificationSettings()
       .then((data) => {
@@ -330,6 +347,40 @@
       loading = false;
     }
   }
+
+  async function refreshMessengerLinks(): Promise<void> {
+    messengerLinks = (await listMessengerLinks()).items;
+  }
+
+  async function beginBind(channel: string): Promise<void> {
+    settingsBusy = true;
+    messengerNotice = '';
+    try {
+      const result = await startMessengerBind(channel);
+      bindCodes = { ...bindCodes, [channel]: result.code };
+      messengerNotice = `Код привязки: ${result.code}. Отправьте его боту в течение ${result.expires_in} сек.`;
+    } catch (cause) {
+      messengerNotice = cause instanceof ApiError ? cause.message : 'Не удалось создать код привязки';
+    } finally {
+      settingsBusy = false;
+    }
+  }
+
+  async function removeLink(channel: string): Promise<void> {
+    if (!window.confirm('Отвязать аккаунт мессенджера?')) {
+      return;
+    }
+    settingsBusy = true;
+    try {
+      await unlinkMessenger(channel);
+      await refreshMessengerLinks();
+      messengerNotice = 'Аккаунт отвязан';
+    } catch (cause) {
+      messengerNotice = cause instanceof ApiError ? cause.message : 'Не удалось отвязать аккаунт';
+    } finally {
+      settingsBusy = false;
+    }
+  }
 </script>
 
 <section class="page" use:swipeTabs={profileSwipe}>
@@ -471,7 +522,7 @@
         <div class="card-head">
           <div>
             <h2>Уведомления</h2>
-            <p class="hint">Выберите, какие события показывать в системе и отправлять на e-mail.</p>
+            <p class="hint">Выберите, какие события показывать в системе и отправлять в каждый канал.</p>
           </div>
         </div>
 
@@ -480,6 +531,8 @@
             <span>Событие</span>
             <span>В системе</span>
             <span>На e-mail</span>
+            <span>MAX</span>
+            <span>Telegram</span>
           </div>
           {#each visibleSettings as item (item.event)}
             <div class="notify-row">
@@ -496,6 +549,20 @@
                   type="checkbox"
                   bind:checked={item.email}
                   aria-label={`${item.title} — на e-mail`}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={item.max}
+                  aria-label={`${item.title} — MAX`}
+                />
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  bind:checked={item.telegram}
+                  aria-label={`${item.title} — Telegram`}
                 />
               </label>
             </div>
@@ -515,6 +582,28 @@
       </div>
     {:else}
       <div class="card"><p class="hint">Настройки уведомлений недоступны.</p></div>
+    {/if}
+
+    {#if messengerLinks.length > 0}
+      <div class="card">
+        <h2>Привязка мессенджеров</h2>
+        <p class="hint">Для подтверждения владения отправьте код боту. Переданный вручную ID не подтверждает владение.</p>
+        {#each messengerLinks as link (link.channel)}
+          <div class="notify-row">
+            <span class="notify-title">{link.channel === 'max' ? 'MAX' : 'Telegram'}: {link.connected ? `подключено ${link.masked_id}` : 'не подключено'}</span>
+            <Button variant="ghost" loading={settingsBusy} onclick={() => void beginBind(link.channel)}>
+              {link.connected ? 'Заменить' : 'Подключить'}
+            </Button>
+            {#if link.connected}
+              <Button variant="danger" loading={settingsBusy} onclick={() => void removeLink(link.channel)}>Отвязать</Button>
+            {/if}
+          </div>
+          {#if bindCodes[link.channel]}
+            <p class="hint">Код: <strong>{bindCodes[link.channel]}</strong> (одноразовый, действует 5 минут)</p>
+          {/if}
+        {/each}
+        {#if messengerNotice}<div class="alert success">{messengerNotice}</div>{/if}
+      </div>
     {/if}
   {/if}
 
@@ -905,7 +994,7 @@
   .notify-head,
   .notify-row {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 90px 90px;
+    grid-template-columns: minmax(0, 1fr) 80px 80px 60px 76px;
     align-items: center;
     gap: var(--space-2);
     padding: 10px var(--space-4);
@@ -1011,7 +1100,7 @@
 
     .notify-head,
     .notify-row {
-      grid-template-columns: minmax(0, 1fr) 76px 76px;
+      grid-template-columns: minmax(0, 1fr) 62px 62px 52px 60px;
       padding: 10px 12px;
     }
 

@@ -8,6 +8,9 @@ use App\Attachments\EmailPhotoResolver;
 use App\Attachments\EmailPhotoResolverInterface;
 use App\Core\Config;
 use App\Mail\MailService;
+use App\Messaging\MessengerQueue;
+use App\Messaging\MessengerQueueService;
+use App\Messaging\NotificationMessage;
 use App\Repositories\NotificationRepository;
 
 final class NotificationService
@@ -46,7 +49,8 @@ final class NotificationService
     public function __construct(
         private readonly NotificationRepository $repo = new NotificationRepository(),
         private readonly MailService $mail = new MailService(),
-        private readonly ?EmailPhotoResolverInterface $photos = null
+        private readonly ?EmailPhotoResolverInterface $photos = null,
+        private readonly ?MessengerQueue $messengers = new MessengerQueueService()
     ) {
     }
 
@@ -64,6 +68,10 @@ final class NotificationService
         }
 
         $settings = $this->repo->settingsFor($userId);
+
+        // Messengers are independent of the email toggles/template check below.
+        $this->dispatchMessengers($userId, $type, $title, $body, $requestId, $settings);
+
         $inApp = $settings[$type]['in_app'] ?? true;
         $email = $settings[$type]['email'] ?? true;
 
@@ -124,6 +132,46 @@ final class NotificationService
         }
 
         return ($this->photos ?? new EmailPhotoResolver())->resolve($requestId, $photoIds);
+    }
+
+    /** Messenger delivery is opt-in per event and never carries attachments. */
+    private function dispatchMessengers(
+        int $userId,
+        string $type,
+        string $title,
+        ?string $body,
+        ?int $requestId,
+        array $settings
+    ): void {
+        if ($this->messengers === null) {
+            return;
+        }
+
+        $link = $requestId !== null
+            ? rtrim((string) Config::get('APP_URL', ''), '/') . '/#/requests/' . $requestId
+            : '';
+        $eventKey = $type . ':' . (int) ($requestId ?? 0) . ':'
+            . md5($title . "\n" . (string) ($body ?? ''));
+
+        foreach (['max', 'telegram'] as $channel) {
+            if (empty($settings[$type][$channel] ?? false)) {
+                continue;
+            }
+            try {
+                // false is an idempotent duplicate; exceptions are real failures.
+                $this->messengers->enqueue($userId, $channel, new NotificationMessage(
+                    $userId,
+                    $type,
+                    $title,
+                    (string) ($body ?? ''),
+                    $link,
+                    $eventKey
+                ));
+            } catch (\Throwable $e) {
+                // Fixed code only: no user data, message text or secrets.
+                error_log('CRM7: messenger enqueue failed (' . $channel . ')');
+            }
+        }
     }
 
     public function notifyParticipants(
@@ -199,6 +247,8 @@ final class NotificationService
                 'title' => $title,
                 'in_app' => $stored[$code]['in_app'] ?? true,
                 'email' => $stored[$code]['email'] ?? true,
+                'max' => $stored[$code]['max'] ?? false,
+                'telegram' => $stored[$code]['telegram'] ?? false,
             ];
         }
 
@@ -224,6 +274,8 @@ final class NotificationService
                 'event' => $event,
                 'in_app' => (bool) ($item['in_app'] ?? true),
                 'email' => (bool) ($item['email'] ?? true),
+                'max' => (bool) ($item['max'] ?? false),
+                'telegram' => (bool) ($item['telegram'] ?? false),
             ];
         }
 

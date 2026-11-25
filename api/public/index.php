@@ -15,6 +15,9 @@ use App\Controllers\ModuleController;
 use App\Controllers\ItemTypeController;
 use App\Controllers\ProfileController;
 use App\Controllers\NotificationController;
+use App\Controllers\AdminMessengerController;
+use App\Controllers\MessengerLinkController;
+use App\Controllers\MessengerWebhookController;
 use App\Controllers\ReportController;
 use App\Controllers\MyReportController;
 use App\Controllers\ReportScheduleController;
@@ -81,7 +84,8 @@ $maintenance = $maintenanceFile !== ''
 if ($maintenance) {
     $path = $request->path;
     $allowed = in_array($path, ['/health', '/auth/login', '/auth/logout', '/auth/me', '/settings/app', '/settings/public'], true)
-        || str_starts_with($path, '/admin/update/');
+        || str_starts_with($path, '/admin/update/')
+        || str_starts_with($path, '/webhooks/');
 
     if (!$allowed) {
         $authorized = false;
@@ -130,6 +134,9 @@ $users = new UserController();
 $userFilters = new UserFiltersController();
 $attachments = new AttachmentController();
 $notifications = new NotificationController();
+$messengerSettings = new AdminMessengerController();
+$messengerLinks = new MessengerLinkController();
+$messengerWebhooks = new MessengerWebhookController();
 $admin = new AdminController();
 $modules = new ModuleController();
 $itemTypes = new ItemTypeController();
@@ -202,6 +209,18 @@ $router->get('/notifications', [$notifications, 'index']);
 $router->post('/notifications/read', [$notifications, 'read']);
 $router->get('/notification-settings', [$notifications, 'settings']);
 $router->put('/notification-settings', [$notifications, 'saveSettings']);
+
+// Stage 3.4.282: messenger administration, personal links and public webhooks.
+$router->get('/admin/messengers', [$messengerSettings, 'index']);
+$router->put('/admin/messengers/{channel}', [$messengerSettings, 'save']);
+$router->post('/admin/messengers/{channel}/check', [$messengerSettings, 'check']);
+$router->post('/admin/messengers/{channel}/webhook', [$messengerSettings, 'setupWebhook']);
+$router->delete('/admin/messengers/{channel}/token', [$messengerSettings, 'deleteToken']);
+$router->get('/messengers/links', [$messengerLinks, 'index']);
+$router->post('/messengers/{channel}/bind', [$messengerLinks, 'bindStart']);
+$router->delete('/messengers/{channel}/link', [$messengerLinks, 'unlink']);
+$router->post('/webhooks/max', [$messengerWebhooks, 'max']);
+$router->post('/webhooks/telegram', [$messengerWebhooks, 'telegram']);
 
 $router->get('/admin/settings/email', [$admin, 'emailSettings']);
 $router->post('/admin/settings/email', [$admin, 'saveEmailSettings']);

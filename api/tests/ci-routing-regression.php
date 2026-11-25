@@ -83,6 +83,9 @@ $expectedLot = [
     'stock-legacy-compatibility.php',
     'request-comment-notification.php',
     'email-photo-attachments.php',
+    'messenger-max.php',
+    'telegram-provider-mock.php',
+    'messenger-reliability.php',
 ];
 $expected = array_merge($expectedStock, $expectedFoundation, $expectedLot);
 sort($expected);

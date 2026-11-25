@@ -38,6 +38,8 @@ export interface NotificationSettingItem {
   title: string;
   in_app: boolean;
   email: boolean;
+  max: boolean;
+  telegram: boolean;
 }
 
 export function getNotificationSettings(): Promise<{ items: NotificationSettingItem[] }> {
