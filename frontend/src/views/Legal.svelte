@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { ApiError } from '../lib/api/client';
   import { getLegalDocument, type LegalDocument } from '../lib/api/legal';
   import { router } from '../lib/router.svelte';
@@ -17,16 +16,17 @@
   let loading = $state(true);
   let error = $state('');
 
-  onMount(() => {
-    void load();
+  // Документ должен перезагружаться при смене маршрута: компонент переиспользуется.
+  $effect(() => {
+    void load(code);
   });
 
-  async function load(): Promise<void> {
+  async function load(nextCode: string): Promise<void> {
     loading = true;
     error = '';
 
     try {
-      document = await getLegalDocument(code);
+      document = await getLegalDocument(nextCode);
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить документ';
     } finally {
