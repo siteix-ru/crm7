@@ -81,6 +81,18 @@ $cleanup = static function () use ($pdo): void {
 };
 $cleanup();
 
+// Earlier tests in the same CI job reset level_capabilities for levels 90/91/5
+// and keep only their own grants. Restore exactly the grants this test needs,
+// using the same idempotent statements as migration 089.
+$capabilitySnapshot = $pdo->query('SELECT level, capability_code FROM level_capabilities')->fetchAll();
+$pdo->exec("INSERT IGNORE INTO capabilities (code,title) VALUES ('messengers.manage','Мессенджеры: настройка')");
+$pdo->exec("INSERT IGNORE INTO level_capabilities (level,capability_code) VALUES
+    (90,'messengers.manage'), (90,'notifications.use'),
+    (50,'messengers.manage'), (50,'notifications.use'),
+    (10,'notifications.use')");
+// The negative test must keep a user without the administrative capability.
+$pdo->exec("DELETE FROM level_capabilities WHERE level=10 AND capability_code='messengers.manage'");
+
 $passwordHash = password_hash('Secret123', PASSWORD_DEFAULT);
 $pdo->exec("INSERT INTO users (ID,SID,LOGIN,PASSWORD,LEVEL,FULL_NAME,EMAIL,ACTIVE,STATUS,reg_state) VALUES
     (320,'N282-ADMIN','n282admin','$passwordHash',90,'N282 Admin','n282admin@example.test','Y','Y','active'),
@@ -215,6 +227,15 @@ $webhookController = new MessengerWebhookController(new MessengerSettingsReposit
 $bad = $webhookController->max(new Request('POST', '/webhooks/max', [], $update, [], '127.0.0.1'));
 check($bad->status === 403, 'webhook without secret is rejected', $failures);
 
+// Leave capability grants exactly as they were before this test.
+$pdo->exec('DELETE FROM level_capabilities');
+$restoreCapability = $pdo->prepare('INSERT IGNORE INTO level_capabilities (level,capability_code) VALUES (?, ?)');
+foreach ($capabilitySnapshot as $capability) {
+    $restoreCapability->execute([
+        (int) $capability['level'],
+        (string) $capability['capability_code'],
+    ]);
+}
 $cleanup();
 
 if ($failures !== []) {
