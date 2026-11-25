@@ -144,7 +144,7 @@
       <LazyView load={views.chat} />
     {:else if route === '/stocks'}
       <LazyView load={views.stocks} />
-    {:else if route === '/stock-lots' && (!appSettings.stockEditEnabled || !(auth.can('stocks.edit') || auth.can('stocks.view') || auth.can('stocks.import') || auth.can('stocks.delete') || auth.can('stocks.warehouses.view_all')))}
+    {:else if route === '/stock-lots' && (!appSettings.lotsEnabled || !auth.can('stocks.lots.view'))}
       <NotFound />
     {:else if route === '/stock-lots'}
       <LazyView load={views.stockLots} />

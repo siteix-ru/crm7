@@ -46,6 +46,7 @@ final class AppSettingsController extends ApiController
             'staff_enabled' => $this->settings->staffEnabled(),
             'registration_enabled' => $this->settings->registrationEnabled(),
             'stock_edit_enabled' => $this->settings->stockEditEnabled(),
+            'lots_enabled' => $this->settings->moduleEnabled('module.stock_lots'),
             'mail_enabled' => $this->settings->mailEnabled(),
             'cart_enabled' => $this->settings->cartEnabled(),
             'substitutions_enabled' => $this->settings->substitutionsEnabled(),
