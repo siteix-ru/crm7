@@ -206,7 +206,7 @@
       <NotFound />
     {:else if route === '/notifications'}
       <LazyView load={views.notifications} />
-    {:else if isSettingsRoute && !auth.can('settings.manage') && !auth.can('mail.manage') && !auth.can('mail.send')}
+    {:else if isSettingsRoute && !auth.can('settings.manage') && !auth.can('mail.manage') && !auth.can('mail.send') && !auth.can('messengers.manage')}
       <NotFound />
     {:else if isSettingsRoute}
       <LazyView load={views.settings} />

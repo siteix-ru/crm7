@@ -141,7 +141,7 @@ $cleanup = static function () use ($pdo): void {
     $pdo->exec('DELETE FROM request_history WHERE request_id IN (SELECT ID FROM requests WHERE number LIKE \'N281-%\')');
     $pdo->exec('DELETE FROM notification_settings WHERE user_id IN (310,311,312)');
     $pdo->exec("DELETE FROM email_queue WHERE to_email IN (
-        'n281manager@example.test','n281client@example.test','n281actor@example.test')");
+        'n281manager@example.test','n281client@example.test','n281actor@example.test','legacy@example.test')");
     $pdo->exec('DELETE FROM requests WHERE number LIKE \'N281-%\'');
     $pdo->exec('DELETE FROM users WHERE SID LIKE \'N281-%\' OR ID IN (310,311,312)');
 };
@@ -159,6 +159,11 @@ $removeStorage = static function () use ($storage): void {
     @rmdir($storage);
 };
 $cleanup();
+
+// Foreign row used as a guard: this test must never delete or claim other
+// fixtures in the shared disposable database.
+$foreignEmail = 'foreign-owner@example.test';
+$pdo->exec("INSERT INTO email_queue (to_email,subject,body) VALUES ('$foreignEmail','foreign','body')");
 
 $settings = new SettingsRepository();
 $mailOriginal = [];
@@ -400,19 +405,30 @@ $queueId = (int) $pdo->query(
     "SELECT ID FROM email_queue WHERE to_email='n281manager@example.test' AND subject LIKE '%Фото%' ORDER BY ID DESC LIMIT 1"
 )->fetchColumn();
 check($queueId > 0, 'photo queue row found', $failures);
-$pdo->exec("DELETE FROM email_queue WHERE ID <> $queueId");
-$pdo->exec("UPDATE email_queue SET status='pending', claim_token=NULL, claimed_at=NULL WHERE ID=$queueId");
+// Isolate the retry scenario without deleting other fixtures: mark only this
+// test's own rows as sent and make the target the oldest pending row.
+$pdo->exec("UPDATE email_queue SET status='sent'
+            WHERE to_email IN ('n281manager@example.test','n281client@example.test','n281actor@example.test')
+              AND ID <> $queueId");
+$pdo->exec("UPDATE email_queue SET status='pending', claim_token=NULL, claimed_at=NULL,
+            created_at='2000-01-01 00:00:00' WHERE ID=$queueId");
 $first = $repo->claim(1);
+check(count($first) === 1 && (int) ($first[0]['id'] ?? 0) === $queueId,
+    'claim(1) claims only the isolated retry row', $failures);
 $payloadFirst = (string) ($first[0]['attachments_json'] ?? '');
-$pdo->exec("UPDATE email_queue SET status='pending', claim_token=NULL, claimed_at=NULL WHERE ID=$queueId");
+$pdo->exec("UPDATE email_queue SET status='pending', claim_token=NULL, claimed_at=NULL,
+            created_at='2000-01-01 00:00:00' WHERE ID=$queueId");
 $second = $repo->claim(1);
+check(count($second) === 1 && (int) ($second[0]['id'] ?? 0) === $queueId,
+    're-claim still claims only the isolated retry row', $failures);
 $payloadSecond = (string) ($second[0]['attachments_json'] ?? '');
 check($payloadFirst !== '' && $payloadFirst === $payloadSecond,
     'queue retry reuses an identical attachment payload', $failures);
 check(count($decode($payloadSecond)) === 1, 'queue retry does not duplicate attachments', $failures);
 
-$pdo->exec("INSERT INTO email_queue (to_email,subject,body) VALUES ('legacy@example.test','legacy','body')");
-$legacyRow = $repo->claim(50);
+$pdo->exec("INSERT INTO email_queue (to_email,subject,body,created_at)
+            VALUES ('legacy@example.test','legacy','body','1999-01-01 00:00:00')");
+$legacyRow = $repo->claim(1);
 $legacyFound = false;
 foreach ($legacyRow as $item) {
     if (($item['to_email'] ?? '') === 'legacy@example.test') {
@@ -420,6 +436,10 @@ foreach ($legacyRow as $item) {
     }
 }
 check($legacyFound, 'old queue rows without attachments_json are claimed with NULL', $failures);
+$foreignStmt = $pdo->prepare('SELECT COUNT(*) FROM email_queue WHERE to_email=?');
+$foreignStmt->execute([$foreignEmail]);
+check((int) $foreignStmt->fetchColumn() === 1,
+    'retry isolation does not delete a foreign queue row', $failures);
 $decodeLegacy = (new ReflectionMethod(MailService::class, 'decodeAttachments'))->invoke(new MailService(), null);
 check($decodeLegacy === [], 'NULL payload decodes to no attachments', $failures);
 check((new ReflectionMethod(MailService::class, 'decodeAttachments'))->invoke(new MailService(), '') === [],
@@ -494,6 +514,11 @@ foreach ($mailOriginal as $key => $value) {
         $settings->set($key, $value);
     }
 }
+$foreignStmt->execute([$foreignEmail]);
+check((int) $foreignStmt->fetchColumn() === 1,
+    'foreign queue row survives the whole test', $failures);
+$pdo->exec("DELETE FROM email_queue WHERE to_email='$foreignEmail'");
+
 ini_restore('error_log');
 putenv('STORAGE_DIR');
 $cleanup();

@@ -25,6 +25,15 @@
     sendScheduleNow
   } from '../lib/api/schedules';
   import { listManagers } from '../lib/api/requests';
+  import {
+    checkMessengerChannel,
+    deleteMessengerToken,
+    listMessengerChannels,
+    registerMessengerWebhook,
+    saveMessengerChannel,
+    type MessengerChannelSettings,
+    type MessengerCheckResult
+  } from '../lib/api/messengers';
   import { applyUpdate, checkUpdates, getUpdateStatus } from '../lib/api/updates';
   import type { UpdateCheck, UpdateState, UpdateStatus } from '../lib/api/updates';
   import type {
@@ -103,7 +112,7 @@
   let scheduleExtra = $state('');
   let scheduleActive = $state(true);
 
-  type SettingsTab = 'general' | 'modules' | 'mail' | 'docs' | 'database' | 'updates';
+  type SettingsTab = 'general' | 'modules' | 'mail' | 'messengers' | 'docs' | 'database' | 'updates';
 
   type MailTab = 'smtp' | 'templates' | 'schedules' | 'queue';
 
@@ -111,6 +120,7 @@
     { code: 'general', title: 'Общие', icon: 'settings' },
     { code: 'modules', title: 'Модули', icon: 'types' },
     { code: 'mail', title: 'Почта', icon: 'mail' },
+    { code: 'messengers', title: 'Мессенджеры', icon: 'send' },
     { code: 'docs', title: 'Документы', icon: 'requests' },
     { code: 'database', title: 'База данных', icon: 'database' },
     { code: 'updates', title: 'Обновления', icon: 'refresh' }
@@ -141,6 +151,13 @@
   const canManageTech = $derived(auth.can('roles.manage'));
   const canManageMail = $derived(auth.can('mail.manage'));
   const canManageMailSend = $derived(auth.can('mail.send'));
+  const canManageMessengers = $derived(auth.can('messengers.manage'));
+
+  let messengerChannels = $state<MessengerChannelSettings[]>([]);
+  let messengerTokens = $state<Record<string, string>>({ max: '', telegram: '' });
+  let messengerWebhookUrls = $state<Record<string, string>>({ max: '', telegram: '' });
+  let messengerChecks = $state<Record<string, MessengerCheckResult | undefined>>({});
+  let messengerNotice = $state('');
 
   const visibleMailTabs = $derived(
     mailTabs.filter((item) => (item.code === 'smtp' ? canManageMail : canManageMailSend))
@@ -154,6 +171,10 @@
 
       if (item.code === 'mail') {
         return mailEnabled && (canManageMail || canManageMailSend);
+      }
+
+      if (item.code === 'messengers') {
+        return canManageMessengers;
       }
 
       return canManageSettings;
@@ -395,6 +416,10 @@
       }
 
       managers = (await listManagers()).items;
+
+      if (canManageMessengers) {
+        messengerChannels = (await listMessengerChannels()).items;
+      }
 
       if (mailEnabled && canSmtp) {
         settings = await getEmailSettings();
@@ -771,6 +796,69 @@ async function saveSettings(): Promise<void> {
       busy = false;
     }
   }
+
+  async function refreshMessengers(): Promise<void> {
+    messengerChannels = (await listMessengerChannels()).items;
+  }
+
+  async function saveMessenger(channel: string): Promise<void> {
+    busy = true;
+    messengerNotice = '';
+    error = '';
+    try {
+      const item = messengerChannels.find((entry) => entry.channel === channel);
+      messengerChannels = (await saveMessengerChannel(channel, item?.enabled ?? false, messengerTokens[channel] ?? '')).items;
+      messengerTokens = { ...messengerTokens, [channel]: '' };
+      messengerNotice = 'Настройки мессенджера сохранены';
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : 'Не удалось сохранить настройки';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function checkMessenger(channel: string): Promise<void> {
+    busy = true;
+    error = '';
+    try {
+      const result = await checkMessengerChannel(channel);
+      messengerChecks = { ...messengerChecks, [channel]: result };
+      await refreshMessengers();
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : 'Проверка не выполнена';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function removeMessengerToken(channel: string): Promise<void> {
+    if (!window.confirm('Удалить сохранённый токен? Канал будет отключён.')) {
+      return;
+    }
+    busy = true;
+    error = '';
+    try {
+      messengerChannels = (await deleteMessengerToken(channel)).items;
+      messengerNotice = 'Токен удалён';
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : 'Не удалось удалить токен';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function registerWebhook(channel: string): Promise<void> {
+    busy = true;
+    error = '';
+    try {
+      const result = await registerMessengerWebhook(channel, messengerWebhookUrls[channel] ?? '');
+      messengerNotice = result.registered ? 'Webhook зарегистрирован' : 'Не удалось зарегистрировать webhook';
+    } catch (cause) {
+      error = cause instanceof ApiError ? cause.message : 'Не удалось зарегистрировать webhook';
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <section class="page page-wide page-full">
@@ -1042,6 +1130,46 @@ async function saveSettings(): Promise<void> {
           {/if}
         {/if}
       </div>
+    {/if}
+
+    {#if tab === 'messengers'}
+      {#if messengerNotice}<p class="hint">{messengerNotice}</p>{/if}
+      {#each messengerChannels as channel (channel.channel)}
+        <div class="card">
+          <h2>{channel.channel === 'max' ? 'MAX' : 'Telegram'}</h2>
+          <p class="hint">
+            Токен: {channel.has_token ? `сохранён ${channel.token_masked}` : 'не сохранён'}.
+            Статус: {channel.last_check_status === 'ok' ? 'подключено' : channel.last_check_status === 'error' ? 'ошибка' : 'не проверялось'}.
+            {#if channel.bot_name}Бот: {channel.bot_name} ({channel.bot_id ?? ''}).{/if}
+            {#if channel.last_check_error}Ошибка: {channel.last_check_error}.{/if}
+            {#if channel.last_check_at}Проверено: {formatDateTime(channel.last_check_at)}.{/if}
+          </p>
+          <label class="checkbox">
+            <input type="checkbox" bind:checked={channel.enabled} /> Включить канал
+          </label>
+          <div class="grid">
+            <label class="field">
+              <span class="label">Новый токен (оставьте пустым, чтобы не менять)</span>
+              <Input type="password" bind:value={messengerTokens[channel.channel]} />
+            </label>
+            <label class="field">
+              <span class="label">HTTPS URL webhook</span>
+              <Input bind:value={messengerWebhookUrls[channel.channel]} placeholder="https://example.com/webhooks/..." />
+            </label>
+          </div>
+          <div class="actions">
+            <Button loading={busy} onclick={() => void saveMessenger(channel.channel)}>Сохранить</Button>
+            <Button variant="ghost" loading={busy} onclick={() => void checkMessenger(channel.channel)}>Проверить соединение</Button>
+            <Button variant="ghost" loading={busy} onclick={() => void registerWebhook(channel.channel)}>Установить webhook</Button>
+            {#if channel.has_token}
+              <Button variant="danger" loading={busy} onclick={() => void removeMessengerToken(channel.channel)}>Удалить токен</Button>
+            {/if}
+          </div>
+          {#if messengerChecks[channel.channel]}
+            <p class="hint">{messengerChecks[channel.channel]?.message ?? ''}</p>
+          {/if}
+        </div>
+      {/each}
     {/if}
 
     {#if tab === 'mail' && mailTab === 'smtp' && settings}

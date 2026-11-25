@@ -17,6 +17,8 @@ date_default_timezone_set((string) Config::get('APP_TIMEZONE', 'Europe/Moscow'))
 $mail = new MailService();
 $queue = $mail->processQueue(50);
 
+$messengerQueue = (new \App\Messaging\MessengerQueueService())->processQueue(50);
+
 $reports = new ReportsService();
 $schedules = $reports->processDueSchedules();
 
@@ -30,6 +32,7 @@ $stuckJobs = (new StocksRepository())->failStuckJobs();
 
 echo date('Y-m-d H:i:s')
     . ' email queue: ' . json_encode($queue, JSON_UNESCAPED_UNICODE)
+    . ' messenger queue: ' . json_encode($messengerQueue, JSON_UNESCAPED_UNICODE)
     . ' report schedules: ' . json_encode($schedules, JSON_UNESCAPED_UNICODE)
     . ' substitutions: ' . json_encode($endedSubstitutions, JSON_UNESCAPED_UNICODE)
     . ' client transfers: ' . json_encode($clientTransfers, JSON_UNESCAPED_UNICODE)
