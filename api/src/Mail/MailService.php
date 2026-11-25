@@ -56,6 +56,12 @@ final class MailService
         ];
     }
 
+    /** Cheap gate for callers that would otherwise do work before enqueueing. */
+    public function mailEnabled(): bool
+    {
+        return $this->settings->mailConfigured();
+    }
+
     public function publicSettings(): array
     {
         $config = $this->config();
@@ -160,16 +166,25 @@ final class MailService
         return ['sent' => true];
     }
 
-    public function enqueue(string $to, string $subject, string $body): void
-    {
+    public function enqueue(
+        string $to,
+        string $subject,
+        string $body,
+        ?string $attachmentsJson = null
+    ): void {
         if (!$this->config()['enabled'] || filter_var($to, FILTER_VALIDATE_EMAIL) === false) {
             return;
         }
 
-        $this->queue->add($to, $subject, $body);
+        $this->queue->add($to, $subject, $body, $attachmentsJson);
     }
 
-    public function notifyEmail(?int $userId, ?string $templateCode, array $vars): void
+    public function notifyEmail(
+        ?int $userId,
+        ?string $templateCode,
+        array $vars,
+        ?string $attachmentsJson = null
+    ): void
     {
         if ($userId === null || $templateCode === null) {
             return;
@@ -187,7 +202,7 @@ final class MailService
         }
 
         $rendered = $this->render($templateCode, $vars);
-        $this->enqueue($email, $rendered['subject'], $rendered['body']);
+        $this->enqueue($email, $rendered['subject'], $rendered['body'], $attachmentsJson);
     }
 
     public function render(string $code, array $vars): array
@@ -257,7 +272,8 @@ final class MailService
                     $config['from_name'],
                     (string) $item['to_email'],
                     (string) $item['subject'],
-                    (string) $item['body']
+                    (string) $item['body'],
+                    $this->decodeAttachments($item['attachments_json'] ?? null)
                 );
                 $this->queue->markSent((int) $item['id']);
                 $sent++;
@@ -269,6 +285,40 @@ final class MailService
         }
 
         return ['sent' => $sent, 'failed' => $failed, 'released' => $released, 'errors' => $errors];
+    }
+
+    /**
+     * Decode the queue attachment payload into the list expected by SmtpMailer.
+     * The payload is produced internally when the email is queued; a corrupt or
+     * empty payload simply yields no attachments and never fails the whole send.
+     */
+    private function decodeAttachments(mixed $json): array
+    {
+        if (!is_string($json) || $json === '') {
+            return [];
+        }
+
+        $decoded = json_decode($json, true);
+        if (!is_array($decoded)) {
+            return [];
+        }
+
+        $attachments = [];
+        foreach ($decoded as $attachment) {
+            if (!is_array($attachment)) {
+                continue;
+            }
+            $name = (string) ($attachment['file_name'] ?? '');
+            $encoded = (string) ($attachment['content'] ?? '');
+            $mime = (string) ($attachment['mime'] ?? '');
+            $content = $encoded !== '' ? base64_decode($encoded, true) : false;
+            if ($name === '' || $content === false || $content === '' || $mime === '') {
+                continue;
+            }
+            $attachments[] = ['file_name' => $name, 'content' => $content, 'mime' => $mime];
+        }
+
+        return $attachments;
     }
 
     public function sendAttachment(

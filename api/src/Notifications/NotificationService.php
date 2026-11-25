@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Notifications;
 
+use App\Attachments\EmailPhotoResolver;
+use App\Attachments\EmailPhotoResolverInterface;
 use App\Core\Config;
 use App\Mail\MailService;
 use App\Repositories\NotificationRepository;
@@ -15,6 +17,7 @@ final class NotificationService
         'request.claim' => 'Заявка взята в работу',
         'request.status' => 'Смена статуса заявки',
         'request.comment' => 'Комментарий к заявке',
+        'request.photo' => 'Фото добавлено к заявке',
         'request.assigned' => 'Назначение исполнителя',
         'request.transferred' => 'Передача заявки',
         'chat.message' => 'Сообщение в чате',
@@ -30,6 +33,7 @@ final class NotificationService
         'request.claim' => 'request_claim',
         'request.status' => 'request_status',
         'request.comment' => 'request_comment',
+        'request.photo' => 'request_photo',
         'request.assigned' => 'request_assigned',
         'request.transferred' => 'request_transferred',
         'request.assign' => 'request_assign',
@@ -41,7 +45,8 @@ final class NotificationService
 
     public function __construct(
         private readonly NotificationRepository $repo = new NotificationRepository(),
-        private readonly MailService $mail = new MailService()
+        private readonly MailService $mail = new MailService(),
+        private readonly ?EmailPhotoResolverInterface $photos = null
     ) {
     }
 
@@ -51,7 +56,8 @@ final class NotificationService
         string $title,
         ?string $body = null,
         ?int $requestId = null,
-        array $emailVars = []
+        array $emailVars = [],
+        ?string $preparedAttachments = null
     ): void {
         if ($userId <= 0) {
             return;
@@ -85,11 +91,39 @@ final class NotificationService
             ? rtrim((string) Config::get('APP_URL', ''), '/') . '/#/requests/' . $requestId
             : '';
 
-        $this->mail->notifyEmail($userId, $template, array_merge([
-            'title' => $title,
-            'body' => (string) ($body ?? ''),
-            'link' => $link,
-        ], $emailVars));
+        // Photo IDs are an internal channel hint, never an email placeholder.
+        $photoIds = $emailVars['_photo_ids'] ?? [];
+        unset($emailVars['_photo_ids']);
+
+        // '' means "prepared, no attachments" — never re-resolve for this call.
+        $json = $preparedAttachments ?? $this->prepareAttachments(
+            (int) ($requestId ?? 0),
+            is_array($photoIds) ? $photoIds : []
+        );
+
+        $this->mail->notifyEmail(
+            $userId,
+            $template,
+            array_merge([
+                'title' => $title,
+                'body' => (string) ($body ?? ''),
+                'link' => $link,
+            ], $emailVars),
+            $json !== '' ? $json : null
+        );
+    }
+
+    /**
+     * Resolve attachments once for the whole event. Without explicit IDs there
+     * are no attachments at all, and file I/O is skipped when mail is disabled.
+     */
+    private function prepareAttachments(int $requestId, array $photoIds): string
+    {
+        if ($requestId <= 0 || $photoIds === [] || !$this->mail->mailEnabled()) {
+            return '';
+        }
+
+        return ($this->photos ?? new EmailPhotoResolver())->resolve($requestId, $photoIds);
     }
 
     public function notifyParticipants(
@@ -107,12 +141,20 @@ final class NotificationService
             ? (int) $request['manager_id']
             : null;
 
+        $photoIds = $emailVars['_photo_ids'] ?? [];
+        unset($emailVars['_photo_ids']);
+
+        // Prepare the payload once per event and reuse it for every recipient.
+        $prepared = isset(self::EMAIL_TEMPLATES[$type])
+            ? $this->prepareAttachments($requestId, is_array($photoIds) ? $photoIds : [])
+            : '';
+
         if ($notifyClient && $clientId > 0 && $clientId !== $actorId) {
-            $this->notify($clientId, $type, $title, $body, $requestId, $emailVars);
+            $this->notify($clientId, $type, $title, $body, $requestId, $emailVars, $prepared);
         }
 
         if ($managerId !== null && $managerId !== $actorId) {
-            $this->notify($managerId, $type, $title, $body, $requestId, $emailVars);
+            $this->notify($managerId, $type, $title, $body, $requestId, $emailVars, $prepared);
         }
     }
 

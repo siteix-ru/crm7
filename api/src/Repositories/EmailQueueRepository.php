@@ -8,14 +8,18 @@ use App\Core\Database;
 
 final class EmailQueueRepository
 {
-    public function add(string $toEmail, string $subject, string $body): int
-    {
+    public function add(
+        string $toEmail,
+        string $subject,
+        string $body,
+        ?string $attachmentsJson = null
+    ): int {
         $pdo = Database::pdo();
 
         $stmt = $pdo->prepare(
-            'INSERT INTO email_queue (to_email, subject, body) VALUES (?, ?, ?)'
+            'INSERT INTO email_queue (to_email, subject, body, attachments_json) VALUES (?, ?, ?, ?)'
         );
-        $stmt->execute([$toEmail, $subject, $body]);
+        $stmt->execute([$toEmail, $subject, $body, $attachmentsJson]);
 
         return (int) $pdo->lastInsertId();
     }
@@ -34,7 +38,7 @@ final class EmailQueueRepository
         $stmt->execute([$token]);
 
         $stmt = Database::pdo()->prepare(
-            'SELECT ID AS id, to_email, subject, body, attempts
+            'SELECT ID AS id, to_email, subject, body, attempts, attachments_json
              FROM email_queue
              WHERE status = \'processing\' AND claim_token = ?'
         );

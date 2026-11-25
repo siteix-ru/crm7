@@ -7,6 +7,7 @@ namespace App\Attachments;
 use App\Core\Database;
 use App\Core\RateLimiter;
 use App\Http\HttpException;
+use App\Notifications\NotificationService;
 use Throwable;
 use App\Repositories\AttachmentRepository;
 use App\Repositories\RequestActivityRepository;
@@ -17,6 +18,9 @@ use App\Support\Storage;
 final class AttachmentService
 {
     public const MAX_SIZE = 10485760;
+
+    /** Image types that qualify for a request.photo notification. */
+    public const PHOTO_MIMES = ['image/jpeg', 'image/png', 'image/webp'];
 
     public const ALLOWED_EXTENSIONS = [
         'jpg', 'jpeg', 'png', 'webp', 'pdf', 'xls', 'xlsx', 'doc', 'docx', 'txt', 'zip', 'rar',
@@ -64,7 +68,8 @@ final class AttachmentService
         private readonly AttachmentRepository $attachments = new AttachmentRepository(),
         private readonly RequestRepository $requests = new RequestRepository(),
         private readonly RequestService $requestService = new RequestService(),
-        private readonly RequestActivityRepository $activities = new RequestActivityRepository()
+        private readonly RequestActivityRepository $activities = new RequestActivityRepository(),
+        private readonly NotificationService $notifications = new NotificationService()
     ) {
     }
 
@@ -185,7 +190,59 @@ final class AttachmentService
             throw $exception;
         }
 
+        // Best-effort notification after commit: file I/O and base64 work stay
+        // outside the transaction and advisory lock. Public photos only.
+        if (!$isInternal && in_array($mime, self::PHOTO_MIMES, true)) {
+            $this->notifyPhotoAdded(
+                $request,
+                (int) $user['ID'],
+                $attachmentId,
+                $originalName,
+                $isInternal,
+                $comment
+            );
+        }
+
         return $this->list($user, $capabilities, $requestId);
+    }
+
+    /**
+     * Emit exactly one photo event with the ID of the file just uploaded.
+     * Called after commit: a notification failure must never invalidate an
+     * already persisted upload, so this method never throws.
+     */
+    public function notifyPhotoAdded(
+        array $request,
+        int $actorId,
+        int $attachmentId,
+        string $fileName,
+        bool $isInternal = false,
+        ?string $body = null
+    ): void {
+        // Internal files never leave the team by email.
+        if ($isInternal || $attachmentId <= 0) {
+            return;
+        }
+
+        try {
+            $this->notifications->notifyParticipants(
+                $request,
+                $actorId,
+                'request.photo',
+                'Заявка ' . (string) ($request['number'] ?? '') . ': добавлено фото',
+                $body,
+                [
+                    '_photo_ids' => [$attachmentId],
+                    'request_number' => (string) ($request['number'] ?? ''),
+                    'file_name' => mb_substr($fileName, 0, 200),
+                ],
+                true
+            );
+        } catch (Throwable $exception) {
+            // Log a fixed code only: the exception may carry storage paths,
+            // file contents or SMTP secrets. The upload itself stays committed.
+            error_log('CRM7: photo notification failed after upload');
+        }
     }
 
     public function download(array $user, array $capabilities, int $attachmentId): array
