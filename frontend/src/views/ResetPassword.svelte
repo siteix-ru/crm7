@@ -95,7 +95,7 @@
   }
 
   h1 {
-    font-size: 20px;
+    font-size: var(--font-xl);
   }
 
   form {

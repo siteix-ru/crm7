@@ -73,7 +73,7 @@
 
 <span class="wrap" class:with-icon={icon}>
   {#if icon}
-    <span class="lead"><Icon name="search" size={14} /></span>
+    <span class="lead"><Icon name="search" size={16} /></span>
   {/if}
   <input
     type="search"

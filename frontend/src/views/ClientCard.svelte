@@ -2948,7 +2948,7 @@
 
   h1 {
     margin: 0;
-    font-size: 20px;
+    font-size: var(--font-xl);
     font-weight: 600;
     line-height: 1.4;
     color: var(--text);
@@ -3021,7 +3021,7 @@
   .hero h1 {
     margin: 0;
     min-width: 0;
-    font-size: 20px;
+    font-size: var(--font-xl);
     font-weight: 600;
     line-height: 1.4;
     overflow-wrap: anywhere;
