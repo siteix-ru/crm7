@@ -20,6 +20,5 @@ api/storage
 api/db/backups
 **/*.log
 db-old
-site-old
 back
 php_info

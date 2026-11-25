@@ -3291,7 +3291,7 @@ final class StocksService
 
     private function readSpreadsheet(string $path): array
     {
-        $vendor = (string) Config::get('LEGACY_VENDOR', dirname(__DIR__, 3) . '/site-old/back/vendor/autoload.php');
+        $vendor = (string) Config::get('LEGACY_VENDOR', '');
 
         if (is_file($vendor)) {
             require_once $vendor;

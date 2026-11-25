@@ -160,7 +160,7 @@ final class TableExport
 
     private static function newSpreadsheet(): \PhpOffice\PhpSpreadsheet\Spreadsheet
     {
-        $vendor = (string) Config::get('LEGACY_VENDOR', dirname(__DIR__, 3) . '/site-old/back/vendor/autoload.php');
+        $vendor = (string) Config::get('LEGACY_VENDOR', '');
 
         if (!is_file($vendor)) {
             throw new HttpException(422, 'excel_unavailable', 'Excel недоступен: библиотека не найдена, выберите CSV, TXT или PDF');
@@ -266,7 +266,7 @@ final class TableExport
 
     private static function buildSpreadsheet(array $sections, array $meta, string $writerType): string
     {
-        $vendor = (string) Config::get('LEGACY_VENDOR', dirname(__DIR__, 3) . '/site-old/back/vendor/autoload.php');
+        $vendor = (string) Config::get('LEGACY_VENDOR', '');
 
         if (!is_file($vendor)) {
             throw new HttpException(422, 'excel_unavailable', 'Excel недоступен: библиотека не найдена, выберите CSV, TXT или PDF');
