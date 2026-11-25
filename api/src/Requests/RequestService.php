@@ -1864,6 +1864,19 @@ final class RequestService
             && (bool) ($input['is_internal'] ?? true);
         $this->comments->add($id, (int) $user['ID'], $body, $isInternal);
 
+        // request.comment already has an EVENTS entry, an email template and
+        // per-user toggles, but no notification was ever emitted. Internal
+        // comments stay inside the team: the client is not notified.
+        $this->notifications->notifyParticipants(
+            $request,
+            (int) $user['ID'],
+            'request.comment',
+            'Комментарий к заявке ' . (string) $request['number'],
+            $body,
+            [],
+            !$isInternal
+        );
+
         return $this->detail($user, $capabilities, $id);
     }
 
