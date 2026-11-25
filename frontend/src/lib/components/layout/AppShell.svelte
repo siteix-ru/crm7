@@ -82,14 +82,7 @@
 
   const showAudit = $derived(auth.can('audit.view'));
 
-  const showStockLots = $derived(
-    appSettings.stockEditEnabled &&
-      (auth.can('stocks.edit') ||
-        auth.can('stocks.view') ||
-        auth.can('stocks.import') ||
-        auth.can('stocks.delete') ||
-        auth.can('stocks.warehouses.view_all'))
-  );
+  const showStockLots = $derived(appSettings.lotsEnabled && auth.can('stocks.lots.view'));
 
   const canViewReports = $derived(auth.can('reports.view.all') || auth.can('reports.view.own'));
 

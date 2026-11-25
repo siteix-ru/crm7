@@ -19,6 +19,7 @@ interface AppSettingsResponse {
   staff_enabled: boolean;
   registration_enabled: boolean;
   stock_edit_enabled: boolean;
+  lots_enabled: boolean;
   cart_enabled: boolean;
   substitutions_enabled: boolean;
   manager_assign_enabled: boolean;
@@ -66,6 +67,8 @@ class AppSettingsStore {
   registrationEnabled = $state(true);
 
   stockEditEnabled = $state(true);
+
+  lotsEnabled = $state(true);
 
   cartEnabled = $state(true);
 
@@ -145,6 +148,7 @@ class AppSettingsStore {
       this.staffEnabled = data.staff_enabled !== false;
       this.registrationEnabled = data.registration_enabled !== false;
       this.stockEditEnabled = data.stock_edit_enabled !== false;
+      this.lotsEnabled = data.lots_enabled !== false;
       this.cartEnabled = this.requestsEnabled;
       this.substitutionsEnabled = data.substitutions_enabled !== false;
       this.managerAssignEnabled = data.manager_assign_enabled !== false;
@@ -223,6 +227,7 @@ class AppSettingsStore {
     this.staffEnabled = true;
     this.registrationEnabled = true;
     this.stockEditEnabled = true;
+    this.lotsEnabled = true;
     this.cartEnabled = true;
     this.substitutionsEnabled = true;
     this.managerAssignEnabled = true;
