@@ -124,7 +124,7 @@ $links = new MessengerLinkRepository();
 
 // 1. Token is encrypted at rest and never returned by the API.
 $secretToken = 'max-token-' . bin2hex(random_bytes(6));
-$response = $controller->save($request('PUT', ['enabled' => true, 'token' => $secretToken]), 'max');
+$response = $controller->save($request('PUT', ['enabled' => true, 'token' => $secretToken]), ['channel' => 'max']);
 check($response->status === 200, 'token save succeeds', $failures);
 $raw = (string) $pdo->query("SELECT token_encrypted FROM messenger_channels WHERE channel='max'")->fetchColumn();
 check($raw !== '' && $raw !== $secretToken && Crypto::decrypt($raw) === $secretToken,
@@ -134,18 +134,18 @@ check(strpos((string) $listing, $secretToken) === false && strpos((string) $list
     'admin API does not expose the token', $failures);
 
 // 2. Empty replacement field keeps the token; explicit replace changes it.
-$controller->save($request('PUT', ['enabled' => true, 'token' => '']), 'max');
+$controller->save($request('PUT', ['enabled' => true, 'token' => '']), ['channel' => 'max']);
 check(Crypto::decrypt((string) $pdo->query("SELECT token_encrypted FROM messenger_channels WHERE channel='max'")->fetchColumn()) === $secretToken,
     'empty token field does not erase the stored token', $failures);
 $newToken = 'max-token-replaced-' . bin2hex(random_bytes(6));
-$controller->save($request('PUT', ['enabled' => true, 'token' => $newToken]), 'max');
+$controller->save($request('PUT', ['enabled' => true, 'token' => $newToken]), ['channel' => 'max']);
 check(Crypto::decrypt((string) $pdo->query("SELECT token_encrypted FROM messenger_channels WHERE channel='max'")->fetchColumn()) === $newToken,
     'token replacement works', $failures);
 
 // 3. Permissions.
 $denied = false;
 try {
-    $controller->save($request('PUT', ['enabled' => true, 'token' => 'x'], $managerToken), 'max');
+    $controller->save($request('PUT', ['enabled' => true, 'token' => 'x'], $managerToken), ['channel' => 'max']);
 } catch (App\Http\HttpException $e) {
     $denied = $e->status === 403;
 }
@@ -222,7 +222,7 @@ check((int) $pdo->query("SELECT COUNT(*) FROM email_queue WHERE channel='email'"
 
 // 8. Token deletion.
 $pdo->exec("UPDATE messenger_channels SET enabled=1 WHERE channel='max'");
-$removed = $controller->deleteToken($request('DELETE', ['confirm' => true]), 'max');
+$removed = $controller->deleteToken($request('DELETE', ['confirm' => true]), ['channel' => 'max']);
 check($removed->status === 200, 'token deletion succeeds', $failures);
 check($pdo->query("SELECT token_encrypted FROM messenger_channels WHERE channel='max'")->fetchColumn() === null,
     'deleted token is removed from storage', $failures);

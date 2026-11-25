@@ -26,10 +26,10 @@ final class AdminMessengerController extends ApiController
         return Response::ok($this->settings->list());
     }
 
-    public function save(Request $request, string $channel): Response
+    public function save(Request $request, array $params): Response
     {
         $user = $this->requireManage($request);
-        $this->assertChannel($channel);
+        $channel = $this->channel($params);
 
         $enabled = filter_var($request->input('enabled', false), FILTER_VALIDATE_BOOL);
         $token = $request->input('token', null);
@@ -46,10 +46,10 @@ final class AdminMessengerController extends ApiController
         return Response::ok($this->settings->list());
     }
 
-    public function check(Request $request, string $channel): Response
+    public function check(Request $request, array $params): Response
     {
         $user = $this->requireManage($request);
-        $this->assertChannel($channel);
+        $channel = $this->channel($params);
 
         $status = $this->settings->check($channel);
         $this->audit($request, $user, 'settings.messenger.checked', 'messenger', $channel, [
@@ -60,10 +60,10 @@ final class AdminMessengerController extends ApiController
         return Response::ok($status?->toArray() ?? ['connected' => false, 'error_code' => 'unknown_channel']);
     }
 
-    public function deleteToken(Request $request, string $channel): Response
+    public function deleteToken(Request $request, array $params): Response
     {
         $user = $this->requireManage($request);
-        $this->assertChannel($channel);
+        $channel = $this->channel($params);
         $confirm = filter_var($request->input('confirm', false), FILTER_VALIDATE_BOOL);
         if (!$confirm) {
             throw new HttpException(422, 'confirmation_required', 'Требуется подтверждение удаления');
@@ -75,10 +75,10 @@ final class AdminMessengerController extends ApiController
         return Response::ok($this->settings->list());
     }
 
-    public function setupWebhook(Request $request, string $channel): Response
+    public function setupWebhook(Request $request, array $params): Response
     {
         $user = $this->requireManage($request);
-        $this->assertChannel($channel);
+        $channel = $this->channel($params);
 
         $url = trim((string) $request->input('url', ''));
         if (!str_starts_with($url, 'https://')) {
@@ -108,10 +108,14 @@ final class AdminMessengerController extends ApiController
         return $user;
     }
 
-    private function assertChannel(string $channel): void
+    /** Router passes route parameters as an array; validate before use. */
+    private function channel(array $params): string
     {
-        if (!in_array($channel, ['max', 'telegram'], true)) {
+        $channel = $params['channel'] ?? null;
+        if (!is_string($channel) || !in_array($channel, ['max', 'telegram'], true)) {
             throw new HttpException(404, 'not_found', 'Неизвестный канал');
         }
+
+        return $channel;
     }
 }
