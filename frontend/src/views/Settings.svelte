@@ -1660,11 +1660,19 @@ async function saveSettings(): Promise<void> {
 
     .settings-sidebar {
       position: static;
-      max-height: none;
+      max-height: 220px;
+      overflow-y: auto;
     }
 
     .settings-main {
       max-width: none;
+    }
+  }
+
+  /* На телефоне длинный список разделов не должен вытеснять форму за первый экран. */
+  @media (max-width: 720px) {
+    .settings-sidebar {
+      max-height: 168px;
     }
   }
 

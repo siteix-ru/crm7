@@ -27,6 +27,7 @@
   --warning: #faad14;
   --warning-bg: #fffbe6;
   --warning-text: #a86300;
+  --radius-xs: 4px;
   --radius-sm: 6px;
   --radius-md: 8px;
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.03), 0 1px 6px -1px rgba(0, 0, 0, 0.02),
@@ -406,7 +407,7 @@ html.cookie-visible main {
 .page-hero .back:hover,
 .page-icon-btn:hover:not(:disabled) {
   border-color: var(--primary-hover);
-  color: var(--primary-hover);
+  color: var(--primary);
 }
 
 .page-icon-btn.danger:hover:not(:disabled) {
@@ -482,8 +483,8 @@ html.cookie-visible main {
 }
 
 .view-mode-card:focus-within {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 1px;
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .view-modal .modal-actions {

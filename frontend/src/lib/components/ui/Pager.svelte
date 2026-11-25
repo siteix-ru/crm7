@@ -219,7 +219,9 @@
 
   .page-btn.active {
     border-color: var(--primary);
+    background: var(--primary-bg);
     color: var(--primary);
+    font-weight: 600;
   }
 
   .page-btn:disabled {

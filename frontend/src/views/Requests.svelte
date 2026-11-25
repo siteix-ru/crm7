@@ -783,6 +783,7 @@
         bind:value={searchInput}
         historyKey="requests"
         placeholder="Поиск: тема, клиент, номер, телефон, описание"
+        compactPlaceholder="Поиск по заявкам"
         onclear={applyFilters}
         onpick={applyFilters}
       />

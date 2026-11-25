@@ -818,8 +818,13 @@
 
   .back {
     display: none;
-    border: none;
-    background: none;
+    width: 36px;
+    height: 36px;
+    flex: 0 0 auto;
+    place-items: center;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--surface);
     font-size: 18px;
     cursor: pointer;
     color: var(--muted);
@@ -1039,7 +1044,8 @@
   }
 
   .composer textarea {
-    flex: 1;
+    flex: 1 1 auto;
+    min-width: 0;
     resize: none;
     padding: 9px 12px;
     border: 1px solid var(--border);
@@ -1105,7 +1111,7 @@
     }
 
     .back {
-      display: block;
+      display: grid;
     }
 
     .message {

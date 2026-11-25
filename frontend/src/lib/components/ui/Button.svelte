@@ -97,7 +97,7 @@
 
   .ghost:hover:not(:disabled) {
     border-color: var(--primary-hover);
-    color: var(--primary-hover);
+    color: var(--primary);
   }
 
   .text {
@@ -107,7 +107,7 @@
   }
 
   .text:hover:not(:disabled) {
-    background: rgba(0, 0, 0, 0.04);
+    background: var(--fill-hover);
   }
 
   .danger {

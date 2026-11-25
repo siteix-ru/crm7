@@ -5,6 +5,7 @@
   interface Props {
     value?: string;
     placeholder?: string;
+    compactPlaceholder?: string;
     historyKey?: string;
     icon?: boolean;
     onclear?: () => void;
@@ -14,11 +15,30 @@
   let {
     value = $bindable(''),
     placeholder = '',
+    compactPlaceholder,
     historyKey = '',
     icon = false,
     onclear,
     onpick
   }: Props = $props();
+
+  let compact = $state(false);
+
+  $effect(() => {
+    if (typeof window === 'undefined' || compactPlaceholder === undefined) {
+      return;
+    }
+
+    const query = window.matchMedia('(max-width: 720px)');
+    const update = (): void => {
+      compact = query.matches;
+    };
+
+    update();
+    query.addEventListener('change', update);
+
+    return () => query.removeEventListener('change', update);
+  });
 
   let history = $state<string[]>([]);
   let showHistory = $state(false);
@@ -58,7 +78,7 @@
   <input
     type="search"
     bind:value
-    {placeholder}
+    placeholder={compact && compactPlaceholder !== undefined ? compactPlaceholder : placeholder}
     role="combobox"
     aria-autocomplete="list"
     aria-expanded={showHistory}
