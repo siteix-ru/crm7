@@ -29,7 +29,7 @@
   import EmptyState from '../lib/components/ui/EmptyState.svelte';
   import { loadFilters, saveFilters } from '../lib/filters';
   import { formatDate, formatDateTime } from '../lib/format';
-  import { clampPeriod, defaultPeriod, todayIso } from '../lib/period';
+  import { allTimePeriod, clampPeriod, todayIso } from '../lib/period';
 
   const filterDefaults = {
     statusCodes: [] as string[],
@@ -38,8 +38,8 @@
     overdue: [] as string[],
     clientId: 0,
     clientName: '',
-    from: defaultPeriod().from,
-    to: defaultPeriod().to,
+    ...allTimePeriod(),
+    periodVersion: 2,
     sort: 'created_desc',
     view: 'list',
     per_page: 20,
@@ -66,6 +66,14 @@
   let loading = $state(true);
   let error = $state('');
   const initialFilters = loadFilters('requests', filterDefaults);
+
+  // Saved filters from the previous 30-day default must not keep hiding older requests.
+  if (initialFilters.periodVersion !== 2) {
+    initialFilters.from = '';
+    initialFilters.to = '';
+    initialFilters.periodVersion = 2;
+  }
+
   let filters = $state({ ...initialFilters });
   let draft = $state({ ...initialFilters });
   let page = $state(typeof initialFilters.page === 'number' && initialFilters.page > 0 ? initialFilters.page : 1);
@@ -320,7 +328,7 @@
   }
 
   function resetFilters(): void {
-    const period = defaultPeriod();
+    const period = allTimePeriod();
 
     selectedClient = null;
     clientQuery = '';
@@ -513,7 +521,7 @@
   }
 
   function resetView(): void {
-    const period = defaultPeriod();
+    const period = allTimePeriod();
 
     selectedClient = null;
     clientQuery = '';
