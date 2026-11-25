@@ -56,7 +56,7 @@
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
-    transition: background 0.15s ease, border-color 0.15s ease;
+    transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
   }
 
   button:disabled {
@@ -70,12 +70,14 @@
   }
 
   .primary {
-    background: var(--primary);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 92%, white), var(--primary));
+    box-shadow: 0 1px 2px rgba(5, 88, 217, 0.18);
     color: #fff;
   }
 
   .primary:hover:not(:disabled) {
     background: var(--primary-hover);
+    box-shadow: 0 3px 10px rgba(5, 88, 217, 0.22);
   }
 
   .success {

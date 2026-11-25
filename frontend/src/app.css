@@ -30,8 +30,8 @@
   --font-xs: 12px;
   --font-sm: 13px;
   --font-md: 14px;
-  --font-lg: 18px;
-  --font-xl: 24px;
+  --font-lg: clamp(16px, 1.15vw, 18px);
+  --font-xl: clamp(22px, 1.7vw, 28px);
   --radius-xs: 4px;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -62,6 +62,7 @@ body {
 body {
   font-family: var(--font);
   font-size: var(--font-md);
+  font-variant-numeric: tabular-nums;
   line-height: 1.5714;
   color: var(--text);
   background: var(--bg);
@@ -78,10 +79,12 @@ h3 {
 
 h1 {
   font-size: var(--font-xl);
+  letter-spacing: -0.015em;
 }
 
 h2 {
   font-size: var(--font-lg);
+  letter-spacing: -0.01em;
 }
 
 h3 {
@@ -582,5 +585,20 @@ html.cookie-visible main {
   .page-hero .head-text {
     flex: 1 1 0;
     min-width: 0;
+  }
+}
+
+/* Осмысленное движение: мягкий отклик поверхностей без ускорения интерфейса. */
+@media (prefers-reduced-motion: no-preference) {
+  .page-hero,
+  .card,
+  .view-mode-card {
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+  }
+
+  .page-hero:hover,
+  .card:hover {
+    border-color: var(--primary-border);
+    box-shadow: var(--shadow-md);
   }
 }

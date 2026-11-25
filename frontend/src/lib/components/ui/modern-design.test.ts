@@ -7,7 +7,7 @@ const appCss = readFileSync(new URL('../../../app.css', import.meta.url), 'utf8'
 
 describe('modern B2B design tokens', () => {
   it('defines a consistent type scale', () => {
-    for (const token of ['--font-xs: 12px', '--font-sm: 13px', '--font-md: 14px', '--font-lg: 18px', '--font-xl: 24px']) {
+    for (const token of ['--font-xs: 12px', '--font-sm: 13px', '--font-md: 14px', '--font-lg: clamp(', '--font-xl: clamp(']) {
       expect(appCss).toContain(token);
     }
     expect(appCss).toMatch(/h1\s*\{[^}]*font-size:\s*var\(--font-xl\)/s);

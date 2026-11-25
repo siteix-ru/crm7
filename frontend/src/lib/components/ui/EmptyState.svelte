@@ -32,7 +32,7 @@
     padding: var(--space-6) var(--space-4);
     border: 1px solid var(--border-secondary);
     border-radius: var(--radius-md);
-    background: var(--surface);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 3%, var(--surface)), var(--surface) 60%);
     text-align: center;
   }
 
@@ -40,12 +40,12 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 48px;
-    height: 48px;
-    margin-bottom: var(--space-1);
+    width: 56px;
+    height: 56px;
+    margin-bottom: var(--space-2);
     border-radius: 50%;
-    background: var(--fill-tertiary);
-    color: var(--text-description);
+    background: color-mix(in srgb, var(--primary) 8%, white);
+    color: var(--primary);
   }
 
   .title {
