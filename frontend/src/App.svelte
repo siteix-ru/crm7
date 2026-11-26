@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import './lib/stores/theme.svelte';
   import { auth } from './lib/stores/auth.svelte';
   import { appSettings } from './lib/stores/app-settings.svelte';
   import { filterPrefs } from './lib/stores/filter-prefs.svelte';
