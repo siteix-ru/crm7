@@ -2,6 +2,13 @@ import { apiRequest } from '../api/client';
 
 export const FILTER_STORAGE_PREFIX = 'crm.filters.';
 
+/** Локальный кэш фильтров привязан к пользователю: данные не текут между учётками. */
+export function filterStorageKey(key: string, userId: number | null): string {
+  return userId === null
+    ? `${FILTER_STORAGE_PREFIX}guest.${key}`
+    : `${FILTER_STORAGE_PREFIX}${userId}.${key}`;
+}
+
 interface FiltersResponse {
   filters: Record<string, Record<string, unknown>>;
 }
@@ -27,7 +34,7 @@ class FilterPrefsStore {
 
       for (const [key, value] of Object.entries(data.filters ?? {})) {
         try {
-          localStorage.setItem(FILTER_STORAGE_PREFIX + key, JSON.stringify(value));
+          localStorage.setItem(filterStorageKey(key, userId), JSON.stringify(value));
         } catch {
           // приватный режим — кэш недоступен
         }
@@ -55,6 +62,14 @@ class FilterPrefsStore {
         // офлайн/сбой — остаётся локальная копия
       });
     }, 400);
+  }
+
+  /** Отменяет отложенные записи — используется при выходе из системы. */
+  cancelPending(): void {
+    for (const timer of Object.values(this.timers)) {
+      clearTimeout(timer);
+    }
+    this.timers = {};
   }
 
   remove(key: string): void {

@@ -16,11 +16,12 @@
   import { addHistory } from '../lib/search-history';
   import { router } from '../lib/router.svelte';
   import Button from '../lib/components/ui/Button.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
-  import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import SortDialog from '../lib/components/ui/SortDialog.svelte';
   import EmptyState from '../lib/components/ui/EmptyState.svelte';
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
@@ -195,7 +196,16 @@
     }
   }
 
-  async function load(): Promise<void> {
+  let loadSeq = 0;
+  let searchAbort: AbortController | null = null;
+
+  function abortSearch(): void {
+    searchAbort?.abort();
+    searchAbort = null;
+  }
+
+  async function load(signal?: AbortSignal): Promise<void> {
+    const seq = ++loadSeq;
     loading = true;
     error = '';
 
@@ -211,23 +221,37 @@
         positions: filters.positions.length > 0 ? filters.positions : undefined,
         sort: filters.sort,
         page,
-        perPage
+        perPage,
+        signal
       });
+      if (seq !== loadSeq) {
+        return;
+      }
       items = data.items;
       total = data.total;
     } catch (cause) {
+      if (seq !== loadSeq) {
+        return;
+      }
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        return;
+      }
       error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить сотрудников';
     } finally {
-      loading = false;
+      if (seq === loadSeq) {
+        loading = false;
+      }
     }
   }
 
-  function submitSearch(): void {
+  async function submitSearch(): Promise<void> {
     if (tab === 'substitutions') {
       substSearch = substSearchInput.trim();
       return;
     }
 
+    abortSearch();
+    searchAbort = new AbortController();
     search = searchInput.trim();
 
     if (search !== '') {
@@ -235,7 +259,7 @@
     }
 
     page = 1;
-    void load();
+    await load(searchAbort.signal);
   }
 
   function applySearch(): void {
@@ -245,6 +269,7 @@
       return;
     }
 
+    abortSearch();
     page = 1;
     void load();
   }
@@ -286,8 +311,6 @@
 
     viewOpen = true;
   }
-
-
 
   function applyView(): void {
     if (tab === 'substitutions') {
@@ -377,9 +400,8 @@
 </script>
 
 <section class="page page-wide">
-  <div class="page-hero">
-  <div class="filters">
-    <div class="head">
+  <PageToolbar title={tab === 'staff' ? 'Сотрудники' : 'Замещения'}>
+    {#snippet leading()}
       {#if tab === 'substitutions'}
         <button
           type="button"
@@ -391,98 +413,83 @@
           <Icon name="arrow-left" size={16} />
         </button>
       {/if}
-      <h1>{tab === 'staff' ? 'Сотрудники' : 'Замещения'}</h1>
-    </div>
-
-    <form
-      class="search"
-      onsubmit={(event) => {
-        event.preventDefault();
-        submitSearch();
-      }}
-    >
-      {#if tab === 'staff'}
-        <SearchInput
-          bind:value={searchInput}
-          historyKey="staff"
-          placeholder="Поиск: имя, логин, телефон, e-mail, отдел, город, офис"
-          onclear={() => {
-            search = '';
-            applySearch();
-          }}
-          onpick={submitSearch}
-        />
-      {:else}
-        <SearchInput
-          bind:value={substSearchInput}
-          historyKey="substitutions"
-          placeholder="Поиск: кто, заместитель, причина, даты"
-          onclear={applySearch}
-          onpick={submitSearch}
-        />
-      {/if}
-    </form>
-
-    <div class="filter-icons">
-      <button
-        type="button"
-        class="sort-button"
-        class:active={tab === 'staff' ? sortActive : substSortActive}
-        title="Сортировка"
-        aria-label="Сортировка"
-        onclick={() => (sortOpen = true)}
-      >
-        <Icon name="sort" size={16} />
-      </button>
-
-      <button
-        type="button"
-        class="sort-button"
-        class:active={tab === 'staff'
-          ? viewMode === 'tiles' || filtersActive
-          : substView === 'tiles' || substFiltersActive}
-        title="Вид и фильтры"
-        aria-label="Вид и фильтры"
-        onclick={openView}
-      >
-        <Icon name="view" size={16} />
-        {#if (tab === 'staff' && filtersActive) || (tab === 'substitutions' && substFiltersActive)}
-          <span class="icon-badge" aria-hidden="true"></span>
-        {/if}
-      </button>
-
-      <span class="toolbar-divider" aria-hidden="true"></span>
-
-      {#if showSubstitutionsTab && tab === 'staff'}
-        <button
-          type="button"
-          class="sort-button"
-          title="Замещения"
-          aria-label="Замещения"
-          onclick={() => router.navigate('/substitutions')}
-        >
-          <Icon name="substitutions" size={16} />
-        </button>
-      {/if}
-
-      {#if tab === 'staff' ? canCreate : canAddSubstitution}
-        <span class="toolbar-divider" aria-hidden="true"></span>
-
-        <button
-          type="button"
-          class="create-button"
-          title={tab === 'staff' ? 'Новый сотрудник' : 'Новое замещение'}
-          aria-label={tab === 'staff' ? 'Новый сотрудник' : 'Новое замещение'}
-          onclick={() =>
-            router.navigate(tab === 'staff' ? '/staff/new' : '/staff/substitutions/new')}
-        >
-          <Icon name="plus" size={14} />
-          {tab === 'staff' ? 'Новый сотрудник' : 'Новое замещение'}
-        </button>
-      {/if}
-    </div>
-  </div>
-  </div>
+    {/snippet}
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия со списком"
+        search={{
+          value: tab === 'staff' ? search : substSearch,
+          historyKey: tab === 'staff' ? 'staff' : 'substitutions',
+          title: tab === 'staff' ? 'Поиск по сотрудникам' : 'Поиск по замещениям',
+          placeholder: tab === 'staff'
+            ? 'Имя, логин, телефон, e-mail, отдел, город, офис'
+            : 'Кто, заместитель, причина, даты',
+          suggestions: tab === 'staff' ? items.map((user) => user.name) : [],
+          onsearch: async (query) => {
+            if (tab === 'staff') {
+              searchInput = query;
+            } else {
+              substSearchInput = query;
+            }
+            await submitSearch();
+          },
+          onclear: () => {
+            abortSearch();
+            if (tab === 'staff') {
+              searchInput = '';
+              search = '';
+              page = 1;
+              void load();
+            } else {
+              substSearchInput = '';
+              substSearch = '';
+            }
+          },
+          onstop: abortSearch
+        }}
+        items={[
+          {
+            id: 'sort',
+            label: 'Сортировка',
+            icon: 'sort',
+            checked: tab === 'staff' ? sortActive : substSortActive,
+            onclick: () => (sortOpen = true)
+          },
+          {
+            id: 'view',
+            label: 'Вид и фильтры',
+            icon: 'view',
+            checked: tab === 'staff'
+              ? viewMode === 'tiles' || filtersActive
+              : substView === 'tiles' || substFiltersActive,
+            onclick: openView
+          },
+          ...(showSubstitutionsTab && tab === 'staff'
+            ? [
+                {
+                  id: 'substitutions',
+                  label: 'Замещения',
+                  icon: 'substitutions',
+                  onclick: () => router.navigate('/substitutions')
+                }
+              ]
+            : []),
+          ...((tab === 'staff' ? canCreate : canAddSubstitution)
+            ? [
+                { id: 'sep', label: '', separator: true, onclick: () => {} },
+                {
+                  id: 'create',
+                  label: tab === 'staff' ? 'Новый сотрудник' : 'Новое замещение',
+                  icon: 'plus',
+                  onclick: () =>
+                    router.navigate(tab === 'staff' ? '/staff/new' : '/staff/substitutions/new')
+                }
+              ]
+            : [])
+        ]}
+      />
+    {/snippet}
+  </PageToolbar>
 
   {#if tab === 'substitutions'}
     <Substitutions
@@ -748,41 +755,20 @@
       </div>
 
       <div class="modal-actions">
-      <Button variant="ghost" onclick={resetView}>Сбросить</Button>
-    <div class="modal-buttons">
-      <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-      <Button onclick={applyView}>Применить</Button>
-    </div>
-    </div>
+        <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
+        <div class="modal-buttons">
+          <Button variant="ghost" size="lg" onclick={() => (viewOpen = false)}>Отмена</Button>
+          <Button size="lg" onclick={applyView}>Применить</Button>
+        </div>
+      </div>
   </div>
 </Modal>
-
 
 <style>
   .page {
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-  }
-
-  .filters {
-    display: flex;
-    align-items: center;
-    gap: var(--space-3);
-    flex-wrap: wrap;
-  }
-
-  .head {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-  }
-
-  .head h1 {
-    margin: 0;
-    font-size: var(--font-xl);
-    font-weight: 600;
-    line-height: 1.4;
   }
 
   .back {
@@ -803,88 +789,6 @@
   .back:hover {
     border-color: var(--primary-hover);
     color: var(--primary-hover);
-  }
-
-  .search {
-    flex: 1 1 320px;
-    min-width: 220px;
-    max-width: 520px;
-  }
-
-  .filter-icons {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin-left: auto;
-    flex-wrap: wrap;
-  }
-
-  .sort-button {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
-  }
-
-  .sort-button:hover,
-  .sort-button.active {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .toolbar-divider {
-    width: 1px;
-    height: 24px;
-    background: var(--border-secondary);
-  }
-
-  .icon-badge {
-    position: absolute;
-    top: 5px;
-    right: 5px;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--primary);
-  }
-
-  .create-button {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    height: var(--control-height);
-    padding: 0 var(--space-3);
-    border: none;
-    border-radius: var(--radius-sm);
-    background: var(--primary);
-    color: #fff;
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .create-button:hover {
-    background: var(--primary-hover);
-  }
-
-  .create-button:active {
-    background: var(--primary-active);
-  }
-
-  .create-button:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
   }
 
   .alert {
@@ -1123,7 +1027,6 @@
     margin-left: auto;
   }
 
-
   @media (max-width: 980px) {
     .row {
       grid-template-columns: minmax(200px, 1.2fr) 110px minmax(180px, 1fr) 150px;
@@ -1139,9 +1042,6 @@
   }
 
   @media (max-width: 720px) {
-    .toolbar-divider {
-      display: none;
-    }
 
     .list {
       border: none;

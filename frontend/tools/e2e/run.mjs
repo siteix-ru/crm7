@@ -110,7 +110,7 @@ const scenarios = [
       await page.locator('input[name="password"]').fill(ctx.password);
       await page.getByRole('button', { name: 'Войти' }).click();
 
-      await expectVisible(page.locator('nav.desktop-nav'), 'после входа не появилась навигация');
+      await expectVisible(page.locator('nav.rail-nav'), 'после входа не появилась навигация');
 
       await page.goto(`${BASE}/#/profile`, { waitUntil: 'domcontentloaded' });
       await page.getByRole('tab', { name: 'Сессии' }).click();
@@ -541,6 +541,25 @@ const scenarios = [
     }
   },
   {
+    name: 'CLI-LIST: меню «Ещё» закрывается по клику вне',
+    role: 'admin',
+    smoke: true,
+    async run(page) {
+      await page.goto(`${BASE}/#/clients`, { waitUntil: 'domcontentloaded' });
+      const trigger = page.locator('.toolbar-menu-root [aria-haspopup="menu"]');
+      await trigger.click();
+      assert((await trigger.getAttribute('aria-expanded')) === 'true', 'меню не открылось');
+      await expectVisible(page.locator('.toolbar-menu-root [role="menu"]'), 'меню не отображается');
+
+      await page.getByRole('heading', { name: 'Клиенты' }).click();
+      assert(
+        (await trigger.getAttribute('aria-expanded')) === 'false',
+        'меню не закрылось по клику вне'
+      );
+      assert((await page.locator('.toolbar-menu-root [role="menu"]').count()) === 0, 'меню осталось в DOM');
+    }
+  },
+  {
     name: 'клиенты: фильтры по статусу, менеджеру и городу',
     role: 'admin',
     async run(page, ctx) {
@@ -570,7 +589,8 @@ const scenarios = [
 
       await fetch(`${API}/preferences/filters/clients`, { method: 'DELETE', headers });
       await page.goto(`${BASE}/#/clients`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Вид и фильтры' }).click();
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Фильтры' }).click();
 
       const dialog = page.getByRole('dialog');
       await dialog.getByRole('button', { name: 'Статусы' }).click();
@@ -788,7 +808,7 @@ const scenarios = [
       await page.goto(`${BASE}/#/staff`, { waitUntil: 'domcontentloaded' });
       await expectVisible(page.getByRole('heading', { name: 'Сотрудники' }), 'не открылся STAFF-LIST');
       assert(
-        (await page.locator('nav.desktop-nav a[href="#/substitutions"]').count()) === 0,
+        (await page.locator('a[href="#/substitutions"]').count()) === 0,
         'в навигации остался отдельный раздел замещений'
       );
       assert(
@@ -876,7 +896,7 @@ const scenarios = [
         'старый адрес замещений не открылся'
       );
       await expectVisible(
-        page.locator('nav.desktop-nav a[href="#/staff"].active'),
+        page.locator('.rail-nav button.current[aria-label="Группа «Организация»"]'),
         'в шапке не активен раздел сотрудников'
       );
 
@@ -1225,7 +1245,7 @@ const scenarios = [
         'не открылась страница типов номенклатуры'
       );
       await expectVisible(
-        page.locator('nav.desktop-nav a[href="#/stocks"].active'),
+        page.locator('.rail-nav button.current[aria-label="Группа «Склад»"]'),
         'в шапке не подсвечена иконка «Номенклатура»'
       );
 
@@ -1641,7 +1661,8 @@ const scenarios = [
     role: 'admin',
     async run(page) {
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Журнал' }).click();
+      await page.getByRole('button', { name: 'Группа «Система»' }).click();
+      await page.getByRole('link', { name: 'Журнал аудита' }).click();
       await expectVisible(page.getByRole('heading', { name: 'Журнал' }), 'не открылся журнал');
 
       await expectVisible(page.getByText('Вход в систему').first(), 'журнал без русской подписи действия');
@@ -1782,11 +1803,11 @@ const scenarios = [
     role: 'manager',
     async run(page) {
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
-      await expectVisible(page.locator('nav.desktop-nav'), 'не загрузилась шапка');
+      await expectVisible(page.locator('nav.rail-nav'), 'не загрузилась шапка');
 
       assert(
-        (await page.getByRole('button', { name: 'Журнал' }).count()) === 0,
-        'иконка журнала видна обычному менеджеру'
+        (await page.getByRole('link', { name: 'Журнал аудита' }).count()) === 0,
+        'ссылка на журнал видна обычному менеджеру'
       );
 
       await page.goto(`${BASE}/#/admin/audit`, { waitUntil: 'domcontentloaded' });
@@ -1965,7 +1986,7 @@ const scenarios = [
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
       await expectVisible(page.locator('nav.mobile-nav'), 'на мобильном нет нижней навигации');
       assert(
-        !(await page.locator('nav.desktop-nav').isVisible()),
+        !(await page.locator('nav.rail-nav').isVisible()),
         'на мобильном видна десктопная навигация'
       );
 
@@ -2115,7 +2136,7 @@ const scenarios = [
     smoke: true,
     async run(page) {
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
-      await expectVisible(page.locator('nav.desktop-nav'), 'не загрузилась навигация');
+      await expectVisible(page.locator('nav.rail-nav'), 'не загрузилась навигация');
 
       const hashBefore = await page.evaluate(() => location.hash);
 
@@ -2282,7 +2303,8 @@ const scenarios = [
       await page.goto(`${BASE}/#/reports`, { waitUntil: 'domcontentloaded' });
       await expectVisible(page.getByText('Создано за период'), 'отчёт не загрузился');
 
-      await page.getByRole('button', { name: /Фильтры|Вид и фильтры/ }).first().click();
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').first().click();
+      await page.getByRole('menuitem', { name: 'Фильтры' }).click();
       const dialog = page.getByRole('dialog');
       const from = dialog.getByLabel('Период с');
       await from.fill('2026-01-01');
@@ -2806,7 +2828,7 @@ const scenarios = [
       }
 
       assert(
-        (await page.getByRole('button', { name: 'Журнал' }).count()) === 0,
+        (await page.getByRole('link', { name: 'Журнал аудита' }).count()) === 0,
         'менеджер видит ссылку на аудит'
       );
       assert(
@@ -2821,11 +2843,12 @@ const scenarios = [
     smoke: true,
     async run(page) {
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'Группа «Система»' }).click();
       await expectVisible(
-        page.getByRole('button', { name: 'Журнал' }),
+        page.getByRole('link', { name: 'Журнал аудита' }),
         'у тех. администратора нет ссылки на журнал'
       );
-      await page.goto(`${BASE}/#/admin/audit`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('link', { name: 'Журнал аудита' }).click();
       await expectVisible(page.getByRole('heading', { name: 'Журнал' }), 'журнал не открылся');
     }
   },
@@ -2835,11 +2858,12 @@ const scenarios = [
     smoke: true,
     async run(page) {
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('button', { name: 'Группа «Система»' }).click();
       await expectVisible(
-        page.getByRole('button', { name: 'Журнал' }),
+        page.getByRole('link', { name: 'Журнал аудита' }),
         'у администратора нет ссылки на журнал'
       );
-      await page.goto(`${BASE}/#/admin/audit`, { waitUntil: 'domcontentloaded' });
+      await page.getByRole('link', { name: 'Журнал аудита' }).click();
       await expectVisible(page.getByRole('heading', { name: 'Журнал' }), 'журнал не открылся у уровня 50');
     }
   },

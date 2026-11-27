@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Http;
 
+use App\Core\Config;
+
 final class Request
 {
     public function __construct(
@@ -56,40 +58,145 @@ final class Request
             $body = $_POST;
         }
 
-        return new self($method, $path, $_GET, $body, $headers, self::resolveIp($headers));
+        return new self($method, $path, $_GET, $body, $headers, self::clientIp($headers, $_SERVER));
     }
 
     /**
-     * Реальный IP клиента. За обратным прокси (Caddy) REMOTE_ADDR — это адрес
-     * прокси, поэтому берём последний адрес из X-Forwarded-For (его добавляет
-     * наш доверенный прокси), затем X-Real-IP, затем REMOTE_ADDR.
+     * Безопасный IP клиента: forwarded-заголовки учитываются только тогда,
+     * когда непосредственный источник запроса входит в TRUSTED_PROXIES.
+     * По умолчанию доверенных proxy нет — используется REMOTE_ADDR.
      *
      * @param array<string,string> $headers
+     * @param array<string,mixed> $server
      */
-    private static function resolveIp(array $headers): string
+    public static function clientIp(array $headers, array $server): string
     {
-        $forwarded = (string) ($headers['x-forwarded-for'] ?? $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '');
+        $remote = trim((string) ($server['REMOTE_ADDR'] ?? ''));
+
+        if ($remote === '' || filter_var($remote, FILTER_VALIDATE_IP) === false) {
+            return '0.0.0.0';
+        }
+
+        $trusted = self::trustedProxies();
+
+        if ($trusted === [] || !self::isTrusted($remote, $trusted)) {
+            return $remote;
+        }
+
+        $forwarded = trim((string) (
+            $headers['x-forwarded-for'] ?? $server['HTTP_X_FORWARDED_FOR'] ?? ''
+        ));
 
         if ($forwarded !== '') {
-            $parts = array_values(array_filter(
-                array_map('trim', explode(',', $forwarded)),
-                static fn (string $part): bool => $part !== ''
-            ));
+            $parts = array_map('trim', explode(',', $forwarded));
 
-            $candidate = $parts === [] ? '' : (string) end($parts);
+            // Идём справа налево: правые адреса добавлены доверенными proxy.
+            // Первый недоверенный адрес — реальный клиент.
+            for ($index = count($parts) - 1; $index >= 0; $index -= 1) {
+                $candidate = $parts[$index];
 
-            if (filter_var($candidate, FILTER_VALIDATE_IP) !== false) {
-                return $candidate;
+                if ($candidate === '' || filter_var($candidate, FILTER_VALIDATE_IP) === false) {
+                    continue;
+                }
+
+                if (!self::isTrusted($candidate, $trusted)) {
+                    return $candidate;
+                }
             }
         }
 
-        $real = (string) ($headers['x-real-ip'] ?? $_SERVER['HTTP_X_REAL_IP'] ?? '');
+        $real = trim((string) ($headers['x-real-ip'] ?? $server['HTTP_X_REAL_IP'] ?? ''));
 
-        if (filter_var($real, FILTER_VALIDATE_IP) !== false) {
+        if ($real !== '' && filter_var($real, FILTER_VALIDATE_IP) !== false) {
             return $real;
         }
 
-        return (string) ($_SERVER['REMOTE_ADDR'] ?? '0.0.0.0');
+        return $remote;
+    }
+
+    /** @return list<string> */
+    private static function trustedProxies(): array
+    {
+        $raw = trim((string) Config::get('TRUSTED_PROXIES', ''));
+
+        if ($raw === '') {
+            return [];
+        }
+
+        $result = [];
+
+        foreach (explode(',', $raw) as $entry) {
+            $entry = trim($entry);
+
+            if ($entry !== '') {
+                $result[] = $entry;
+            }
+        }
+
+        return $result;
+    }
+
+    /**
+     * @param list<string> $trusted
+     */
+    private static function isTrusted(string $ip, array $trusted): bool
+    {
+        $packed = @inet_pton($ip);
+
+        if ($packed === false) {
+            return false;
+        }
+
+        foreach ($trusted as $entry) {
+            if (str_contains($entry, '/')) {
+                if (self::inCidr($packed, $entry)) {
+                    return true;
+                }
+
+                continue;
+            }
+
+            $expected = @inet_pton($entry);
+
+            if ($expected !== false && $expected === $packed) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static function inCidr(string $packed, string $cidr): bool
+    {
+        [$network, $prefix] = array_pad(explode('/', $cidr, 2), 2, '');
+        $networkPacked = @inet_pton($network);
+
+        if ($networkPacked === false || strlen($networkPacked) !== strlen($packed)) {
+            return false;
+        }
+
+        $bits = strlen($packed) * 8;
+        $prefixLength = filter_var($prefix, FILTER_VALIDATE_INT);
+
+        if ($prefixLength === false || $prefixLength < 0 || $prefixLength > $bits) {
+            return false;
+        }
+
+        $wholeBytes = intdiv((int) $prefixLength, 8);
+        $remainingBits = (int) $prefixLength % 8;
+
+        if ($wholeBytes > 0
+            && substr($packed, 0, $wholeBytes) !== substr($networkPacked, 0, $wholeBytes)) {
+            return false;
+        }
+
+        if ($remainingBits === 0) {
+            return true;
+        }
+
+        $mask = 0xFF << (8 - $remainingBits);
+
+        return (ord($packed[$wholeBytes]) & $mask) === (ord($networkPacked[$wholeBytes]) & $mask);
     }
 
     public function withPath(string $path): self

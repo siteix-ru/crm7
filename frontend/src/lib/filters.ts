@@ -1,8 +1,13 @@
-import { FILTER_STORAGE_PREFIX as PREFIX, filterPrefs } from './stores/filter-prefs.svelte';
+import { filterStorageKey, filterPrefs } from './stores/filter-prefs.svelte';
+import { auth } from './stores/auth.svelte';
+
+function keyFor(key: string): string {
+  return filterStorageKey(key, auth.user?.id ?? null);
+}
 
 export function loadFilters<T extends Record<string, unknown>>(key: string, defaults: T): T {
   try {
-    const raw = localStorage.getItem(PREFIX + key);
+    const raw = localStorage.getItem(keyFor(key));
 
     if (raw === null) {
       return { ...defaults };
@@ -36,7 +41,7 @@ export function loadFilters<T extends Record<string, unknown>>(key: string, defa
 
 export function saveFilters(key: string, value: Record<string, unknown>): void {
   try {
-    localStorage.setItem(PREFIX + key, JSON.stringify(value));
+    localStorage.setItem(keyFor(key), JSON.stringify(value));
   } catch {
     // приватный режим - молча пропускаем
   }
@@ -46,7 +51,7 @@ export function saveFilters(key: string, value: Record<string, unknown>): void {
 
 export function clearFilters(key: string): void {
   try {
-    localStorage.removeItem(PREFIX + key);
+    localStorage.removeItem(keyFor(key));
   } catch {
     // приватный режим - молча пропускаем
   }

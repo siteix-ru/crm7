@@ -41,6 +41,10 @@ describe('badgeForRoute', () => {
     expect(badgeForRoute('/unknown', badges)).toBeNull();
   });
 
+  it('has a badge for the stock import page', () => {
+    expect(badgeForRoute('/stocks/import')?.id).toBe('STK-IMPORT');
+  });
+
   it('builds a separate badge for each settings tab', () => {
     expect(settingsBadgeId('general')).toBe('SETTINGS-GENERAL');
     expect(settingsBadgeId('modules', 'manager_assign')).toBe(

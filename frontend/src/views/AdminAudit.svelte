@@ -7,11 +7,14 @@
   import { clearFilters, countActive, loadFilters, saveFilters } from '../lib/filters';
   import { clampDates, todayIso } from '../lib/period';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
-  import SearchInput from '../lib/components/ui/SearchInput.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { formatDateTime } from '../lib/format';
   import { auditLabel, entityLabel } from '../lib/labels';
+
+  let filtersRef: FiltersModal | null = $state(null);
 
   const auditFilterDefaults = { from: '', to: '' };
 
@@ -89,48 +92,46 @@
 </script>
 
 <section class="page">
-  <div class="page-hero">
-    <div class="filters">
-      <div class="head">
-        <h1>Журнал</h1>
-      </div>
-
-      <form
-        class="search"
-        onsubmit={(event) => {
-          event.preventDefault();
-          submitSearch();
+  <PageToolbar title="Журнал" actionsLabel="Действия журнала">
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия журнала"
+        search={{
+          value: auditAction,
+          historyKey: 'admin-audit',
+          title: 'Поиск по журналу',
+          placeholder: 'Действие (например, request.transition)',
+          suggestions: audit.map((entry) => auditLabel(entry.action)),
+          onsearch: (query) => {
+            auditAction = query;
+            submitSearch();
+          },
+          onclear: clearSearch
         }}
-      >
-        <SearchInput
-          bind:value={auditAction}
-          historyKey="admin-audit"
-          placeholder="Действие (например, request.transition)"
-          onclear={clearSearch}
-          onpick={submitSearch}
-        />
-      </form>
+        items={[
+          { id: 'filters', label: 'Фильтры', icon: 'filter', onclick: () => filtersRef?.show() }
+        ]}
+      />
+    {/snippet}
+  </PageToolbar>
 
-      <div class="filter-icons">
-        <FiltersModal
-          icon
-          count={countActive(auditFilters, auditFilterDefaults)}
-          onopen={() => (auditDraft = { ...auditFilters })}
-          onapply={applyAuditDraft}
-          onreset={resetAuditFilters}
-        >
-          <label class="filter-field">
-            <span>Период с</span>
-            <input type="date" bind:value={auditDraft.from} max={auditDraft.to || todayIso()} />
-          </label>
-          <label class="filter-field">
-            <span>Период по</span>
-            <input type="date" bind:value={auditDraft.to} min={auditDraft.from} max={todayIso()} />
-          </label>
-        </FiltersModal>
-      </div>
-    </div>
-  </div>
+  <FiltersModal
+    bind:this={filtersRef}
+    trigger={false}
+    count={countActive(auditFilters, auditFilterDefaults)}
+    onopen={() => (auditDraft = { ...auditFilters })}
+    onapply={applyAuditDraft}
+    onreset={resetAuditFilters}
+  >
+    <label class="filter-field">
+      <span>Период с</span>
+      <input type="date" bind:value={auditDraft.from} max={auditDraft.to || todayIso()} />
+    </label>
+    <label class="filter-field">
+      <span>Период по</span>
+      <input type="date" bind:value={auditDraft.to} min={auditDraft.from} max={todayIso()} />
+    </label>
+  </FiltersModal>
 
   {#if error}
     <div class="alert">{error}</div>
@@ -190,26 +191,11 @@
     gap: var(--space-4);
   }
 
-  .filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    align-items: center;
-  }
 
-  .search {
-    display: flex;
-    flex: 1 1 260px;
-    min-width: 0;
-    max-width: 420px;
-  }
 
-  .filter-icons {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    margin-left: auto;
-  }
+
+
+
 
   .audit {
     display: flex;
@@ -286,14 +272,5 @@
     padding: var(--space-6);
   }
 
-  @media (max-width: 720px) {
-    .search {
-      flex: 1 1 100%;
-      max-width: none;
-    }
 
-    .filter-icons {
-      margin-left: 0;
-    }
-  }
 </style>

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { clearFilters, countActive, loadFilters, saveFilters } from './filters';
+import { filterStorageKey } from './stores/filter-prefs.svelte';
 
 const storage = new Map<string, string>();
 
@@ -36,12 +37,12 @@ describe('filters storage', () => {
   });
 
   it('keeps defaults for unknown fields and wrong types', () => {
-    storage.set('crm.filters.requests', JSON.stringify({ status: 42, scope: 'others', extra: true }));
+    storage.set(filterStorageKey('requests', null), JSON.stringify({ status: 42, scope: 'others', extra: true }));
     expect(loadFilters('requests', defaults)).toEqual({ status: '', scope: 'others', page: 1 });
   });
 
   it('survives broken json', () => {
-    storage.set('crm.filters.requests', '{oops');
+    storage.set(filterStorageKey('requests', null), '{oops');
     expect(loadFilters('requests', defaults)).toEqual(defaults);
   });
 

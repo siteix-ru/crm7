@@ -93,13 +93,13 @@
     grid-template-columns: minmax(140px, 0.8fr) minmax(0, 1.4fr);
     gap: var(--space-3);
     align-items: center;
-    padding: 8px 0;
+    padding: var(--space-2) 0;
     border-bottom: 1px solid var(--border-secondary);
   }
 
   .field.inline .label {
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-sm);
   }
 
   .field.inline .error {
@@ -107,14 +107,14 @@
   }
 
   .label {
-    font-size: 14px;
+    font-size: var(--font-md);
     color: var(--text-description);
   }
 
   input {
-    height: 32px;
-    padding: 0 11px;
-    border: 1px solid var(--border);
+    height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     outline: none;
@@ -122,8 +122,8 @@
   }
 
   input:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--focus-ring);
+    border-color: var(--primary-border);
+    box-shadow: inset 0 0 0 2px var(--focus-soft);
   }
 
   input.invalid {
@@ -137,7 +137,7 @@
   }
 
   .error {
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--danger);
   }
 </style>

@@ -1,74 +1,43 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { ApiError } from '../lib/api/client';
   import {
-    emailLevels,
-    exportLevels,
-    importHistory,
-    importLevels,
-    listLevels,
-    listWarehouses,
-    searchCounts,
-    type ImportPriceType,
-    type StockFilters
+    emailLevels, exportLevels, listLevels, listWarehouses, searchCounts, type StockFilters
   } from '../lib/api/stocks';
   import type {
-    PriceListItem,
-    StockImportJob,
-    StockLevel,
-    StockUpdate,
-    StockWarehouse,
-    ItemGroup
+    PriceListItem, StockLevel, StockWarehouse, ItemGroup
   } from '../lib/api/types';
   import { listItemGroups } from '../lib/api/groups';
   import { listPriceTypes } from '../lib/api/prices';
   import Button from '../lib/components/ui/Button.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import { tablist } from '../lib/a11y/tablist';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import SortDialog from '../lib/components/ui/SortDialog.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
-  import SearchInput from '../lib/components/ui/SearchInput.svelte';
+  import Spinner from '../lib/components/ui/Spinner.svelte';
   import EmptyState from '../lib/components/ui/EmptyState.svelte';
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import PhotoGallery from '../lib/components/stocks/PhotoGallery.svelte';
   import { cart } from '../lib/stores/cart.svelte';
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
-  import { addHistory } from '../lib/search-history';
+  import { addHistory, getHistory } from '../lib/search-history';
   import { loadFilters, saveFilters } from '../lib/filters';
   import { router } from '../lib/router.svelte';
   import { config } from '../lib/config';
-  import { formatDate, formatDateTime, formatPrice, stockQuantityText } from '../lib/format';
+  import { formatDate, formatPrice, stockQuantityText } from '../lib/format';
   import { groupStockLevels, sortStockColumns } from '../lib/stocks/columns';
-
-  function todayLocal(): string {
-    const now = new Date();
-
-    return new Date(now.getTime() - now.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  }
 
   let warehouses = $state<StockWarehouse[]>([]);
   let levels = $state<StockLevel[]>([]);
-  let jobs = $state<StockImportJob[]>([]);
-  let updates = $state<StockUpdate[]>([]);
   let selectedIds = $state<number[]>([]);
   const stockFilterDefaults = {
-    sort: 'name_asc',
-    group_ids: null as number[] | null,
-    group_no_group: true,
-    per_page_list: 20,
-    per_page_tiles: 12,
-    view: 'list',
-    photos: true,
-    price_types: [] as number[],
-    warehouse_ids: null as number[] | null,
-    query: '',
-    page: 1,
-    active: 'all',
-    qty_op: '',
-    qty: ''
+    sort: 'name_asc', group_ids: null as number[] | null, group_no_group: true, per_page_list: 20, per_page_tiles: 12, view: 'list', photos: true, price_types: [] as number[], warehouse_ids: null as number[] | null, query: '', page: 1, active: 'all', qty_op: '', qty: ''
   };
   const initialStockFilters = loadFilters('stocks', stockFilterDefaults);
   const initialWarehouseIds = Array.isArray(initialStockFilters.warehouse_ids)
@@ -86,18 +55,8 @@
   let loadingLevels = $state(false);
   let error = $state('');
   let message = $state('');
-  let canImport = $state(false);
   let canEdit = $state(false);
   let busy = $state(false);
-  let file = $state<File | null>(null);
-  let actualDate = $state(todayLocal());
-  let importOpen = $state(false);
-  let importConfirm = $state(false);
-  let importError = $state('');
-  let importTab = $state<'import' | 'history'>('import');
-  let importMappingColumns = $state<string[]>([]);
-  let importMappingTypes = $state<ImportPriceType[]>([]);
-  let importMapping = $state<Record<string, number>>({});
   let exportOpen = $state(false);
   let counts = $state<Record<string, number>>({});
   let priceTypeTitle = $state('');
@@ -116,13 +75,6 @@
   let countsSeq = 0;
 
   const warehousesEnabled = $derived(appSettings.warehousesEnabled);
-  const canManageWarehouses = $derived(
-    warehousesEnabled &&
-      (auth.can('stocks.warehouses.create') ||
-        auth.can('stocks.warehouses.edit') ||
-        auth.can('stocks.warehouses.delete') ||
-        auth.can('stocks.warehouses.access'))
-  );
   const canExport = $derived(auth.can('stocks.export'));
   const sortFields = $derived.by(() => {
     const fields = [{ field: 'name', label: 'Номенклатура' }];
@@ -163,14 +115,11 @@
   );
   const canDeactivate = $derived(appSettings.stockEditEnabled && auth.can('stocks.deactivate'));
   const statusOptions = [
-    { value: 'active', label: 'Активированные' },
-    { value: 'inactive', label: 'Деактивированные' }
+    { value: 'active', label: 'Активированные' }, { value: 'inactive', label: 'Деактивированные' }
   ];
   const QTY_OPS = ['gt', 'eq', 'lt'] as const;
   const qtyOpOptions = [
-    { value: 'gt', label: 'Больше' },
-    { value: 'eq', label: 'Равно' },
-    { value: 'lt', label: 'Меньше' }
+    { value: 'gt', label: 'Больше' }, { value: 'eq', label: 'Равно' }, { value: 'lt', label: 'Меньше' }
   ];
 
   function parseQtyOps(value: unknown): string[] {
@@ -215,9 +164,60 @@
   let moreOpen = $state(false);
   let moreEl = $state<HTMLElement | null>(null);
 
+  function moreTrigger(): HTMLElement | null {
+    return moreEl?.querySelector<HTMLElement>('button[aria-haspopup="menu"]') ?? null;
+  }
+
+  function closeMore(returnFocus: boolean): void {
+    moreOpen = false;
+    if (returnFocus) {
+      requestAnimationFrame(() => moreTrigger()?.focus());
+    }
+  }
+
   function runMoreAction(run: () => void): void {
     moreOpen = false;
     run();
+  }
+
+  async function openMore(): Promise<void> {
+    moreOpen = !moreOpen;
+    if (!moreOpen) {
+      return;
+    }
+    await tick();
+    moreEl
+      ?.querySelector<HTMLElement>(
+        '[role="menuitem"]:not([disabled]), [role="menuitemcheckbox"]:not([disabled])'
+      )
+      ?.focus();
+  }
+
+  function onMoreKeydown(event: KeyboardEvent): void {
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      return;
+    }
+    const items = Array.from(
+      moreEl?.querySelectorAll<HTMLElement>(
+        '[role="menuitem"]:not([disabled]), [role="menuitemcheckbox"]:not([disabled])'
+      ) ?? []
+    );
+    if (items.length === 0) {
+      return;
+    }
+    event.preventDefault();
+    const current = items.indexOf(document.activeElement as HTMLElement);
+    const next =
+      event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+          ? items.length - 1
+          : event.key === 'ArrowDown'
+            ? (current + 1) % items.length
+            : current <= 0
+              ? items.length - 1
+              : current - 1;
+    items[next]?.focus();
   }
 
   onMount(() => {
@@ -227,12 +227,12 @@
       }
 
       if (moreEl !== null && event.target instanceof Node && !moreEl.contains(event.target)) {
-        moreOpen = false;
+        closeMore(true);
       }
     };
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key === 'Escape' && moreOpen) {
-        moreOpen = false;
+        closeMore(true);
       }
     };
 
@@ -248,9 +248,6 @@
   let viewDraft = $state<'list' | 'tiles' | 'columns'>('list');
   let photoDraft = $state<boolean>(true);
   let sortOpen = $state(false);
-  let sortDraft = $state<string[]>(parseSort(initialStockFilters.sort));
-  let dragSortField = $state<string | null>(null);
-  let dragSortOver = $state<string | null>(null);
   let groupOpen = $state(false);
   let groupDraft = $state<number[]>([]);
   let groupNoGroupDraft = $state<boolean>(true);
@@ -321,8 +318,7 @@
     }
 
     el.scrollBy({
-      left: direction * Math.max(180, el.clientWidth * 0.8),
-      behavior: 'smooth'
+      left: direction * Math.max(180, el.clientWidth * 0.8), behavior: 'smooth'
     });
   }
 
@@ -332,8 +328,7 @@
     const existing = current.find((term) => term.startsWith(`${base}_`));
     const direction = existing?.endsWith('_asc') ? 'desc' : 'asc';
     const next = [
-      `${base}_${direction}`,
-      ...current.filter((term) => !term.startsWith(`${base}_`))
+      `${base}_${direction}`, ...current.filter((term) => !term.startsWith(`${base}_`))
     ];
     const value = next.join(',');
 
@@ -342,7 +337,6 @@
     }
 
     stockSort = value;
-    sortDraft = next;
     page = 1;
     saveStockFilters();
   }
@@ -398,15 +392,9 @@
   const canCreate = $derived(auth.can('requests.create') && appSettings.cartEnabled);
   const pricesEnabled = $derived(appSettings.pricesEnabled);
   const groupsEnabled = $derived(appSettings.groupsEnabled);
-  const sortRows = $derived.by(() => {
-    const available = sortFields.filter((item) => item.field !== 'price' || pricesEnabled);
-    const activeRows = sortDraft
-      .map((term) => available.find((item) => term.startsWith(`${item.field}_`)))
-      .filter((item): item is (typeof available)[number] => item !== undefined);
-    const inactiveRows = available.filter((item) => sortOrderIndex(item.field) === 0);
-
-    return [...activeRows, ...inactiveRows];
-  });
+  const availableSortFields = $derived(
+    sortFields.filter((item) => item.field !== 'price' || pricesEnabled)
+  );
   let priceTypes = $state<{ id: number; title: string }[]>([]);
   let priceTypesLoaded = $state(false);
   const availablePriceTypes = $derived.by((): { id: number; title: string }[] => {
@@ -516,9 +504,7 @@
 
   const filters = $derived.by((): StockFilters => {
     const result: StockFilters = {
-      q: query,
-      sort: stockSort,
-      show_zero: appSettings.allowZeroStock
+      q: query, sort: stockSort, show_zero: appSettings.allowZeroStock
     };
 
     if (canDeactivate && stockActive !== 'all') {
@@ -575,13 +561,7 @@
     const warehouse = warehouses.find((item) => item.id === level.warehouse_id);
 
     cart.add({
-      warehouseId: level.warehouse_id,
-      warehouseName: level.warehouse_name || warehouse?.name || '',
-      name: level.name,
-      unit: level.unit,
-      quantity: 1,
-      stockLevelId: level.id,
-      price: level.price ?? null
+      warehouseId: level.warehouse_id, warehouseName: level.warehouse_name || warehouse?.name || '', name: level.name, unit: level.unit, quantity: 1, stockLevelId: level.id, price: level.price ?? null
     });
   }
 
@@ -612,7 +592,6 @@
 
       const data = await listWarehouses();
       warehouses = data.items;
-      canImport = data.can_import && appSettings.stockEditEnabled;
       canEdit = data.can_edit && appSettings.stockEditEnabled;
 
       if (warehouses.length > 0) {
@@ -706,92 +685,13 @@
     return parts.length > 0 ? parts : ['name_asc'];
   }
 
-  function sortOrderIndex(field: string): number {
-    return sortDraft.findIndex((value) => value.startsWith(`${field}_`)) + 1;
-  }
-
-  function moveSortDraft(fromField: string, toField: string): void {
-    const fromIndex = sortDraft.findIndex((value) => value.startsWith(`${fromField}_`));
-    const toIndex = sortDraft.findIndex((value) => value.startsWith(`${toField}_`));
-
-    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
-      return;
-    }
-
-    const next = [...sortDraft];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-    sortDraft = next;
-  }
-
-  function startSortDrag(event: DragEvent, field: string): void {
-    dragSortField = field;
-
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', field);
-    }
-  }
-
-  function overSortRow(event: DragEvent, field: string): void {
-    if (dragSortField === null || sortOrderIndex(field) === 0) {
-      return;
-    }
-
-    event.preventDefault();
-    dragSortOver = field;
-  }
-
-  function dropSortRow(event: DragEvent, field: string): void {
-    event.preventDefault();
-
-    if (dragSortField !== null && sortOrderIndex(field) > 0) {
-      moveSortDraft(dragSortField, field);
-    }
-
-    dragSortField = null;
-    dragSortOver = null;
-  }
-
-  function endSortDrag(): void {
-    dragSortField = null;
-    dragSortOver = null;
-  }
-
-  function toggleSortDir(field: string, dir: 'asc' | 'desc'): void {
-    const value = `${field}_${dir}`;
-    const other = `${field}_${dir === 'asc' ? 'desc' : 'asc'}`;
-    const otherIndex = sortDraft.indexOf(other);
-
-    if (sortDraft.includes(value)) {
-      sortDraft = sortDraft.filter((item) => item !== value);
-      return;
-    }
-
-    if (otherIndex >= 0) {
-      const next = [...sortDraft];
-      next[otherIndex] = value;
-      sortDraft = next;
-      return;
-    }
-
-    sortDraft = [...sortDraft, value];
-  }
-
   function openSort(): void {
-    const allowed = new Set(sortFields.map((item) => item.field));
-    const terms = parseSort(stockSort).filter((term) =>
-      [...allowed].some((field) => term.startsWith(`${field}_`))
-    );
-
-    sortDraft = terms.length > 0 ? terms : ['name_asc'];
     sortOpen = true;
   }
 
-  function applySort(): void {
+  function applySortTerms(terms: string[]): void {
     sortOpen = false;
-
-    const next = sortDraft.length > 0 ? sortDraft.join(',') : 'name_asc';
+    const next = terms.length > 0 ? terms.join(',') : 'name_asc';
 
     if (next === stockSort) {
       return;
@@ -853,20 +753,7 @@
 
   function saveStockFilters(): void {
     saveFilters('stocks', {
-      sort: stockSort,
-      group_ids: stockGroups,
-      group_no_group: stockNoGroup,
-      per_page_list: perPageList,
-      per_page_tiles: perPageTiles,
-      view: viewMode,
-      photos: showPhotos,
-      price_types: priceTypeFilter,
-      warehouse_ids: selectedIds,
-      query,
-      page,
-      active: stockActive,
-      qty_op: qtyOps.join(','),
-      qty
+      sort: stockSort, group_ids: stockGroups, group_no_group: stockNoGroup, per_page_list: perPageList, per_page_tiles: perPageTiles, view: viewMode, photos: showPhotos, price_types: priceTypeFilter, warehouse_ids: selectedIds, query, page, active: stockActive, qty_op: qtyOps.join(','), qty
     });
   }
 
@@ -874,8 +761,7 @@
     viewDraft = viewMode;
     photoDraft = showPhotos;
     statusDraft = [
-      ...(statusActive ? ['active'] : []),
-      ...(statusInactive ? ['inactive'] : [])
+      ...(statusActive ? ['active'] : []), ...(statusInactive ? ['inactive'] : [])
     ];
     const selectedPrices =
       priceTypeFilter.length > 0
@@ -937,7 +823,6 @@
 
     if (viewChanged) {
       stockSort = 'name_asc';
-      sortDraft = ['name_asc'];
     }
 
     priceTypeFilter = nextFilter;
@@ -1060,10 +945,7 @@
 
     try {
       const data = await listLevels(
-        selectedIds,
-        filters,
-        viewMode === 'columns' ? 1 : page,
-        viewMode === 'columns' ? 0 : perPage
+        selectedIds, filters, viewMode === 'columns' ? 1 : page, viewMode === 'columns' ? 0 : perPage
       );
 
       if (seq !== loadSeq) {
@@ -1178,86 +1060,6 @@
     }
   }
 
-  async function doImport(mapping?: Record<string, number>): Promise<void> {
-    if (file === null) {
-      importError = 'Выберите файл (xls, xlsx или csv)';
-      return;
-    }
-
-    importConfirm = false;
-    busy = true;
-    importError = '';
-    message = '';
-
-    try {
-      const result = await importLevels(file, actualDate, mapping);
-
-      if (result.status === 'needs_mapping') {
-        importMappingColumns = result.columns;
-        importMappingTypes = result.types;
-        importMapping = Object.fromEntries(result.columns.map((column) => [column, 0]));
-        return;
-      }
-
-      message =
-        `Импорт: загружено ${result.rows_imported} строк` +
-        (result.rows_created > 0 ? `, номенклатуры: ${result.rows_created}` : '') +
-        (result.warehouses_created > 0 ? `, новых складов ${result.warehouses_created}` : '') +
-        (result.rows_zeroed > 0 ? `, обнулено ${result.rows_zeroed}` : '') +
-        (result.rows_skipped > 0 ? `, пропущено ${result.rows_skipped}` : '') +
-        (result.prices_imported > 0 ? `, цен ${result.prices_imported}` : '');
-
-      if (result.errors.length > 0) {
-        message += `. ${result.errors.slice(0, 3).join('; ')}`;
-      }
-
-      file = null;
-      importOpen = false;
-      importMappingColumns = [];
-      importMapping = {};
-      await init();
-      await loadHistory();
-    } catch (cause) {
-      importError = cause instanceof ApiError ? cause.message : 'Не удалось импортировать файл';
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function loadHistory(): Promise<void> {
-    try {
-      const data = await importHistory();
-      jobs = data.jobs;
-      updates = data.updates;
-    } catch {
-      // некритично
-    }
-  }
-
-  function selectImportTab(tab: 'import' | 'history'): void {
-    importTab = tab;
-
-    if (tab === 'history') {
-      void loadHistory();
-    }
-  }
-
-  function openImport(tab: 'import' | 'history' = 'import'): void {
-    selectImportTab(tab);
-    file = null;
-    importError = '';
-    importConfirm = false;
-    importMappingColumns = [];
-    importMapping = {};
-    importOpen = true;
-  }
-
-  function onFileChange(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    file = input.files?.[0] ?? null;
-    importConfirm = false;
-  }
-
 </script>
 
 <section class="page page-wide">
@@ -1274,269 +1076,74 @@
     </div>
   {/if}
 
-  <div class="hero page-hero">
-    <div class="filters">
-    <div class="head">
-      <h1>Номенклатура</h1>
-    </div>
-
-    {#if !loading && warehouses.length > 0}
-      <form
-        class="search"
-        onsubmit={(event) => {
-          event.preventDefault();
-          void search();
+  <PageToolbar title="Номенклатура" actionsLabel="Действия со списком">
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия со списком"
+        search={{
+          value: query, historyKey: 'stocks', title: 'Поиск по номенклатуре', placeholder: 'Название, артикул или код', suggestions: levels.map((level) => level.name), onsearch: (next) => {
+            clearTimeout(searchTimer);
+            searchInput = next;
+            return search();
+          }, onclear: () => {
+            clearTimeout(searchTimer);
+            searchInput = '';
+            query = '';
+            page = 1;
+            saveStockFilters();
+            void loadLevels();
+          }
         }}
-      >
-        <SearchInput
-          bind:value={searchInput}
-          historyKey="stocks"
-          placeholder="Поиск номенклатуры"
-          onclear={() => void search()}
-          onpick={() => void search()}
-        />
-      </form>
-
-      <div class="filter-icons">
-        <button
-          type="button"
-          class="sort-button"
-          class:active={stockSort !== stockFilterDefaults.sort}
-          title="Сортировка"
-          aria-label="Сортировка"
-          onclick={openSort}
-        >
-            <Icon name="sort" size={16} />
-        </button>
-
-        {#if warehousesEnabled && warehouses.length > 1}
-          <button
-            type="button"
-            class="sort-button"
-            class:active={selectedIds.length !== warehouses.length}
-            title="Склад"
-            aria-label={selectedIds.length !== warehouses.length
-              ? `Выбрать склад, выбрано: ${selectedIds.length}`
-              : 'Выбрать склад'}
-            onclick={openWarehouse}
-          >
-            <Icon name="stocks" size={16} />
-            {#if selectedIds.length !== warehouses.length}
-              <span class="icon-badge" aria-hidden="true">{selectedIds.length}</span>
-            {/if}
-          </button>
-        {/if}
-
-        {#if groupsEnabled}
-          <button
-            type="button"
-            class="sort-button"
-            class:active={groupFilterActive}
-            title="Группы"
-            aria-label="Группы"
-            onclick={openGroup}
-          >
-            <Icon name="group" size={16} />
-          </button>
-        {/if}
-
-        <button
-          type="button"
-          class="sort-button"
-          class:active={viewMode !== 'list'}
-          title="Вид"
-          aria-label="Вид: списком или плитками"
-          onclick={openView}
-        >
-          <Icon name="view" size={16} />
-        </button>
-
-        {#if auth.can('settings.manage') || canManageWarehouses || canImport || canExport}
-          <div class="actions-secondary">
-            {#if auth.can('settings.manage') || canManageWarehouses}
-              <span class="toolbar-divider" aria-hidden="true"></span>
-              {#if auth.can('settings.manage')}
-                {#if appSettings.groupsConfigured}
-                  <button
-                    type="button"
-                    class="sort-button"
-                    title="Управление группами номенклатуры"
-                    aria-label="Управление группами номенклатуры"
-                    onclick={() => router.navigate('/stocks/groups')}
-                  >
-                    <Icon name="tags" size={16} />
-                  </button>
-                {/if}
-                <button
-                  type="button"
-                  class="sort-button"
-                  title="Управление типами номенклатуры"
-                  aria-label="Управление типами номенклатуры"
-                  onclick={() => router.navigate('/stocks/types')}
-                >
-                  <Icon name="types" size={16} />
-                </button>
-                {#if pricesEnabled}
-                  <button
-                    type="button"
-                    class="sort-button"
-                    title="Управление типами цен"
-                    aria-label="Управление типами цен"
-                    onclick={() => router.navigate('/stocks/price-types')}
-                  >
-                    <Icon name="price" size={16} />
-                  </button>
-                {/if}
-              {/if}
-
-              {#if canManageWarehouses}
-                <button
-                  type="button"
-                  class="sort-button"
-                  title="Управление складами"
-                  aria-label="Управление складами"
-                  onclick={() => router.navigate('/stocks/warehouses')}
-                >
-                  <Icon name="warehouse" size={16} />
-                </button>
-              {/if}
-            {/if}
-
-            {#if canImport || canExport}
-              <span class="toolbar-divider" aria-hidden="true"></span>
-            {/if}
-
-            {#if canImport}
-              <button
-                type="button"
-                class="sort-button"
-                title="Импорт остатков из 1С"
-                aria-label="Импорт остатков из 1С"
-                onclick={() => openImport('import')}
-              >
-                <Icon name="import" size={16} />
-              </button>
-            {/if}
-
-            {#if canExport}
-              <button
-                type="button"
-                class="sort-button"
-                title="Экспорт"
-                aria-label="Экспорт остатков"
-                disabled={busy || selectedIds.length === 0}
-                onclick={() => (exportOpen = true)}
-              >
-                <Icon name="export" size={16} />
-              </button>
-            {/if}
-          </div>
-
-          <div class="more-wrap" bind:this={moreEl}>
-            <button
-              type="button"
-              class="sort-button"
-              title="Ещё: управление и сервис"
-              aria-label="Ещё: управление и сервис"
-              aria-haspopup="menu"
-              aria-expanded={moreOpen}
-              onclick={() => (moreOpen = !moreOpen)}
-            >
-              <Icon name="more" size={16} />
-            </button>
-
-            {#if moreOpen}
-              <div class="more-menu" role="menu" aria-label="Управление и сервис">
-                {#if auth.can('settings.manage') && appSettings.groupsConfigured}
-                  <button
-                    type="button"
-                    class="more-item"
-                    role="menuitem"
-                    onclick={() => runMoreAction(() => router.navigate('/stocks/groups'))}
-                  >
-                    <Icon name="tags" size={16} />
-                    <span>Группы номенклатуры</span>
-                  </button>
-                {/if}
-                {#if auth.can('settings.manage')}
-                  <button
-                    type="button"
-                    class="more-item"
-                    role="menuitem"
-                    onclick={() => runMoreAction(() => router.navigate('/stocks/types'))}
-                  >
-                    <Icon name="types" size={16} />
-                    <span>Типы номенклатуры</span>
-                  </button>
-                {/if}
-                {#if auth.can('settings.manage') && pricesEnabled}
-                  <button
-                    type="button"
-                    class="more-item"
-                    role="menuitem"
-                    onclick={() => runMoreAction(() => router.navigate('/stocks/price-types'))}
-                  >
-                    <Icon name="price" size={16} />
-                    <span>Типы цен</span>
-                  </button>
-                {/if}
-                {#if canManageWarehouses}
-                  <button
-                    type="button"
-                    class="more-item"
-                    role="menuitem"
-                    onclick={() => runMoreAction(() => router.navigate('/stocks/warehouses'))}
-                  >
-                    <Icon name="warehouse" size={16} />
-                    <span>Склады</span>
-                  </button>
-                {/if}
-                {#if canImport}
-                  <button
-                    type="button"
-                    class="more-item"
-                    role="menuitem"
-                    onclick={() => runMoreAction(() => openImport('import'))}
-                  >
-                    <Icon name="import" size={16} />
-                    <span>Импорт из 1С</span>
-                  </button>
-                {/if}
-                {#if canExport}
-                  <button
-                    type="button"
-                    class="more-item"
-                    role="menuitem"
-                    disabled={busy || selectedIds.length === 0}
-                    onclick={() => runMoreAction(() => (exportOpen = true))}
-                  >
-                    <Icon name="export" size={16} />
-                    <span>Экспорт остатков</span>
-                  </button>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        {#if canEdit}
-          <span class="toolbar-divider" aria-hidden="true"></span>
-
-          <button
-            type="button"
-            class="create-button"
-            title="Новая номенклатура"
-            aria-label="Новая номенклатура"
-            onclick={() => router.navigate('/stocks/items/new')}
-          >
-            <Icon name="plus" size={14} />
-            <span class="create-label">Новая номенклатура</span>
-          </button>
-        {/if}
-      </div>
-    {/if}
-    </div>
-  </div>
+        items={[
+          {
+            id: 'sort', label: 'Сортировка', icon: 'sort', checked: stockSort !== stockFilterDefaults.sort, onclick: openSort
+          }, ...(warehousesEnabled && warehouses.length > 1
+            ? [
+                {
+                  id: 'warehouse', label: 'Выбор складов', icon: 'stocks', checked: selectedIds.length !== warehouses.length, onclick: openWarehouse
+                }
+              ]
+            : []), ...(groupsEnabled
+            ? [
+                {
+                  id: 'groups', label: 'Группы', icon: 'group', checked: groupFilterActive, onclick: openGroup
+                }
+              ]
+            : []), {
+            id: 'view', label: 'Вид и фильтры', icon: 'view', checked: viewMode !== 'list', onclick: openView
+          }, { id: 'sep-1', label: '', separator: true, onclick: () => {} }, ...(auth.can('settings.manage')
+            ? [
+                ...(appSettings.groupsConfigured
+                  ? [
+                      {
+                        id: 'group-settings', label: 'Группы номенклатуры', icon: 'tags', onclick: () => router.navigate('/stocks/groups')
+                      }
+                    ]
+                  : []), ...(pricesEnabled
+                  ? [
+                      {
+                        id: 'price-types', label: 'Типы цен', icon: 'price', onclick: () => router.navigate('/stocks/price-types')
+                      }
+                    ]
+                  : [])
+              ]
+            : []), ...(canExport
+            ? [
+                {
+                  id: 'export', label: 'Экспорт остатков', icon: 'export', disabled: busy || selectedIds.length === 0, onclick: () => (exportOpen = true)
+                }
+              ]
+            : []), ...(canEdit
+            ? [
+                { id: 'sep-2', label: '', separator: true, onclick: () => {} }, {
+                  id: 'create', label: 'Новая номенклатура', icon: 'plus', onclick: () => router.navigate('/stocks/items/new')
+                }
+              ]
+            : [])
+        ]}
+      />
+    {/snippet}
+  </PageToolbar>
 
   {#if loading}
     <ListSkeleton rows={7} />
@@ -1547,211 +1154,6 @@
       description="Обратитесь к администратору, чтобы получить доступ к складу."
     />
   {:else}
-    <Modal
-      open={importOpen}
-      title="Импорт остатков из 1С"
-      bodyMinHeight={372}
-      onclose={() => (importOpen = false)}
-    >
-      <div class="tabs" role="tablist" use:tablist aria-label="Разделы импорта">
-        <button
-          type="button"
-          role="tab"
-          class="tab"
-          class:active={importTab === 'import'}
-          aria-selected={importTab === 'import'}
-          onclick={() => selectImportTab('import')}
-        >
-          Импорт
-        </button>
-        <button
-          type="button"
-          role="tab"
-          class="tab"
-          class:active={importTab === 'history'}
-          aria-selected={importTab === 'history'}
-          onclick={() => selectImportTab('history')}
-        >
-          История
-        </button>
-      </div>
-
-      {#if importTab === 'import'}
-        {#if importMappingColumns.length > 0}
-          <p class="import-hint">
-            В файле есть типы цен, которых нет у нас. Укажите, как распределить цены — выбор запомнится и
-            применится в следующий раз автоматически.
-          </p>
-          {#each importMappingColumns as column (column)}
-            <div class="import-field">
-              <span class="import-label">{column}</span>
-              <select bind:value={importMapping[column]}>
-                <option value={0}>Не импортировать</option>
-                {#each importMappingTypes as type (type.id)}
-                  <option value={type.id}>{type.title}</option>
-                {/each}
-              </select>
-            </div>
-          {/each}
-          {#if importError}
-            <div class="alert">
-              <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-              <span>{importError}</span>
-            </div>
-          {/if}
-          <div class="modal-actions">
-            <Button variant="ghost" onclick={() => (importMappingColumns = [])}>Назад</Button>
-            <Button loading={busy} onclick={() => void doImport(importMapping)}>Продолжить импорт</Button>
-          </div>
-        {:else}
-          <p class="import-hint">
-            Файл Excel (xls/xlsx) в формате 1С: строки «Склад …» и далее «товар; ед.; остаток на складе».
-            CSV: те же три колонки либо «склад; товар; ед.; остаток на складе». Импорт заменяет остатки целиком:
-            номенклатура, которой нет в файле, обнуляется и скрывается, пока в настройках системы не разрешены
-            нулевые остатки. Новые склады из файла добавляются автоматически.
-          </p>
-          <div class="import-field">
-            <label class="import-label" for="import-file">Файл</label>
-            <input id="import-file" type="file" accept=".xls,.xlsx,.csv,.txt" onchange={onFileChange} />
-          </div>
-          <div class="import-field">
-            <label class="import-label" for="import-date">Дата остатков</label>
-            <input id="import-date" type="date" bind:value={actualDate} />
-          </div>
-          {#if importError}
-            <div class="alert">
-              <span class="alert-icon"><Icon name="close-circle" size={16} /></span>
-              <span>{importError}</span>
-            </div>
-          {/if}
-          {#if importConfirm}
-            <div class="import-confirm">
-              <strong>Заменить остатки?</strong>
-              <p>
-                Файл <b>{file?.name}</b> от {actualDate} заменит остатки номенклатуры. Позиции,
-                которых нет в файле, будут обнулены.
-              </p>
-              <div class="modal-actions">
-                <Button variant="ghost" onclick={() => (importConfirm = false)}>Отмена</Button>
-                <Button loading={busy} onclick={() => void doImport()}>Импортировать</Button>
-              </div>
-            </div>
-          {:else}
-            <div class="modal-actions">
-              <Button variant="ghost" onclick={() => (importOpen = false)}>Отмена</Button>
-              <Button loading={busy} disabled={file === null} onclick={() => (importConfirm = true)}>
-                Загрузить
-              </Button>
-            </div>
-          {/if}
-        {/if}
-      {:else if jobs.length === 0 && updates.length === 0}
-        <p class="empty">Импортов ещё не было</p>
-      {:else}
-        <div class="history">
-          {#each jobs as job (job.id)}
-            <div class="job">
-              <div class="row">
-                <span class="file">{job.file_name}</span>
-                <span class="status" class:failed={job.status === 'failed'}>
-                  {job.status === 'done' ? 'загружен' : job.status === 'failed' ? 'ошибка' : 'в работе'}
-                </span>
-              </div>
-              <div class="job-meta">
-                <span>{formatDateTime(job.created_at)}</span>
-                <span>{job.user}</span>
-                <span>строк: {job.rows_imported} из {job.rows_total}</span>
-                {#if job.rows_skipped > 0}<span class="warn">пропущено: {job.rows_skipped}</span>{/if}
-                <span>на дату {job.actual_date}</span>
-              </div>
-              {#if job.errors}<div class="errors">{job.errors}</div>{/if}
-            </div>
-          {/each}
-          {#each updates as update (`legacy-${update.id}`)}
-            <div class="job">
-              <div class="row">
-                <span class="file">{update.file || 'обновление остатков'}</span>
-                <span class="status">{update.status || 'загружено'}</span>
-              </div>
-              <div class="job-meta">
-                <span>{formatDateTime(update.created_at)}</span>
-                <span>строк: {update.rows_count}</span>
-                {#if update.actual_date}<span>на дату {update.actual_date}</span>{/if}
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </Modal>
-
-    <Modal open={sortOpen} title="Сортировка" onclose={() => (sortOpen = false)}>
-      <p class="sort-hint">
-        Можно задать несколько условий — они применяются сверху вниз. Нажмите стрелку,
-        чтобы добавить условие, и повторно — чтобы убрать.
-      </p>
-
-      <div class="sort-list" role="list">
-        {#each sortRows as item (item.field)}
-          {@const active = sortOrderIndex(item.field) > 0}
-          <div
-            class="sort-row"
-            class:active
-            class:drag-over={dragSortOver === item.field && dragSortField !== item.field}
-            role="listitem"
-            ondragover={(event) => overSortRow(event, item.field)}
-            ondragleave={() => {
-              if (dragSortOver === item.field) {
-                dragSortOver = null;
-              }
-            }}
-            ondrop={(event) => dropSortRow(event, item.field)}
-          >
-            <span
-              class="sort-drag"
-              class:off={!active}
-              draggable={active}
-              title={active ? 'Перетащите, чтобы изменить порядок' : undefined}
-              aria-hidden="true"
-              ondragstart={(event) => startSortDrag(event, item.field)}
-              ondragend={endSortDrag}
-            >
-              <Icon name="holder" size={14} />
-            </span>
-            {#if active}
-              <span class="sort-order">{sortOrderIndex(item.field)}</span>
-            {/if}
-            <span class="sort-row-label">{item.label}</span>
-            <button
-              type="button"
-              class="dir-btn"
-              class:on={sortDraft.includes(`${item.field}_asc`)}
-              title="По возрастанию"
-              aria-label={`${item.label}: по возрастанию`}
-              onclick={() => toggleSortDir(item.field, 'asc')}
-            >
-              <Icon name="arrow-up" size={16} />
-            </button>
-            <button
-              type="button"
-              class="dir-btn"
-              class:on={sortDraft.includes(`${item.field}_desc`)}
-              title="По убыванию"
-              aria-label={`${item.label}: по убыванию`}
-              onclick={() => toggleSortDir(item.field, 'desc')}
-            >
-              <Icon name="arrow-down" size={16} />
-            </button>
-          </div>
-        {/each}
-      </div>
-      <div class="modal-actions">
-        <Button variant="ghost" onclick={() => (sortDraft = ['name_asc'])}>Сбросить</Button>
-        <div class="modal-buttons">
-          <Button variant="ghost" onclick={() => (sortOpen = false)}>Отмена</Button>
-          <Button onclick={applySort}>Применить</Button>
-        </div>
-      </div>
-    </Modal>
 
     <Modal open={groupOpen} title="Группы номенклатуры" onclose={() => (groupOpen = false)}>
       <div class="sort-options">
@@ -1906,15 +1308,14 @@
 
         </div>
         <div class="modal-actions">
-          <Button variant="ghost" onclick={resetView}>Сбросить</Button>
+          <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
           <div class="modal-buttons">
-            <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-            <Button onclick={applyView}>Применить</Button>
+            <Button variant="ghost" size="lg" onclick={() => (viewOpen = false)}>Отмена</Button>
+            <Button size="lg" onclick={applyView}>Применить</Button>
           </div>
         </div>
       </div>
     </Modal>
-
 
     {#if loadingLevels}
       <ListSkeleton rows={6} />
@@ -2365,6 +1766,15 @@
     {/if}
   {/if}
 
+  <SortDialog
+    open={sortOpen}
+    fields={availableSortFields}
+    sort={stockSort}
+    defaultValue="name_asc"
+    onclose={() => (sortOpen = false)}
+    onapply={applySortTerms}
+  />
+
   <ExportModal
     open={exportOpen}
     title="Экспорт остатков по выбранным складам"
@@ -2386,112 +1796,8 @@
     margin-inline: auto;
   }
 
-  .page:has(.levels.tiles),
-  .page:has(.columns-table) {
+  .page:has(.levels.tiles), .page:has(.columns-table) {
     max-width: 1600px;
-  }
-
-  .head {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-1);
-  }
-
-  h1 {
-    margin: 0;
-    font-size: var(--font-xl);
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--text);
-  }
-
-  .tabs {
-    display: flex;
-    gap: var(--space-6);
-    margin-bottom: var(--space-4);
-    border-bottom: 1px solid var(--border-secondary);
-  }
-
-  .tab {
-    position: relative;
-    padding: 10px 0;
-    border: none;
-    background: none;
-    font: inherit;
-    font-size: 14px;
-    color: var(--text);
-    cursor: pointer;
-  }
-
-  .tab:hover {
-    color: var(--primary);
-  }
-
-  .tab.active {
-    color: var(--primary);
-  }
-
-  .tab.active::after {
-    content: '';
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -1px;
-    height: 2px;
-    background: var(--primary);
-  }
-
-  .import-hint {
-    margin: 0 0 var(--space-4);
-    font-size: 13px;
-    line-height: 1.5;
-    color: var(--text-description);
-  }
-
-  .import-confirm {
-    padding: var(--space-3);
-    border: 1px solid var(--warning);
-    border-radius: var(--radius-sm);
-    background: var(--warning-bg);
-  }
-
-  .import-confirm p {
-    margin: var(--space-2) 0 var(--space-3);
-    font-size: 13px;
-    line-height: 1.45;
-    color: var(--text);
-  }
-
-  .import-field {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-    margin-bottom: var(--space-4);
-  }
-
-  .import-label {
-    font-size: 14px;
-    color: var(--text);
-  }
-
-  .import-field input[type='file'],
-  .import-field input[type='date'],
-  .import-field select {
-    padding: 4px 11px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    font: inherit;
-    font-size: 14px;
-  }
-
-  .import-field input[type='file']:focus,
-  .import-field input[type='date']:focus,
-  .import-field select:focus {
-    outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--focus-ring);
   }
 
   .count {
@@ -2532,184 +1838,7 @@
     line-height: 1;
   }
 
-  .hero {
-    padding: var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--surface);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    align-items: center;
-    justify-content: flex-start;
-  }
-
-  .search {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    flex: 1 1 220px;
-    max-width: 360px;
-    min-width: 0;
-  }
-
-  .filter-icons {
-    position: relative;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    margin-left: auto;
-  }
-
-  /* На десктопе управление и импорт-экспорт видны в строке; на телефоне — в меню «Ещё». */
-  .actions-secondary {
-    display: contents;
-  }
-
-  .more-wrap {
-    display: none;
-    position: static;
-  }
-
-  .more-menu {
-    position: absolute;
-    top: calc(100% + 6px);
-    right: 0;
-    z-index: 20;
-    display: flex;
-    flex-direction: column;
-    min-width: min(260px, calc(100vw - 32px));
-    padding: 4px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    box-shadow: var(--shadow-md);
-  }
-
-  .more-item {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    width: 100%;
-    padding: 10px 12px;
-    border: none;
-    border-radius: var(--radius-xs);
-    background: none;
-    color: var(--text);
-    font: inherit;
-    font-size: 14px;
-    text-align: left;
-    cursor: pointer;
-  }
-
-  .more-item:hover:not(:disabled) {
-    background: var(--fill-tertiary);
-  }
-
-  .more-item:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .more-item:focus-visible {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: -2px;
-  }
-
-  .more-item span {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .create-button {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    height: var(--control-height);
-    padding: 0 var(--space-3);
-    border: none;
-    border-radius: var(--radius-sm);
-    background: var(--primary);
-    color: #fff;
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .create-button:hover {
-    background: var(--primary-hover);
-  }
-
-  .create-button:active {
-    background: var(--primary-active);
-  }
-
-  .create-button:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
-
-  .sort-button {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
-  }
-
-  .icon-badge {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    border-radius: 999px;
-    background: var(--primary);
-    color: #fff;
-    font-size: 10px;
-    line-height: 16px;
-    text-align: center;
-  }
-
-  .sort-button:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
-  .sort-button:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .sort-button.active {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .toolbar-divider {
-    width: 1px;
-    height: 24px;
-    margin: 0 var(--space-1);
-    background: var(--border-secondary);
-  }
+  /* Второстепенные действия всегда в одном меню — без дублирования иконок в строке. */
 
   .sort-options {
     display: flex;
@@ -2922,110 +2051,6 @@
     text-decoration: underline;
   }
 
-  .sort-hint {
-    margin: 0 0 var(--space-2);
-    font-size: 13px;
-    color: var(--text-description);
-  }
-
-  .sort-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 340px;
-    overflow-y: auto;
-  }
-
-  .sort-row.active .sort-row-label {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .sort-order {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: var(--primary);
-    color: #fff;
-    font-size: 11px;
-    font-weight: 600;
-  }
-
-  .sort-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: 6px 8px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-  }
-
-  .sort-row.active {
-    border-color: var(--primary-border);
-    background: var(--primary-bg);
-  }
-
-  .sort-row.drag-over {
-    border-color: var(--primary);
-    box-shadow: inset 0 2px 0 var(--primary);
-  }
-
-  .sort-drag {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-    width: 18px;
-    height: 24px;
-    color: var(--text-description);
-    cursor: grab;
-  }
-
-  .sort-drag:active {
-    cursor: grabbing;
-  }
-
-  .sort-drag.off {
-    visibility: hidden;
-    cursor: default;
-  }
-
-  .sort-row-label {
-    flex: 1;
-    min-width: 0;
-    font-size: 14px;
-  }
-
-  .dir-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-  }
-
-  .dir-btn:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .dir-btn.on {
-    border-color: var(--primary);
-    color: var(--primary);
-    background: var(--primary-bg);
-  }
-
   .sort-option {
     display: flex;
     align-items: center;
@@ -3077,13 +2102,6 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     margin-left: auto;
-  }
-
-  @media (max-width: 720px) {
-    .search {
-      flex: 1 1 100%;
-      max-width: none;
-    }
   }
 
   .levels {
@@ -3192,8 +2210,7 @@
     left: 0;
   }
 
-  .columns-table th,
-  .columns-table td {
+  .columns-table th, .columns-table td {
     padding: 6px 12px;
     border-bottom: 1px solid var(--border-secondary);
     text-align: left;
@@ -3234,8 +2251,7 @@
     box-shadow: inset 1px 0 0 var(--border-secondary);
   }
 
-  .columns-table tbody tr:last-child th,
-  .columns-table tbody tr:last-child td {
+  .columns-table tbody tr:last-child th, .columns-table tbody tr:last-child td {
     border-bottom: none;
   }
 
@@ -3251,8 +2267,7 @@
     background: color-mix(in srgb, var(--text) 4%, var(--surface));
   }
 
-  .columns-table .columns-name-head,
-  .columns-table .columns-name {
+  .columns-table .columns-name-head, .columns-table .columns-name {
     position: sticky;
     left: 0;
     z-index: 1;
@@ -3453,8 +2468,7 @@
     color: var(--primary-hover);
   }
 
-  .column-main:focus-visible,
-  .column-add-icon:focus-visible {
+  .column-main:focus-visible, .column-add-icon:focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 1px;
   }
@@ -3500,12 +2514,7 @@
     grid-column: 6;
   }
 
-  .col-photo,
-  .col-name,
-  .col-meta,
-  .col-price,
-  .col-stock,
-  .col-cart {
+  .col-photo, .col-name, .col-meta, .col-price, .col-stock, .col-cart {
     grid-row: 1;
   }
 
@@ -3599,13 +2608,11 @@
       transform: translateY(-50%);
     }
 
-    .levels-head .col-stock,
-    .levels-head .col-price {
+    .levels-head .col-stock, .levels-head .col-price {
       justify-content: flex-end;
     }
 
-    .levels-head .col-stock .sort-badge,
-    .levels-head .col-price .sort-badge {
+    .levels-head .col-stock .sort-badge, .levels-head .col-price .sort-badge {
       order: -1;
     }
 
@@ -3624,10 +2631,7 @@
       padding: 0;
     }
 
-    .levels:not(.tiles) .level > .cell,
-    .levels:not(.tiles) .level > .name-col,
-    .levels:not(.tiles) .level > .col-meta,
-    .levels:not(.tiles) .level > .level-bottom > .stat {
+    .levels:not(.tiles) .level > .cell, .levels:not(.tiles) .level > .name-col, .levels:not(.tiles) .level > .col-meta, .levels:not(.tiles) .level > .level-bottom > .stat {
       padding: 12px var(--space-4);
     }
 
@@ -3650,16 +2654,14 @@
       font-size: 12px;
     }
 
-    .levels:not(.tiles) .col-meta .wh,
-    .levels:not(.tiles) .col-meta .group {
+    .levels:not(.tiles) .col-meta .wh, .levels:not(.tiles) .col-meta .group {
       max-width: 100%;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
 
-    .levels:not(.tiles) .col-stock,
-    .levels:not(.tiles) .col-price {
+    .levels:not(.tiles) .col-stock, .levels:not(.tiles) .col-price {
       align-items: flex-end;
       text-align: right;
     }
@@ -3744,10 +2746,6 @@
   }
 
   @media (max-width: 719.98px) {
-    .toolbar-divider {
-      display: none;
-    }
-
     .levels:not(.tiles) .level {
       flex-wrap: wrap;
       row-gap: var(--space-2);
@@ -3822,8 +2820,7 @@
     font-size: 12px;
   }
 
-  .levels.tiles .meta .wh,
-  .levels.tiles .meta .group {
+  .levels.tiles .meta .wh, .levels.tiles .meta .group {
     max-width: 100%;
     color: var(--text-description);
     font-size: 11px;
@@ -4091,60 +3088,7 @@
     color: var(--primary);
   }
 
-  .history {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-2);
-  }
-
-  .job {
-    padding: var(--space-3);
-    border: 1px solid var(--border-secondary);
-    border-radius: var(--radius-md);
-  }
-
-  .job .row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-  }
-
-  .file {
-    font-weight: 500;
-  }
-
-  .status {
-    font-size: 12px;
-    color: var(--success-text);
-  }
-
-  .status.failed {
-    color: var(--error-text);
-  }
-
-  .job-meta {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 2px;
-  }
-
-  .warn {
-    color: var(--warning-text);
-  }
-
-  .errors {
-    margin-top: 4px;
-    font-size: 12px;
-    color: var(--error-text);
-    white-space: pre-wrap;
-  }
-
-  .alert,
-  .notice {
+  .alert, .notice {
     display: flex;
     align-items: flex-start;
     gap: var(--space-2);
@@ -4179,36 +3123,8 @@
     color: var(--success);
   }
 
-  .empty {
-    padding: var(--space-6);
-    text-align: center;
-    color: var(--text-description);
-    background: var(--surface);
-    border: 1px dashed var(--border-secondary);
-    border-radius: var(--radius-md);
-  }
+  /* Телефон: действия в одну компактную строку. */
 
-  /* Телефон: главные иконки в строке, управление и импорт-экспорт — в «Ещё». */
-  @media (max-width: 720px) {
-    .actions-secondary {
-      display: none;
-    }
-
-    .more-wrap {
-      display: inline-flex;
-    }
-
-    .create-label {
-      display: none;
-    }
-
-    .create-button {
-      width: var(--control-height);
-      height: var(--control-height);
-      padding: 0;
-      justify-content: center;
-    }
-  }
 
   /* Колоночный вид на телефоне: узкая колонка названия и компактные склады. */
   @media (max-width: 720px) {
@@ -4240,8 +3156,7 @@
       font-size: 13px;
     }
 
-    .column-label,
-    .column-add-label {
+    .column-label, .column-add-label {
       display: none;
     }
 

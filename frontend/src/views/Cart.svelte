@@ -9,6 +9,7 @@
   import { router } from '../lib/router.svelte';
   import { formatPrice } from '../lib/format';
   import Button from '../lib/components/ui/Button.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
 
   let priceType = $state<{ id: number; title: string } | null>(null);
@@ -120,14 +121,11 @@
 </script>
 
 <section class="page">
-  <div class="page-hero">
-    <div class="head">
-      <h1>Корзина</h1>
-      {#if cart.count > 0}
-        <span class="count">{cart.count} поз.</span>
-      {/if}
-    </div>
-  </div>
+  <PageToolbar>
+    {#snippet title()}
+      Корзина {#if cart.count > 0}<span class="count">{cart.count} поз.</span>{/if}
+    {/snippet}
+  </PageToolbar>
 
   {#if error}
     <div class="alert">{error}</div>
@@ -226,17 +224,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-  }
-
-  .head {
-    display: flex;
-    align-items: baseline;
-    gap: var(--space-2);
-  }
-
-  h1 {
-    margin: 0;
-    font-size: var(--font-xl);
   }
 
   .count {

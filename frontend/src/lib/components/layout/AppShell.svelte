@@ -4,16 +4,22 @@
   import { chatUnread } from '../../api/chat';
   import { unreadCount } from '../../api/notifications';
   import { config } from '../../config';
-  import { avatarColor, avatarLetter, avatarName } from '../../avatar';
   import Icon from '../ui/Icon.svelte';
+  import AppRail from './AppRail.svelte';
+  import QuickActions from './QuickActions.svelte';
+  import CommandPalette from './CommandPalette.svelte';
+  import { commandPalette } from '../../stores/command-palette.svelte';
+  import { recentPages } from '../../stores/recent-pages.svelte';
+  import { navPrefs } from '../../stores/nav-prefs.svelte';
+  import { theme } from '../../stores/theme.svelte';
   import { auth } from '../../stores/auth.svelte';
-  import { avatars } from '../../stores/avatar.svelte';
-  import { appSettings } from '../../stores/app-settings.svelte';
+  import { appSettings, type NavNode } from '../../stores/app-settings.svelte';
   import { network } from '../../stores/network.svelte';
   import { swipeBack } from '../../a11y/swipe';
   import { cart } from '../../stores/cart.svelte';
   import { router } from '../../router.svelte';
-  import Logo from '../ui/Logo.svelte';
+  import { allowedRoutesFromNav } from '../../navigation-context';
+  import { quickActions } from '../../quick-actions';
 
   interface Props {
     children?: Snippet;
@@ -24,20 +30,91 @@
   let unread = $state(0);
   let chatUnreadCount = $state(0);
 
-  const avatarUrl = $derived(avatars.url(auth.user?.id));
-  let avatarFailed = $state(false);
-
-  $effect(() => {
-    void avatarUrl;
-    avatarFailed = false;
-  });
-
-  const avatarSeed = $derived(avatarName(auth.user?.name, auth.user?.login ?? 'guest'));
-  const letter = $derived(avatarLetter(avatarSeed));
-  const avatarBg = $derived(avatarColor(avatarSeed));
-
   const path = $derived(router.current.path);
   const brandHint = $derived(appSettings.appDescription || appSettings.appTitle);
+
+  /* Rail есть на desktop — там он раскрывается вручную; ниже 768 px его нет. */
+  let railVisible = $state(true);
+  const railExpanded = $derived(navPrefs.railExpanded);
+  const canExpandRail = $derived(railVisible);
+  const railWidth = $derived(railExpanded ? 240 : 56);
+  const allowedRoutes = $derived(allowedRoutesFromNav(appSettings.visibleNav));
+  const quickActionCount = $derived(
+    quickActions({
+      navIds: new Set(appSettings.visibleNav.map((node) => node.id)),
+      capabilities: auth.capabilities,
+      requestsEnabled: appSettings.requestsEnabled,
+      salesEnabled: appSettings.salesEnabled,
+      chatEnabled: appSettings.chatEnabled
+    }).length
+  );
+  const navTitles = $derived(
+    new Map(appSettings.visibleNav.map((node) => [node.route.replace(/^#/, ''), node.label]))
+  );
+
+  $effect(() => {
+    const userId = auth.user?.id ?? null;
+    if (!auth.isAuthenticated || userId === null) {
+      return;
+    }
+    recentPages.setUser(userId, allowedRoutes, navTitles);
+  });
+
+  $effect(() => {
+    const currentPath = path;
+    if (!auth.isAuthenticated || !appSettings.loaded) {
+      return;
+    }
+    recentPages.visit(currentPath, allowedRoutes, navTitles);
+  });
+
+  function channelCount(node: { badge?: { source?: string } }): number {
+    if (node.badge?.source === 'chat') {
+      return chatUnreadCount;
+    }
+    if (node.badge?.source === 'notifications') {
+      return unread;
+    }
+    if (node.badge?.source === 'cart') {
+      return cart.count;
+    }
+
+    return 0;
+  }
+
+  function toggleRail(): void {
+    if (canExpandRail) {
+      navPrefs.setRailExpanded(!railExpanded);
+    }
+  }
+
+  $effect(() => {
+    // Настройки меню персональны и не переходят к другому пользователю.
+    navPrefs.setUser(auth.user?.id ?? null);
+  });
+
+  $effect(() => {
+    // Плотность применяется ко всему сайту через токены в app.css.
+    document.documentElement.dataset.density = navPrefs.density;
+  });
+
+  onMount(() => {
+    const railQuery = window.matchMedia('(min-width: 768px)');
+    railVisible = railQuery.matches;
+
+    const onRailChange = (event: MediaQueryListEvent): void => {
+      railVisible = event.matches;
+    };
+
+    railQuery.addEventListener('change', onRailChange);
+    return () => railQuery.removeEventListener('change', onRailChange);
+  });
+
+  $effect(() => {
+    if (!canExpandRail && railExpanded) {
+      navPrefs.setRailExpanded(false);
+    }
+  });
 
   $effect(() => {
     if (!appSettings.loaded) {
@@ -70,160 +147,50 @@
     }
   });
 
-  const showClients = $derived(
-    appSettings.clientsEnabled && (auth.can('clients.view.all') || auth.can('clients.view.own'))
-  );
-
-  const showSettings = $derived(
-    auth.can('settings.manage') || auth.can('mail.manage') || auth.can('mail.send')
-  );
-
-  const showStaff = $derived(appSettings.staffEnabled && auth.can('users.manage'));
-
-  const showAudit = $derived(auth.can('audit.view'));
-
-  const showStockLots = $derived(appSettings.lotsEnabled && auth.can('stocks.lots.view'));
-
-  const canViewReports = $derived(auth.can('reports.view.all') || auth.can('reports.view.own'));
-
-  const showReports = $derived(appSettings.reportsEnabled && canViewReports);
-
-  const showMyReports = $derived(appSettings.reportsEnabled && !canViewReports);
-
-  const navCount = $derived(
-    3 +
-      (showReports ? 1 : 0) +
-      (showClients ? 1 : 0) +
-      (showStaff ? 1 : 0) +
-      (showSettings ? 1 : 0)
-  );
-
   interface MobileNavItem {
     path: string;
     label: string;
     icon: string;
     active: boolean;
+    badge: number;
+    topbar: boolean;
+  }
+
+  function toMobileItem(node: NavNode): MobileNavItem {
+    const base = node.route.replace(/^#/, '');
+
+    return {
+      path: base,
+      label: node.label,
+      icon: node.iconId,
+      active: path === base || path.startsWith(`${base}/`),
+      badge: channelCount(node),
+      topbar: node.presentation.topbar
+    };
   }
 
   /*
-   * Мобильная навигация — одна, внизу: до 4 основных разделов + «Ещё».
-   * Шапка несёт только статусные каналы (уведомления) и профиль;
-   * чат, корзина и служебные пункты живут в «Ещё», чтобы не дублировать меню.
+   * Мобильная навигация — второе представление того же visibleNav:
+   * до 4 нижних разделов и «Ещё» для остальных доступных узлов.
    */
-  const mobileNavItems = $derived.by<MobileNavItem[]>(() => {
-    const items: MobileNavItem[] = [
-      {
-        path: '/stocks',
-        label: 'Номенклатура',
-        icon: 'stocks',
-        active: path === '/stocks' || path.startsWith('/stocks/')
-      }
-    ];
+  const mobileNodes = $derived(
+    appSettings.visibleNav
+      .filter((node) => node.presentation.bottom || node.presentation.drawer)
+      .slice()
+      .sort((a, b) => a.order - b.order)
+  );
 
-    if (appSettings.requestsEnabled) {
-      items.push({
-        path: '/requests',
-        label: 'Заявки',
-        icon: 'requests',
-        active: path.startsWith('/requests')
-      });
-    }
-    if (showReports) {
-      items.push({ path: '/reports', label: 'Отчёты', icon: 'reports', active: path === '/reports' });
-    }
-    if (showMyReports) {
-      items.push({
-        path: '/my-reports',
-        label: 'Мои отчёты',
-        icon: 'my-reports',
-        active: path === '/my-reports'
-      });
-    }
-    if (showClients) {
-      items.push({
-        path: '/clients',
-        label: 'Клиенты',
-        icon: 'clients',
-        active: path.startsWith('/clients')
-      });
-    }
-    if (showStaff) {
-      items.push({
-        path: '/staff',
-        label: 'Сотрудники',
-        icon: 'staff',
-        active: path.startsWith('/staff') || path === '/substitutions'
-      });
-    }
-    if (showSettings) {
-      items.push({
-        path: '/settings',
-        label: 'Настройки',
-        icon: 'settings',
-        active: path === '/settings'
-      });
-    }
-
-    return items;
-  });
-
+  const mobileNavItems = $derived(mobileNodes.filter((node) => node.presentation.bottom).slice(0, 4).map(toMobileItem));
   const primaryNavItems = $derived(mobileNavItems.slice(0, 4));
-  const overflowNavItems = $derived(mobileNavItems.slice(4));
+
+  const overflowNavItems = $derived(
+    mobileNodes.filter((node) => !node.presentation.bottom).map(toMobileItem)
+  );
+  const sectionItems = $derived(overflowNavItems.filter((item) => !item.topbar));
+  const mobileServiceItems = $derived(overflowNavItems.filter((item) => item.topbar));
   const overflowActive = $derived(overflowNavItems.some((item) => item.active));
 
-  const mobileServices = $derived.by<{
-    path: string;
-    label: string;
-    icon: string;
-    active: boolean;
-    badge: number;
-  }[]>(() => {
-    const items: { path: string; label: string; icon: string; active: boolean; badge: number }[] = [];
-
-    if (appSettings.chatEnabled && auth.can('chat.use')) {
-      items.push({
-        path: '/chat',
-        label: 'Чат',
-        icon: 'chat',
-        active: path === '/chat',
-        badge: chatUnreadCount
-      });
-    }
-    if (appSettings.salesEnabled && appSettings.cartEnabled) {
-      items.push({
-        path: '/cart',
-        label: 'Корзина',
-        icon: 'cart',
-        active: path === '/cart',
-        badge: cart.count
-      });
-    }
-    if (showStockLots) {
-      items.push({
-        path: '/stock-lots',
-        label: 'Партии',
-        icon: 'tags',
-        active: path === '/stock-lots',
-        badge: 0
-      });
-    }
-    items.push({ path: '/about', label: 'О программе', icon: 'info', active: path === '/about', badge: 0 });
-    if (showAudit) {
-      items.push({
-        path: '/admin/audit',
-        label: 'Журнал',
-        icon: 'audit',
-        active: path === '/admin/audit',
-        badge: 0
-      });
-    }
-
-    return items;
-  });
-
-  const moreBadge = $derived(
-    mobileServices.reduce((sum, item) => sum + item.badge, 0)
-  );
+  const moreBadge = $derived(overflowNavItems.reduce((sum, item) => sum + item.badge, 0));
 
   let mobileMenuOpen = $state(false);
   let mobileMenuEl = $state<HTMLElement | null>(null);
@@ -266,7 +233,7 @@
   }
 
   $effect(() => {
-    const mq = window.matchMedia('(max-width: 720px)');
+    const mq = window.matchMedia('(max-width: 767px)');
     const onChange = (event: MediaQueryListEvent): void => {
       // шторка «Ещё» — мобильный артефакт: при поворте/расширении закрываем
       if (!event.matches && mobileMenuOpen) {
@@ -280,6 +247,12 @@
   $effect(() => {
     void path;
     mobileMenuOpen = false;
+  });
+
+  $effect(() => {
+    if (commandPalette.open && mobileMenuOpen) {
+      closeMobileMenu();
+    }
   });
 
   $effect(() => {
@@ -302,16 +275,15 @@
   });
 
   function onGlobalKeydown(event: KeyboardEvent): void {
+    if (commandPalette.open) {
+      return;
+    }
     if (event.key === 'Escape' && mobileMenuOpen) {
       closeMobileMenu();
     }
   }
 
   onMount(() => {
-    if (auth.user) {
-      void avatars.load(auth.user.id);
-    }
-
     const tick = async (): Promise<void> => {
       try {
         const [notes, chat] = await Promise.all([
@@ -356,193 +328,20 @@
 
 <svelte:window onkeydown={onGlobalKeydown} />
 
-<div class="shell" class:demo={appSettings.demoMode} use:swipeBack>
+<div class="shell" style:--rail-width={`${railWidth}px`} use:swipeBack>
   <a class="skip-link" href="#main-content" onclick={skipToContent}>К содержимому</a>
-  <header>
-    <div class="left">
-      <a class="brand" href="#/requests" title={brandHint}>
-        <span title={brandHint}><Logo size={26} /></span>
-        <span title={brandHint}>{appSettings.appTitle}</span>
-      </a>
-      <nav class="desktop-nav" class:many={navCount > 6} aria-label="Основная навигация">
-        <a
-          href="#/stocks"
-          class:active={path === '/stocks' || path.startsWith('/stocks/')}
-          aria-current={path === '/stocks' || path.startsWith('/stocks/') ? 'page' : undefined}
-          title="Номенклатура"
-        >
-          <Icon name="stocks" size={20} />
-          <span class="nav-label">Номенклатура</span>
-        </a>
-        {#if showStockLots}
-          <a
-            href="#/stock-lots"
-            class:active={path === '/stock-lots'}
-            aria-current={path === '/stock-lots' ? 'page' : undefined}
-            title="Партии"
-          >
-            <Icon name="tags" size={20} />
-            <span class="nav-label">Партии</span>
-          </a>
-        {/if}
-        {#if appSettings.requestsEnabled}
-          <a
-            href="#/requests"
-            class:active={path.startsWith('/requests')}
-            aria-current={path.startsWith('/requests') ? 'page' : undefined}
-            title="Заявки"
-          >
-            <Icon name="requests" size={20} />
-            <span class="nav-label">Заявки</span>
-          </a>
-        {/if}
-        {#if showReports}
-          <a
-            href="#/reports"
-            class:active={path === '/reports'}
-            aria-current={path === '/reports' ? 'page' : undefined}
-            title="Отчёты"
-          >
-            <Icon name="reports" size={20} />
-            <span class="nav-label">Отчёты</span>
-          </a>
-        {/if}
-        {#if showMyReports}
-          <a
-            href="#/my-reports"
-            class:active={path === '/my-reports'}
-            aria-current={path === '/my-reports' ? 'page' : undefined}
-            title="Мои отчёты"
-          >
-            <Icon name="my-reports" size={20} />
-            <span class="nav-label">Мои отчёты</span>
-          </a>
-        {/if}
-        {#if showClients}
-          <a
-            href="#/clients"
-            class:active={path.startsWith('/clients')}
-            aria-current={path.startsWith('/clients') ? 'page' : undefined}
-            title="Клиенты"
-          >
-            <Icon name="clients" size={20} />
-            <span class="nav-label">Клиенты</span>
-          </a>
-        {/if}
-        {#if showStaff}
-          <a
-            href="#/staff"
-            class:active={path.startsWith('/staff') || path === '/substitutions'}
-            aria-current={path.startsWith('/staff') || path === '/substitutions' ? 'page' : undefined}
-            title="Сотрудники"
-          >
-            <Icon name="staff" size={20} />
-            <span class="nav-label">Сотрудники</span>
-          </a>
-        {/if}
-        {#if showSettings}
-          <a
-            href="#/settings"
-            class:active={path === '/settings'}
-            aria-current={path === '/settings' ? 'page' : undefined}
-            title="Настройки"
-          >
-            <Icon name="settings" size={20} />
-            <span class="nav-label">Настройки</span>
-          </a>
-        {/if}
-      </nav>
-    </div>
-    <div class="user">
-      {#if showAudit}
-        <button
-          type="button"
-          class="bell bell-audit"
-          class:current={path === '/admin/audit'}
-          aria-label="Журнал"
-          title="Журнал"
-          onclick={() => router.navigate('/admin/audit')}
-        >
-          <Icon name="audit" size={20} />
-        </button>
-      {/if}
-      <button
-        type="button"
-        class="bell bell-info"
-        class:current={path === '/about'}
-        aria-label="О программе"
-        title="О программе"
-        onclick={() => router.navigate('/about')}
-      >
-        <Icon name="info" size={20} />
-      </button>
-      {#if appSettings.chatEnabled && auth.can('chat.use')}
-        <button
-          type="button"
-          class="bell bell-chat"
-          class:has-new={chatUnreadCount > 0}
-          class:current={path === '/chat'}
-          aria-label={chatUnreadCount > 0 ? `Чат: ${chatUnreadCount} новых` : 'Чат'}
-          title="Чат"
-          onclick={() => router.navigate('/chat')}
-        >
-          <Icon name="chat" size={20} />
-          {#if chatUnreadCount > 0}
-            <span class="bell-badge">{chatUnreadCount > 99 ? '99+' : chatUnreadCount}</span>
-          {/if}
-        </button>
-      {/if}
-      {#if appSettings.notificationsEnabled && auth.can('notifications.use')}
-        <button
-          type="button"
-          class="bell"
-          class:has-new={unread > 0}
-          class:current={path === '/notifications'}
-          aria-label={unread > 0 ? `Уведомления: ${unread} новых` : 'Уведомления'}
-          title="Уведомления"
-          onclick={() => router.navigate('/notifications')}
-        >
-          <Icon name="bell" size={20} />
-          {#if unread > 0}
-            <span class="bell-badge">{unread > 99 ? '99+' : unread}</span>
-          {/if}
-        </button>
-      {/if}
-      {#if appSettings.salesEnabled && appSettings.cartEnabled}
-        <button
-          type="button"
-          class="bell bell-cart"
-          class:has-new={cart.count > 0}
-          class:current={path === '/cart'}
-          aria-label={cart.count > 0 ? `Корзина: ${cart.count}` : 'Корзина'}
-          title="Корзина"
-          onclick={() => router.navigate('/cart')}
-        >
-          <Icon name="cart" size={20} />
-          {#if cart.count > 0}
-            <span class="bell-badge">{cart.count > 99 ? '99+' : cart.count}</span>
-          {/if}
-        </button>
-      {/if}
-      <button
-        type="button"
-        class="avatar"
-        title="Профиль"
-        aria-label="Профиль"
-        onclick={() => router.navigate('/profile')}
-      >
-          {#if avatarUrl && !avatarFailed}
-            <img src={avatarUrl} alt="" onerror={() => (avatarFailed = true)} />
-          {:else}
-          <span style:background={avatarBg}>{letter}</span>
-        {/if}
-      </button>
-      <button type="button" class="name" title="Профиль" onclick={() => router.navigate('/profile')}>
-        {auth.name || 'Пользователь'}
-      </button>
-    </div>
-  </header>
-
+    <AppRail
+    nodes={appSettings.visibleNav}
+    {path}
+    expanded={railExpanded}
+    {railWidth}
+    canExpand={canExpandRail}
+    {unread}
+    {chatUnreadCount}
+    navError={appSettings.navError}
+    onRetry={() => void appSettings.retry()}
+    onToggle={toggleRail}
+  />
   {#if !network.online}
     <div class="network-strip offline" role="status">
       <span class="strip-icon"><Icon name="close-circle" size={16} /></span>
@@ -552,13 +351,6 @@
     <div class="network-strip restored" role="status">
       <span class="strip-icon"><Icon name="check-circle" size={16} /></span>
       <span>Подключение восстановлено.</span>
-    </div>
-  {/if}
-
-  {#if appSettings.demoMode}
-    <div class="demo-banner">
-      Демо-режим: данные вымышленные, изменения не сохраняются. Смена паролей и управление
-      пользователями недоступны.
     </div>
   {/if}
 
@@ -630,10 +422,37 @@
         </button>
       </div>
       <div class="mobile-menu-list">
-        {#if overflowNavItems.length > 0}
+        {#if quickActionCount > 0}
+          <section class="mobile-menu-group" aria-label="Быстрые действия">
+            <p class="mobile-menu-title">Быстрые действия</p>
+            <QuickActions inline onNavigate={closeMobileMenu} />
+          </section>
+        {/if}
+        <section class="mobile-menu-group" aria-label="Отображение">
+          <p class="mobile-menu-title">Отображение</p>
+          <button
+            type="button"
+            class="mobile-density"
+            aria-pressed={navPrefs.density === 'compact'}
+            onclick={() => navPrefs.toggleDensity()}
+          >
+            <Icon name={navPrefs.density === 'compact' ? 'view' : 'list'} size={18} />
+            <span>{navPrefs.density === 'compact' ? 'Компактно' : 'Комфортно'}</span>
+          </button>
+          <button
+            type="button"
+            class="mobile-density"
+            aria-pressed={theme.dark}
+            onclick={() => theme.toggle()}
+          >
+            <Icon name="picture" size={18} />
+            <span>{theme.dark ? 'Светлая тема' : 'Тёмная тема'}</span>
+          </button>
+        </section>
+        {#if sectionItems.length > 0}
           <nav class="mobile-menu-group" aria-label="Дополнительные разделы">
             <p class="mobile-menu-title">Разделы</p>
-            {#each overflowNavItems as item (item.path)}
+            {#each sectionItems as item (item.path)}
               <a
                 href={`#${item.path}`}
                 class:active={item.active}
@@ -648,7 +467,7 @@
         {/if}
         <nav class="mobile-menu-group" aria-label="Сервис">
           <p class="mobile-menu-title">Сервис</p>
-          {#each mobileServices as item (item.path)}
+          {#each mobileServiceItems as item (item.path)}
             <a
               href={`#${item.path}`}
               class:active={item.active}
@@ -666,6 +485,11 @@
       </div>
     </div>
   {/if}
+</div>
+
+<!-- Палитра живёт вне .shell, но должна знать ширину рейла для центрирования. -->
+<div style:--rail-width={`${railWidth}px`}>
+  <CommandPalette />
 </div>
 
 <style>
@@ -703,53 +527,6 @@
     flex: 0 0 auto;
   }
 
-  .demo-banner {
-    padding: var(--space-2) var(--space-5);
-    background: var(--warning-bg);
-    color: var(--warning-text);
-    border-bottom: 1px solid var(--border);
-    font-size: 13px;
-    text-align: center;
-  }
-
-  header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-4);
-    height: 64px;
-    padding: 0 var(--space-5);
-    background: var(--surface);
-    border-bottom: 1px solid var(--border-secondary);
-  }
-
-  .left {
-    display: flex;
-    align-items: center;
-    gap: var(--space-5);
-    height: 100%;
-    min-width: 0;
-    flex: 1 1 auto;
-  }
-
-  .brand {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    color: var(--text);
-    font-size: 18px;
-    font-weight: 600;
-    text-decoration: none;
-  }
-
-  nav.desktop-nav {
-    display: flex;
-    align-items: stretch;
-    gap: 0;
-    height: 100%;
-    min-width: 0;
-  }
-
   nav a {
     display: inline-flex;
     align-items: center;
@@ -768,166 +545,27 @@
     border-bottom-color: var(--primary);
   }
 
-  .desktop-nav a {
-    height: 100%;
-    padding: 0 var(--space-4);
-  }
-
-  /* Компактная навигация: подписи разделов сохраняются как можно дольше. */
-  @media (max-width: 1520px) {
-    .desktop-nav.many a {
-      gap: 6px;
-      padding: 0 var(--space-2);
-      font-size: 13px;
-    }
-  }
-
-  @media (max-width: 1400px) {
-    .desktop-nav a {
-      padding: 0 var(--space-3);
-    }
-  }
-
-  @media (max-width: 1240px) {
-    .name {
-      display: none;
-    }
-  }
-
-  /* До 1180 px подписи разделов не помещаются вместе с панелью действий.
-     Пункты меню остаются иконками с title/aria-label — функции не теряются. */
-  @media (max-width: 1180px) {
-    .brand > span:last-child {
-      display: none;
-    }
-
-    .desktop-nav .nav-label {
-      display: none;
-    }
-
-    .desktop-nav a {
-      gap: 6px;
-      padding: 0 var(--space-2);
-      font-size: 13px;
-    }
-  }
-
-  .user {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex: 0 0 auto;
-  }
-
-  .name {
-    padding: 0;
-    border: none;
-    background: none;
-    color: inherit;
-    font: inherit;
-    font-weight: 500;
-    cursor: pointer;
-  }
-
-  .name:hover {
-    color: var(--primary);
-  }
-
-  .avatar {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 50%;
-    background: color-mix(in srgb, var(--primary) 10%, white);
-    color: var(--primary);
-    font-weight: 600;
-    font-size: 13px;
-    cursor: pointer;
-    overflow: hidden;
-  }
-
-  .avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .avatar span {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 100%;
-    height: 100%;
-    color: #fff;
-  }
-
-  .avatar:hover {
-    border-color: var(--primary);
-  }
-
-  .bell {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    padding: 0;
-    border: none;
-    border-radius: var(--radius-sm);
-    background: none;
-    color: var(--muted);
-    cursor: pointer;
-    transition: color 0.15s ease, background-color 0.15s ease;
-  }
-
-  .bell:hover {
-    color: var(--primary);
-    background: var(--fill-tertiary);
-  }
-
-  .bell.has-new {
-    color: var(--primary);
-  }
-
-  .bell.current {
-    color: var(--primary);
-    background: var(--primary-bg);
-  }
-
-  .bell-badge {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    min-width: 20px;
-    height: 20px;
-    padding: 0 6px;
-    border-radius: 10px;
-    background: var(--danger);
-    color: #fff;
-    font-size: 12px;
-    line-height: 20px;
-    text-align: center;
-    box-shadow: 0 0 0 1px var(--surface);
-  }
-
   main {
     flex: 1;
-    width: 100%;
-    max-width: 1280px;
-    margin: 0 auto;
+    /* Фиксируем ширину: смена вкладок не должна тянуть main за содержимым. */
+    width: min(calc(100% - var(--rail-width, 56px)), 1328px);
+    margin: 0 0 0 var(--rail-width, 56px);
     padding: var(--space-5);
+    min-width: 0;
+    transition: margin-left 0.18s ease;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    main {
+      transition: none;
+    }
   }
 
   .mobile-nav {
     display: none;
   }
 
-  @media (max-width: 720px) {
+  @media (max-width: 767px) {
     /*
      * Фиксированная высота оболочки на телефоне: main получает остаток
      * экрана, и страницы вроде чата заполняют его без расчётов от 100dvh.
@@ -937,43 +575,12 @@
       min-height: 100dvh;
     }
 
-    header {
-      padding: 0 var(--space-4);
-    }
-
-    .bell-badge {
-      top: 0;
-      right: 0;
-      min-width: 18px;
-      height: 18px;
-      padding: 0 5px;
-      border-radius: 9px;
-      font-size: 11px;
-      line-height: 18px;
-    }
-
-    nav.desktop-nav {
-      display: none;
-    }
-
-    .name {
-      display: none;
-    }
-
-    /*
-     * Шапка — не меню: только логотип, уведомления и профиль.
-     * Чат, корзина, «О программе» и «Журнал» — в нижнем «Ещё».
-     */
-    .bell-audit,
-    .bell-info,
-    .bell-chat,
-    .bell-cart {
-      display: none;
-    }
-
     main {
       display: flex;
       flex-direction: column;
+      width: 100%;
+      max-width: none;
+      margin-left: 0;
       padding: var(--space-4);
       padding-bottom: calc(84px + env(safe-area-inset-bottom));
     }
@@ -1137,6 +744,28 @@
     margin-top: 0;
   }
 
+  .mobile-density {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 var(--space-3);
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--text);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+  }
+
+  .mobile-density:hover,
+  .mobile-density[aria-pressed='true'] {
+    background: var(--fill-tertiary);
+    color: var(--primary);
+  }
+
   .mobile-menu-group .menu-badge {
     margin-left: auto;
     min-width: 20px;
@@ -1183,15 +812,6 @@
     }
   }
   @media (max-width: 360px) {
-    header {
-      gap: var(--space-2);
-      padding: 0 var(--space-2);
-    }
-
-    .user {
-      gap: 2px;
-    }
-
     main {
       padding: var(--space-3);
       padding-bottom: calc(84px + env(safe-area-inset-bottom));

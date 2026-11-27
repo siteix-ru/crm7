@@ -16,6 +16,7 @@
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
   type AdminSection = 'modules' | 'docs';
@@ -338,11 +339,7 @@
 
 <svelte:element this={embedded ? 'div' : 'section'} class="page">
   {#if !embedded}
-    <div class="page-hero">
-      <div class="head">
-        <h1>Администрирование</h1>
-      </div>
-    </div>
+    <PageToolbar title="Администрирование" />
 
     <div class="tabs tab-scroll">
       {#if canManageRoles}

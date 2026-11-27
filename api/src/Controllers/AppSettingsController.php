@@ -9,6 +9,7 @@ use App\Demo\DemoAccounts;
 use App\Groups\ItemGroupService;
 use App\Http\Request;
 use App\Http\Response;
+use App\Navigation\NavigationRegistry;
 use App\Prices\PriceService;
 use App\Repositories\SettingsRepository;
 use App\Repositories\UserRepository;
@@ -19,15 +20,20 @@ final class AppSettingsController extends ApiController
         private readonly SettingsRepository $settings = new SettingsRepository(),
         private readonly PriceService $prices = new PriceService(),
         private readonly ItemGroupService $groups = new ItemGroupService(),
-        private readonly UserRepository $users = new UserRepository()
+        private readonly UserRepository $users = new UserRepository(),
+        private readonly NavigationRegistry $navigation = new NavigationRegistry()
     ) {
         parent::__construct();
     }
 
     public function index(Request $request): Response
     {
-        [$user] = $this->context($request);
+        [$user, $capabilities] = $this->context($request);
         $level = (int) ($user['LEVEL'] ?? 0);
+        $visibleNav = $this->navigation->visible(
+            $capabilities,
+            fn (string $moduleCode): bool => $this->settings->moduleEnabled('module.' . $moduleCode)
+        );
 
         return Response::ok([
             'sales_enabled' => $this->settings->salesEnabled(),
@@ -53,6 +59,7 @@ final class AppSettingsController extends ApiController
             'manager_assign_enabled' => $this->settings->managerAssignEnabled(),
             'warehouses_enabled' => $this->settings->warehousesEnabled(),
             'reports_enabled' => $this->settings->reportsEnabled(),
+            'visibleNav' => $visibleNav,
             'single_name' => $this->settings->singleWarehouseName(),
             'app_title' => $this->settings->appTitle(),
             'app_description' => $this->settings->appDescription(),

@@ -299,6 +299,7 @@ export interface ClientListFilters {
   from?: string;
   to?: string;
   sort?: string;
+  signal?: AbortSignal;
 }
 
 export function listClients(
@@ -321,7 +322,7 @@ export function listClients(
 
   return apiRequest<{ items: ClientItem[]; total: number; page: number; per_page: number }>(
     `/clients?${params.toString()}`,
-    { auth: true }
+    { auth: true, signal: filters.signal }
   );
 }
 

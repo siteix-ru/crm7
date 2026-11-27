@@ -33,6 +33,8 @@
   import LogoutOutlined from '@ant-design/icons-svg/es/asn/LogoutOutlined';
   import MailOutlined from '@ant-design/icons-svg/es/asn/MailOutlined';
   import MenuOutlined from '@ant-design/icons-svg/es/asn/MenuOutlined';
+  import MenuFoldOutlined from '@ant-design/icons-svg/es/asn/MenuFoldOutlined';
+  import MenuUnfoldOutlined from '@ant-design/icons-svg/es/asn/MenuUnfoldOutlined';
   import EllipsisOutlined from '@ant-design/icons-svg/es/asn/EllipsisOutlined';
   import MessageOutlined from '@ant-design/icons-svg/es/asn/MessageOutlined';
   import PaperClipOutlined from '@ant-design/icons-svg/es/asn/PaperClipOutlined';
@@ -105,6 +107,8 @@
     logout: LogoutOutlined,
     mail: MailOutlined,
     menu: MenuOutlined,
+    'menu-fold': MenuFoldOutlined,
+    'menu-unfold': MenuUnfoldOutlined,
     more: EllipsisOutlined,
     'my-reports': PieChartOutlined,
     picture: PictureOutlined,

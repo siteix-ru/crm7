@@ -6,7 +6,14 @@ const NAV_KEYS = ['ArrowLeft', 'ArrowRight', 'Home', 'End'];
  */
 export function tablist(node: HTMLElement): { destroy: () => void } {
   const onKeydown = (event: KeyboardEvent): void => {
-    if (!NAV_KEYS.includes(event.key)) {
+    // Не перехватываем системные сочетания (Alt+←/→ — «назад/вперёд» и т.п.).
+    if (
+      !NAV_KEYS.includes(event.key) ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.shiftKey
+    ) {
       return;
     }
 

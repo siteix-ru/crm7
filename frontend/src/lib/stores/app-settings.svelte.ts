@@ -1,7 +1,22 @@
 import { apiRequest } from '../api/client';
 import { auth } from './auth.svelte';
 
+export interface NavNode {
+  id: string;
+  label: string;
+  iconId: string;
+  group: string;
+  route: string;
+  capabilities: string[];
+  presentation: { rail: boolean; topbar: boolean; bottom: boolean; drawer: boolean };
+  order: number;
+  type: string;
+  badge?: { source: string };
+  parent?: string;
+}
+
 interface AppSettingsResponse {
+  visibleNav?: unknown;
   sales_enabled: boolean;
   email_export_enabled: boolean;
   mail_configured: boolean;
@@ -33,14 +48,77 @@ interface AppSettingsResponse {
   demo_mode: boolean;
 }
 
-class AppSettingsStore {
-  salesEnabled = $state(true);
+const REQUIRED_BOOLEAN_SETTINGS = [
+  'sales_enabled',
+  'email_export_enabled',
+  'mail_configured',
+  'mail_enabled',
+  'stock_reserve_enabled',
+  'stock_allow_zero',
+  'prices_enabled',
+  'groups_enabled',
+  'prices_configured',
+  'groups_configured',
+  'requests_enabled',
+  'clients_enabled',
+  'chat_enabled',
+  'notifications_enabled',
+  'staff_enabled',
+  'registration_enabled',
+  'stock_edit_enabled',
+  'lots_enabled',
+  'cart_enabled',
+  'substitutions_enabled',
+  'manager_assign_enabled',
+  'warehouses_enabled',
+  'reports_enabled',
+  'demo_mode'
+] as const;
 
-  emailExportEnabled = $state(true);
+function normalizeNav(value: unknown): NavNode[] | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return null;
+  }
+
+  const nodes = value
+    .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
+    .filter((item) =>
+      typeof item.id === 'string' && item.id !== '' &&
+      typeof item.label === 'string' && item.label !== '' &&
+      typeof item.iconId === 'string' && item.iconId !== '' &&
+      typeof item.group === 'string' && item.group !== '' &&
+      typeof item.route === 'string' && item.route.startsWith('#/') &&
+      Array.isArray(item.capabilities) &&
+      item.presentation !== null && typeof item.presentation === 'object' &&
+      typeof item.order === 'number' &&
+      typeof item.type === 'string'
+    )
+    .map((item): NavNode => ({
+      id: item.id as string,
+      label: item.label as string,
+      iconId: item.iconId as string,
+      group: item.group as string,
+      route: item.route as string,
+      capabilities: (item.capabilities as unknown[]).filter((c): c is string => typeof c === 'string'),
+      presentation: item.presentation as NavNode['presentation'],
+      order: item.order as number,
+      type: item.type as string,
+      ...(item.badge !== undefined ? { badge: item.badge as NavNode['badge'] } : {}),
+      ...(typeof item.parent === 'string' ? { parent: item.parent } : {})
+    }));
+
+  return nodes.length > 0 ? nodes : null;
+}
+
+class AppSettingsStore {
+  // Пока настройки не подтверждены сервером, функциональность закрыта.
+  salesEnabled = $state(false);
+
+  emailExportEnabled = $state(false);
 
   mailConfigured = $state(false);
 
-  mailEnabled = $state(true);
+  mailEnabled = $state(false);
 
   stockReserveEnabled = $state(false);
 
@@ -60,25 +138,29 @@ class AppSettingsStore {
 
   chatEnabled = $state(true);
 
-  notificationsEnabled = $state(true);
+  notificationsEnabled = $state(false);
 
-  staffEnabled = $state(true);
+  staffEnabled = $state(false);
 
-  registrationEnabled = $state(true);
+  registrationEnabled = $state(false);
 
-  stockEditEnabled = $state(true);
+  stockEditEnabled = $state(false);
 
   lotsEnabled = $state(true);
 
-  cartEnabled = $state(true);
+  cartEnabled = $state(false);
 
-  substitutionsEnabled = $state(true);
+  substitutionsEnabled = $state(false);
 
-  managerAssignEnabled = $state(true);
+  managerAssignEnabled = $state(false);
 
-  warehousesEnabled = $state(true);
+  warehousesEnabled = $state(false);
 
-  reportsEnabled = $state(true);
+  reportsEnabled = $state(false);
+
+  visibleNav = $state<NavNode[]>([]);
+
+  navError = $state<string | null>(null);
 
   singleName = $state('Основной склад');
 
@@ -95,6 +177,10 @@ class AppSettingsStore {
   loadedFor = $state<number | null>(null);
 
   loading = $state(false);
+
+  error = $state<string | null>(null);
+
+  private attemptedFor: number | null = null;
 
   get loaded(): boolean {
     return this.loadedFor !== null;
@@ -121,39 +207,62 @@ class AppSettingsStore {
       return;
     }
 
-    this.loading = true;
+    // После ошибки не перезагружаем автоматически в бесконечном цикле —
+    // повтор инициирует пользователь через retry().
+    if (this.attemptedFor === userId && this.loadedFor !== userId) {
+      return;
+    }
 
-    const safetyTimer = setTimeout(() => {
-      if (this.loadedFor !== userId) {
-        this.loadedFor = userId;
-      }
+    this.attemptedFor = userId;
+    this.loading = true;
+    this.error = null;
+
+    let timedOut = false;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
     }, 5000);
 
     try {
-      const data = await apiRequest<AppSettingsResponse>('/settings/app', { auth: true });
-      this.salesEnabled = Boolean(data.sales_enabled);
-      this.emailExportEnabled = data.email_export_enabled !== false;
-      this.mailConfigured = data.mail_configured === true;
-      this.mailEnabled = data.mail_enabled !== false;
-      this.stockReserveEnabled = data.stock_reserve_enabled === true;
-      this.allowZeroStock = data.stock_allow_zero === true;
-      this.pricesEnabled = data.prices_enabled === true;
-      this.groupsEnabled = data.groups_enabled === true;
-      this.pricesConfigured = data.prices_configured === true;
-      this.groupsConfigured = data.groups_configured === true;
-      this.requestsEnabled = data.requests_enabled !== false;
-      this.clientsEnabled = data.clients_enabled !== false;
-      this.chatEnabled = data.chat_enabled !== false;
-      this.notificationsEnabled = data.notifications_enabled !== false;
-      this.staffEnabled = data.staff_enabled !== false;
-      this.registrationEnabled = data.registration_enabled !== false;
-      this.stockEditEnabled = data.stock_edit_enabled !== false;
+      const data = await apiRequest<AppSettingsResponse>('/settings/app', {
+        auth: true,
+        signal: controller.signal
+      });
+
+      if (data === null || typeof data !== 'object'
+        || REQUIRED_BOOLEAN_SETTINGS.some((key) => typeof data[key] !== 'boolean')) {
+        throw new Error('Некорректный ответ настроек приложения');
+      }
+
+      this.salesEnabled = data.sales_enabled;
+      this.emailExportEnabled = data.email_export_enabled;
+      this.mailConfigured = data.mail_configured;
+      this.mailEnabled = data.mail_enabled;
+      this.stockReserveEnabled = data.stock_reserve_enabled;
+      this.allowZeroStock = data.stock_allow_zero;
+      this.pricesEnabled = data.prices_enabled;
+      this.groupsEnabled = data.groups_enabled;
+      this.pricesConfigured = data.prices_configured;
+      this.groupsConfigured = data.groups_configured;
+      this.requestsEnabled = data.requests_enabled;
+      this.clientsEnabled = data.clients_enabled;
+      this.chatEnabled = data.chat_enabled;
+      this.notificationsEnabled = data.notifications_enabled;
+      this.staffEnabled = data.staff_enabled;
+      this.registrationEnabled = data.registration_enabled;
+      this.stockEditEnabled = data.stock_edit_enabled;
       this.lotsEnabled = data.lots_enabled !== false;
-      this.cartEnabled = this.requestsEnabled;
-      this.substitutionsEnabled = data.substitutions_enabled !== false;
-      this.managerAssignEnabled = data.manager_assign_enabled !== false;
-      this.warehousesEnabled = data.warehouses_enabled !== false;
-      this.reportsEnabled = data.reports_enabled !== false;
+      this.cartEnabled = data.cart_enabled;
+      this.substitutionsEnabled = data.substitutions_enabled;
+      this.managerAssignEnabled = data.manager_assign_enabled;
+      this.warehousesEnabled = data.warehouses_enabled;
+      this.reportsEnabled = data.reports_enabled;
+
+      const nav = normalizeNav(data.visibleNav);
+      this.visibleNav = nav ?? [];
+      this.navError = nav === null ? 'Навигация недоступна. Повторите попытку.' : null;
+
       this.singleName = (data.single_name || 'Основной склад').trim() || 'Основной склад';
       this.appTitle = (data.app_title || 'CRM7').trim() || 'CRM7';
       this.appDescription = (data.app_description || '').trim();
@@ -161,15 +270,31 @@ class AppSettingsStore {
         ? data.photo_ratio
         : 'square';
       this.photoFit = data.photo_fit === 'cover' ? 'cover' : 'contain';
-      this.demoMode = data.demo_mode === true;
+      this.demoMode = data.demo_mode;
       this.loadedFor = userId;
-    } catch {
-      // служебная настройка: интерфейс не блокируем при сбое загрузки
-      this.loadedFor = userId;
+      this.error = null;
+    } catch (cause) {
+      // Не отмечаем настройки загруженными: boot gate остаётся закрытым,
+      // а значения functional-флагов остаются разрешающими только после
+      // успешной проверки ответа.
+      this.loadedFor = null;
+      this.error = timedOut
+        ? 'Не удалось загрузить настройки: таймаут. Повторите попытку.'
+        : cause instanceof Error && cause.message
+          ? `Не удалось загрузить настройки: ${cause.message}`
+          : 'Не удалось загрузить настройки. Повторите попытку.';
+      this.visibleNav = [];
+      this.navError = this.error;
     } finally {
-      clearTimeout(safetyTimer);
+      clearTimeout(timeout);
       this.loading = false;
     }
+  }
+
+  retry(): Promise<void> {
+    this.attemptedFor = null;
+
+    return this.load();
   }
 
   set(
@@ -210,29 +335,31 @@ class AppSettingsStore {
   }
 
   reset(): void {
-    this.salesEnabled = true;
-    this.emailExportEnabled = true;
+    this.salesEnabled = false;
+    this.emailExportEnabled = false;
     this.mailConfigured = false;
-    this.mailEnabled = true;
+    this.mailEnabled = false;
     this.stockReserveEnabled = false;
     this.allowZeroStock = false;
     this.pricesEnabled = false;
     this.groupsEnabled = false;
     this.pricesConfigured = false;
     this.groupsConfigured = false;
-    this.requestsEnabled = true;
-    this.clientsEnabled = true;
-    this.chatEnabled = true;
-    this.notificationsEnabled = true;
-    this.staffEnabled = true;
-    this.registrationEnabled = true;
-    this.stockEditEnabled = true;
-    this.lotsEnabled = true;
-    this.cartEnabled = true;
-    this.substitutionsEnabled = true;
-    this.managerAssignEnabled = true;
-    this.warehousesEnabled = true;
-    this.reportsEnabled = true;
+    this.requestsEnabled = false;
+    this.clientsEnabled = false;
+    this.chatEnabled = false;
+    this.notificationsEnabled = false;
+    this.staffEnabled = false;
+    this.registrationEnabled = false;
+    this.stockEditEnabled = false;
+    this.lotsEnabled = false;
+    this.cartEnabled = false;
+    this.substitutionsEnabled = false;
+    this.managerAssignEnabled = false;
+    this.warehousesEnabled = false;
+    this.reportsEnabled = false;
+    this.visibleNav = [];
+    this.navError = null;
     this.singleName = 'Основной склад';
     this.appTitle = 'CRM7';
     this.appDescription = '';
@@ -241,6 +368,8 @@ class AppSettingsStore {
     this.demoMode = false;
     this.loadedFor = null;
     this.loading = false;
+    this.error = null;
+    this.attemptedFor = null;
   }
 }
 

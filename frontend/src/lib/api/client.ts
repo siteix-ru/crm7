@@ -256,6 +256,10 @@ export async function apiRequest<T>(path: string, options: ApiRequestOptions = {
       keepalive: options.keepalive
     });
   } catch (error) {
+    // Отмена запроса — не сетевая ошибка: вызывающий сам решает, что делать.
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw error;
+    }
     throw new ApiError('network', error instanceof Error ? error.message : 'network error');
   }
 

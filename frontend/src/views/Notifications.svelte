@@ -5,11 +5,13 @@
   import type { NotificationItem } from '../lib/api/types';
   import { router } from '../lib/router.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
-  import Icon from '../lib/components/ui/Icon.svelte';
-  import Spinner from '../lib/components/ui/Spinner.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import EmptyState from '../lib/components/ui/EmptyState.svelte';
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import { formatDateTime, formatRelative } from '../lib/format';
+  import { loadFilters, saveFilters } from '../lib/filters';
+  import { withReturnTo } from '../lib/navigation-context';
 
   const typeIcons: Record<string, string> = {
     'request.new': '＋',
@@ -31,15 +33,25 @@
     'chat.message': '✉'
   };
 
+  const initialNotifications = loadFilters('notifications', { filter: 'all', page: 1, per_page: 20 });
+
   let items = $state<NotificationItem[]>([]);
   let unread = $state(0);
   let total = $state(0);
-  let page = $state(1);
-  let perPage = $state(20);
+  let page = $state(Number(initialNotifications.page) > 0 ? Number(initialNotifications.page) : 1);
+  let perPage = $state(
+    [10, 20, 50].includes(Number(initialNotifications.per_page))
+      ? Number(initialNotifications.per_page)
+      : 20
+  );
   let loading = $state(true);
   let error = $state('');
   let busy = $state(false);
-  let filter = $state<'all' | 'unread'>('all');
+  let filter = $state<'all' | 'unread'>(initialNotifications.filter === 'unread' ? 'unread' : 'all');
+
+  function persistState(): void {
+    saveFilters('notifications', { filter, page, per_page: perPage });
+  }
 
   onMount(() => {
     void load();
@@ -68,11 +80,13 @@
 
     filter = value;
     page = 1;
+    persistState();
     void load();
   }
 
   function goToPage(next: number): void {
     page = next;
+    persistState();
     void load();
   }
 
@@ -119,8 +133,10 @@
       }
     }
 
+    const from = `${router.current.path}${router.current.query.toString() ? `?${router.current.query.toString()}` : ''}`;
+
     if (item.request_id) {
-      router.navigate(`/requests/${item.request_id}`);
+      router.navigate(withReturnTo(`/requests/${item.request_id}`, from));
     } else if (item.type === 'chat.message') {
       router.navigate('/chat');
     } else if (item.type === 'user.pending') {
@@ -130,34 +146,40 @@
 </script>
 
 <section class="page">
-  <div class="page-hero">
-    <div class="head">
-      <h1>Уведомления {#if unread > 0}<span class="unread-count">{unread}</span>{/if}</h1>
-      <div class="head-actions">
-        <button
-          type="button"
-          class="page-icon-btn"
-          title="Отметить все прочитанными"
-          aria-label="Отметить все прочитанными"
-          disabled={busy || unread === 0}
-          onclick={markAll}
-        >
-          {#if busy}
-            <Spinner size={16} />
-          {:else}
-            <Icon name="check" size={16} />
-          {/if}
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <div class="tabs">
-    <button type="button" class:active={filter === 'all'} onclick={() => setFilter('all')}>Все</button>
-    <button type="button" class:active={filter === 'unread'} onclick={() => setFilter('unread')}>
-      Непрочитанные{unread > 0 ? ` (${unread})` : ''}
-    </button>
-  </div>
+  <PageToolbar actionsLabel="Действия с уведомлениями">
+    {#snippet title()}
+      Уведомления {#if unread > 0}<span class="unread-count">{unread}</span>{/if}
+    {/snippet}
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия с уведомлениями"
+        items={[
+          {
+            id: 'mark-all',
+            label: 'Отметить все прочитанными',
+            icon: 'check',
+            disabled: busy || unread === 0,
+            onclick: markAll
+          },
+          { id: 'sep', label: '', separator: true, onclick: () => {} },
+          {
+            id: 'all',
+            label: 'Все уведомления',
+            icon: 'bell',
+            checked: filter === 'all',
+            onclick: () => setFilter('all')
+          },
+          {
+            id: 'unread',
+            label: `Непрочитанные${unread > 0 ? ` (${unread})` : ''}`,
+            icon: 'bell',
+            checked: filter === 'unread',
+            onclick: () => setFilter('unread')
+          }
+        ]}
+      />
+    {/snippet}
+  </PageToolbar>
 
   {#if error}
     <div class="alert">{error}</div>
@@ -208,15 +230,6 @@
     gap: var(--space-4);
   }
 
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    flex-wrap: wrap;
-  }
-
-
   .unread-count {
     display: inline-block;
     min-width: 20px;
@@ -228,29 +241,6 @@
     font-size: 13px;
     vertical-align: middle;
     text-align: center;
-  }
-
-  .tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-  }
-
-  .tabs button {
-    padding: 6px 14px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: var(--surface);
-    color: var(--muted);
-    cursor: pointer;
-    font: inherit;
-    font-size: 13px;
-  }
-
-  .tabs button.active {
-    border-color: var(--primary);
-    color: var(--primary);
-    font-weight: 500;
   }
 
   .list {

@@ -171,7 +171,7 @@
     min-width: 0;
     height: 32px;
     padding: 0 34px 0 11px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     outline: none;
@@ -193,8 +193,12 @@
   }
 
   input:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--focus-ring);
+    border-color: var(--primary-border);
+  }
+
+  input:focus-visible {
+    outline: 2px solid var(--focus-soft);
+    outline-offset: -2px;
   }
 
   input::-webkit-search-cancel-button {
@@ -209,8 +213,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: none;
     border-radius: 50%;
@@ -236,7 +240,7 @@
     overflow-y: auto;
     padding: 4px;
     background: var(--surface);
-    border: 1px solid var(--border);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     box-shadow: var(--shadow-md);
   }

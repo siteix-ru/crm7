@@ -59,7 +59,7 @@
     width: 100%;
     height: 32px;
     padding: 0 11px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     color: var(--text);
@@ -69,8 +69,8 @@
   }
 
   select:focus {
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--focus-ring);
+    border-color: var(--primary-border);
+    box-shadow: inset 0 0 0 2px var(--focus-soft);
   }
 
   select:disabled {

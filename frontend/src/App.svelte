@@ -6,6 +6,7 @@
   import { filterPrefs } from './lib/stores/filter-prefs.svelte';
   import { matchRoute, router } from './lib/router.svelte';
   import Spinner from './lib/components/ui/Spinner.svelte';
+  import Button from './lib/components/ui/Button.svelte';
   import CookieNotice from './lib/components/CookieNotice.svelte';
   import AppShell from './lib/components/layout/AppShell.svelte';
   import PageBadge from './lib/components/dev/PageBadge.svelte';
@@ -44,6 +45,13 @@
     }
   });
 
+  function retryBoot(): void {
+    void appSettings.retry();
+    if (auth.user?.id !== undefined && filterPrefs.loadedFor !== auth.user.id) {
+      void filterPrefs.load(auth.user.id);
+    }
+  }
+
   $effect(() => {
     if (auth.isAuthenticated && router.current.path === '/') {
       router.navigate('/requests', true);
@@ -73,7 +81,14 @@
 
 {#if !auth.ready || (auth.isAuthenticated && (filterPrefs.loadedFor !== auth.user?.id || appSettings.loadedFor !== auth.user?.id))}
   <div class="boot">
-    <Spinner size={28} />
+    {#if appSettings.error}
+      <div class="boot-error" role="alert">
+        <p>{appSettings.error}</p>
+        <Button variant="primary" onclick={retryBoot}>Повторить</Button>
+      </div>
+    {:else}
+      <Spinner size={28} />
+    {/if}
   </div>
 {:else if !auth.isAuthenticated || route === '/reset'}
   {#if legalMatch}
@@ -145,6 +160,10 @@
       <LazyView load={views.chat} />
     {:else if route === '/stocks'}
       <LazyView load={views.stocks} />
+    {:else if route === '/stocks/import' && (!appSettings.stockEditEnabled || !auth.can('stocks.import'))}
+      <NotFound />
+    {:else if route === '/stocks/import'}
+      <LazyView load={views.stockImport} />
     {:else if route === '/stock-lots' && (!appSettings.lotsEnabled || !auth.can('stocks.lots.view'))}
       <NotFound />
     {:else if route === '/stock-lots'}
@@ -246,5 +265,18 @@
     min-height: 100vh;
     display: grid;
     place-items: center;
+  }
+
+  .boot-error {
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+    max-width: 420px;
+    padding: 24px;
+    text-align: center;
+  }
+
+  .boot-error p {
+    margin: 0;
   }
 </style>

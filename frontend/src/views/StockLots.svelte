@@ -16,6 +16,8 @@
   import Icon from '../lib/components/ui/Icon.svelte';
   import Input from '../lib/components/ui/Input.svelte';
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import Select from '../lib/components/ui/Select.svelte';
@@ -367,28 +369,32 @@
 </script>
 
 <div class="page">
-  <header class="page-head">
-    <div>
-      <h1>Складские партии</h1>
-      <p>Приёмка товаров, сроки годности и распределение остатков по партиям.</p>
-    </div>
-    <div class="head-actions">
-      <Button variant="ghost" onclick={() => void loadLots()} title="Обновить список">
-        <Icon name="refresh" size={16} />
-        Обновить
-      </Button>
-      {#if canEdit}
-        <Button onclick={openReceive}>
-          <Icon name="plus" size={16} />
-          Поступление
-        </Button>
-        <Button variant="ghost" onclick={openConvert}>
-          <Icon name="substitutions" size={16} />
-          Конвертация остатков
-        </Button>
-      {/if}
-    </div>
-  </header>
+  <PageToolbar
+    title="Складские партии"
+    description="Приёмка товаров, сроки годности и распределение остатков по партиям."
+    actionsLabel="Действия со складскими партиями"
+  >
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия со складскими партиями"
+        items={[
+          { id: 'refresh', label: 'Обновить список', icon: 'refresh', onclick: () => void loadLots() },
+          { id: 'separator', label: '', separator: true, onclick: () => {} },
+          ...(canEdit
+            ? [
+                {
+                  id: 'convert',
+                  label: 'Конвертация остатков',
+                  icon: 'substitutions',
+                  onclick: openConvert
+                },
+                { id: 'receive', label: 'Поступление', icon: 'plus', onclick: openReceive }
+              ]
+            : [])
+        ]}
+      />
+    {/snippet}
+  </PageToolbar>
 
   {#if notice}
     <div class="notice" role="status">
@@ -653,27 +659,6 @@
     min-width: 0;
   }
 
-  .page-head {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-3);
-  }
-
-  h1 {
-    margin: 0 0 var(--space-1);
-    font-size: 22px;
-    font-weight: 600;
-  }
-
-  .page-head p {
-    margin: 0;
-    color: var(--muted);
-    font-size: 13px;
-  }
-
-  .head-actions,
   .filter-actions,
   .modal-actions {
     display: flex;

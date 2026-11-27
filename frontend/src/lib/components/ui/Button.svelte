@@ -5,7 +5,7 @@
   interface Props {
     type?: 'button' | 'submit';
     variant?: 'primary' | 'success' | 'ghost' | 'text' | 'danger';
-    size?: 'sm' | 'md';
+    size?: 'sm' | 'md' | 'lg';
     disabled?: boolean;
     loading?: boolean;
     title?: string;
@@ -31,6 +31,7 @@
   {type}
   class={variant}
   class:sm={size === 'sm'}
+  class:lg={size === 'lg'}
   disabled={disabled || loading}
   {title}
   aria-label={ariaLabel}
@@ -48,11 +49,11 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-2);
-    height: 32px;
-    padding: 0 15px;
+    height: var(--control-height);
+    padding: 0 var(--space-4);
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
-    font-size: 14px;
+    font-size: var(--font-md);
     font-weight: 500;
     white-space: nowrap;
     cursor: pointer;
@@ -65,19 +66,28 @@
   }
 
   button.sm {
-    padding: 0 8px;
-    font-size: 14px;
+    padding: 0 var(--space-2);
+    font-size: var(--font-sm);
+  }
+
+  button.lg {
+    height: var(--control-height-lg);
+    padding: 0 var(--space-4);
   }
 
   .primary {
-    background: linear-gradient(180deg, color-mix(in srgb, var(--primary) 92%, white), var(--primary));
-    box-shadow: 0 1px 2px rgba(5, 88, 217, 0.18);
-    color: #fff;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--primary) 92%, var(--surface)),
+      var(--primary)
+    );
+    box-shadow: var(--shadow-sm);
+    color: var(--on-primary);
   }
 
   .primary:hover:not(:disabled) {
     background: var(--primary-hover);
-    box-shadow: 0 3px 10px rgba(5, 88, 217, 0.22);
+    box-shadow: var(--shadow-md);
   }
 
   .success {

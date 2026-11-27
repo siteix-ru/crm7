@@ -17,13 +17,16 @@
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
   import { addHistory } from '../lib/search-history';
+  import { withReturnTo } from '../lib/navigation-context';
   import Button from '../lib/components/ui/Button.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import ExportModal from '../lib/components/ui/ExportModal.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
-  import SearchInput from '../lib/components/ui/SearchInput.svelte';
+  import SortDialog from '../lib/components/ui/SortDialog.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import EmptyState from '../lib/components/ui/EmptyState.svelte';
@@ -86,6 +89,9 @@
   let searchInput = $state(String(initialFilters.q ?? ''));
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let loadSeq = 0;
+  const currentFullRoute = $derived(
+    `${router.current.path}${router.current.query.toString() ? `?${router.current.query.toString()}` : ''}`
+  );
   let warehouses = $state<RequestWarehouseOption[]>([]);
   let warehouseDraft = $state<string[]>([]);
   let selectedClient = $state<{ id: number; name: string } | null>(null);
@@ -139,7 +145,6 @@
   let viewOpen = $state(false);
   let viewDraft = $state<'list' | 'tiles'>('list');
   let sortOpen = $state(false);
-  let sortDraft = $state<string[]>(['created_desc']);
 
   const sortFields = [
     { field: 'number', label: 'Номер' },
@@ -168,17 +173,9 @@
     warehouses.map((warehouse) => ({ value: String(warehouse.id), label: warehouse.name }))
   );
   const emailAllowed = $derived(appSettings.emailExportEnabled && appSettings.mailConfigured);
-  let dragSortField = $state<string | null>(null);
-  let dragSortOver = $state<string | null>(null);
-  const sortRows = $derived.by(() => {
-    const available = sortFields.filter((item) => !item.staffOnly || isStaff);
-    const activeRows = sortDraft
-      .map((term) => available.find((item) => term.startsWith(`${item.field}_`)))
-      .filter((item): item is (typeof available)[number] => item !== undefined);
-    const inactiveRows = available.filter((item) => sortDraftIndex(item.field) === 0);
-
-    return [...activeRows, ...inactiveRows];
-  });
+  const availableSortFields = $derived(
+    sortFields.filter((item) => !item.staffOnly || isStaff)
+  );
   const activeFilterCount = $derived(
     (filters.statusCodes.length > 0 ? 1 : 0) +
       (filters.scopes.length > 0 ? 1 : 0) +
@@ -367,9 +364,6 @@
   }
 
   function openSort(): void {
-    const terms = sortTerms();
-
-    sortDraft = terms.length > 0 ? [...terms] : [filterDefaults.sort];
     sortOpen = true;
   }
 
@@ -381,57 +375,14 @@
     return sortTerms().findIndex((term) => term === field || term.startsWith(`${field}_`)) + 1;
   }
 
-  function sortDraftIndex(field: string): number {
-    return sortDraft.findIndex((term) => term.startsWith(`${field}_`)) + 1;
+  function applySortTerms(terms: string[]): void {
+    filters.sort = terms.length > 0 ? terms.join(',') : filterDefaults.sort;
+    changeSort();
   }
 
-  function moveSortDraft(fromField: string, toField: string): void {
-    const fromIndex = sortDraft.findIndex((term) => term.startsWith(`${fromField}_`));
-    const toIndex = sortDraft.findIndex((term) => term.startsWith(`${toField}_`));
-
-    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
-      return;
-    }
-
-    const next = [...sortDraft];
-    const [moved] = next.splice(fromIndex, 1);
-    const insertAt = fromIndex < toIndex ? toIndex - 1 : toIndex;
-    next.splice(insertAt, 0, moved);
-    sortDraft = next;
-  }
-
-  function startSortDrag(event: DragEvent, field: string): void {
-    dragSortField = field;
-
-    if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', field);
-    }
-  }
-
-  function overSortRow(event: DragEvent, field: string): void {
-    if (dragSortField === null || sortDraftIndex(field) === 0) {
-      return;
-    }
-
-    event.preventDefault();
-    dragSortOver = field;
-  }
-
-  function dropSortRow(event: DragEvent, field: string): void {
-    event.preventDefault();
-
-    if (dragSortField !== null && sortDraftIndex(field) > 0) {
-      moveSortDraft(dragSortField, field);
-    }
-
-    dragSortField = null;
-    dragSortOver = null;
-  }
-
-  function endSortDrag(): void {
-    dragSortField = null;
-    dragSortOver = null;
+  function applySortAndClose(terms: string[]): void {
+    sortOpen = false;
+    applySortTerms(terms);
   }
 
   function sortTerm(field: string): 'asc' | 'desc' | null {
@@ -467,29 +418,6 @@
     }
 
     applySortTerms(next);
-  }
-
-  function toggleSortDir(field: string, dir: 'asc' | 'desc'): void {
-    const term = `${field}_${dir}`;
-    const isField = (item: string): boolean => item === field || item.startsWith(`${field}_`);
-
-    sortDraft = sortDraft.includes(term)
-      ? sortDraft.filter((item) => item !== term)
-      : [...sortDraft.filter((item) => !isField(item)), term];
-  }
-
-  function toggleSortDirActive(field: string, dir: 'asc' | 'desc'): boolean {
-    return sortDraft.includes(`${field}_${dir}`);
-  }
-
-  function applySortTerms(terms: string[]): void {
-    filters.sort = terms.length > 0 ? terms.join(',') : filterDefaults.sort;
-    changeSort();
-  }
-
-  function applySort(): void {
-    sortOpen = false;
-    applySortTerms(sortDraft);
   }
 
   function changeSort(): void {
@@ -780,91 +708,71 @@
     </div>
   {/if}
 
-  <div class="page-hero">
-  <div class="filters">
-    <div class="head">
-      <h1>Заявки</h1>
-    </div>
-
-    <form class="search" onsubmit={(event) => { event.preventDefault(); applyFilters(); }}>
-      <SearchInput
-        bind:value={searchInput}
-        historyKey="requests"
-        placeholder="Поиск: тема, клиент, номер, телефон, описание"
-        compactPlaceholder="Поиск по заявкам"
-        onclear={applyFilters}
-        onpick={applyFilters}
+  <PageToolbar title="Заявки" actionsLabel="Действия со списком заявок">
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия со списком заявок"
+        search={{
+          value: search,
+          historyKey: 'requests',
+          title: 'Поиск по заявкам',
+          placeholder: 'Тема, клиент, номер, телефон, описание',
+          suggestions: items.map((item) => item.subject),
+          onsearch: (query) => {
+            clearTimeout(searchTimer);
+            searchInput = query;
+            applyFilters();
+          },
+          onclear: () => {
+            clearTimeout(searchTimer);
+            searchInput = '';
+            applyFilters();
+          }
+        }}
+        items={[
+          {
+            id: 'sort',
+            label: 'Сортировка',
+            icon: 'sort',
+            checked: filters.sort !== filterDefaults.sort,
+            onclick: openSort
+          },
+          {
+            id: 'view',
+            label: 'Вид и фильтры',
+            icon: 'view',
+            checked: viewMode === 'tiles',
+            onclick: openView
+          },
+          {
+            id: 'drafts',
+            label: `Черновики заявок${draftCount > 0 ? ` (${draftCount})` : ''}`,
+            icon: 'requests',
+            onclick: () => void openDrafts()
+          },
+          { id: 'sep-1', label: '', separator: true, onclick: () => {} },
+          {
+            id: 'export',
+            label: 'Экспорт списка заявок',
+            icon: 'export',
+            disabled: exporting || total === 0,
+            onclick: () => (exportOpen = true)
+          },
+          ...(appSettings.salesEnabled && auth.can('requests.create')
+            ? [
+                { id: 'sep-2', label: '', separator: true, onclick: () => {} },
+                {
+                  id: 'create',
+                  label: 'Новая заявка',
+                  icon: 'plus',
+                  onclick: () => router.navigate('/requests/new')
+                }
+              ]
+            : [])
+        ]}
       />
-    </form>
-
-    <div class="filter-icons">
-      <button
-        type="button"
-        class="sort-button"
-        class:active={filters.sort !== filterDefaults.sort}
-        title="Сортировка"
-        aria-label="Сортировка"
-        onclick={openSort}
-      >
-        <Icon name="sort" size={16} />
-      </button>
-
-      <button
-        type="button"
-        class="sort-button"
-        class:active={viewMode === 'tiles'}
-        title="Вид и фильтры"
-        aria-label="Вид и фильтры"
-        onclick={openView}
-      >
-        <Icon name="view" size={16} />
-      </button>
-
-      <span class="toolbar-divider" aria-hidden="true"></span>
-
-      <button
-        type="button"
-        class="sort-button"
-        class:active={draftCount > 0}
-        class:has-badge={draftCount > 0}
-        title="Черновики заявок"
-        aria-label={draftCount > 0 ? `Черновики заявок, ${draftCount}` : 'Черновики заявок'}
-        onclick={() => void openDrafts()}
-      >
-        <Icon name="requests" size={16} />
-        {#if draftCount > 0}<span class="icon-badge" aria-hidden="true">{draftCount}</span>{/if}
-      </button>
-
-      <span class="toolbar-divider" aria-hidden="true"></span>
-
-      <button
-        type="button"
-        class="sort-button"
-        title="Экспорт списка заявок"
-        aria-label="Экспорт списка заявок"
-        disabled={exporting || total === 0}
-        onclick={() => (exportOpen = true)}
-      >
-        <Icon name="export" size={16} />
-      </button>
-
-      {#if appSettings.salesEnabled && auth.can('requests.create')}
-        <span class="toolbar-divider" aria-hidden="true"></span>
-
-        <button
-          type="button"
-          class="create-button"
-          title="Новая заявка"
-          aria-label="Новая заявка"
-          onclick={() => router.navigate('/requests/new')}
-        >
-          <Icon name="plus" size={14} />
-          <span class="create-label">Новая заявка</span>
-        </button>
-      {/if}
-    </div>
-  </div>
-  </div>
+    {/snippet}
+  </PageToolbar>
 
   {#if error}
     <div class="alert" role="alert">
@@ -917,7 +825,7 @@
             <a
               class="tile"
               class:is-overdue={item.is_overdue}
-              href={`#/requests/${item.id}`}
+              href={`#${withReturnTo(`/requests/${item.id}`, currentFullRoute)}`}
             >
               <div class="tile-head">
                 <span class="tile-number">{item.number}</span>
@@ -978,7 +886,7 @@
 
         <div class="levels" class:compact={!isStaff}>
           {#each items as item (item.id)}
-            <a class="card" href={`#/requests/${item.id}`}>
+            <a class="card" href={`#${withReturnTo(`/requests/${item.id}`, currentFullRoute)}`}>
               <span class="cell col-number number">{item.number}</span>
               <span class="cell col-subject subject">{item.subject}</span>
               {#if isStaff}
@@ -1024,74 +932,14 @@
     />
   {/if}
 
-  <Modal open={sortOpen} title="Сортировка" onclose={() => (sortOpen = false)}>
-    <p class="sort-hint">
-      Можно задать несколько условий — они применяются сверху вниз. Нажмите стрелку, чтобы добавить
-      условие, и повторно — чтобы убрать.
-    </p>
-    <div class="sort-list" role="list">
-      {#each sortRows as column (column.field)}
-        {@const active = sortDraftIndex(column.field) > 0}
-        <div
-          class="sort-row"
-          class:active
-          class:drag-over={dragSortOver === column.field && dragSortField !== column.field}
-          role="listitem"
-          ondragover={(event) => overSortRow(event, column.field)}
-          ondragleave={() => {
-            if (dragSortOver === column.field) {
-              dragSortOver = null;
-            }
-          }}
-          ondrop={(event) => dropSortRow(event, column.field)}
-        >
-          <span
-            class="sort-drag"
-            class:off={!active}
-            draggable={active}
-            title={active ? 'Перетащите, чтобы изменить порядок' : undefined}
-            aria-hidden="true"
-            ondragstart={(event) => startSortDrag(event, column.field)}
-            ondragend={endSortDrag}
-          >
-            <Icon name="holder" size={14} />
-          </span>
-          {#if active}
-            <span class="sort-order">{sortDraftIndex(column.field)}</span>
-          {/if}
-          <span class="sort-row-label">{column.label}</span>
-          <button
-            type="button"
-            class="dir-btn"
-            class:on={toggleSortDirActive(column.field, 'asc')}
-            title="По возрастанию"
-            aria-label={`${column.label}: по возрастанию`}
-            onclick={() => toggleSortDir(column.field, 'asc')}
-          >
-            <Icon name="arrow-up" size={16} />
-          </button>
-          <button
-            type="button"
-            class="dir-btn"
-            class:on={toggleSortDirActive(column.field, 'desc')}
-            title="По убыванию"
-            aria-label={`${column.label}: по убыванию`}
-            onclick={() => toggleSortDir(column.field, 'desc')}
-          >
-            <Icon name="arrow-down" size={16} />
-          </button>
-        </div>
-      {/each}
-    </div>
-    <div class="modal-actions">
-      <Button variant="ghost" onclick={() => (sortDraft = [filterDefaults.sort])}>Сбросить</Button>
-      <div class="modal-buttons">
-        <Button variant="ghost" onclick={() => (sortOpen = false)}>Отмена</Button>
-        <Button onclick={applySort}>Применить</Button>
-      </div>
-    </div>
-  </Modal>
-
+  <SortDialog
+    open={sortOpen}
+    fields={availableSortFields}
+    sort={filters.sort}
+    defaultValue={filterDefaults.sort}
+    onclose={() => (sortOpen = false)}
+    onapply={applySortAndClose}
+  />
 
   <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
     <div class="filters-form view-modal">
@@ -1239,11 +1087,11 @@
       </div>
 
       <div class="modal-actions">
-        <Button variant="ghost" onclick={resetView}>Сбросить</Button>
-      <div class="modal-buttons">
-        <Button variant="ghost" onclick={() => (viewOpen = false)}>Отмена</Button>
-        <Button onclick={applyView}>Применить</Button>
-      </div>
+        <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
+        <div class="modal-buttons">
+          <Button variant="ghost" size="lg" onclick={() => (viewOpen = false)}>Отмена</Button>
+          <Button size="lg" onclick={applyView}>Применить</Button>
+        </div>
       </div>
     </div>
   </Modal>
@@ -1415,129 +1263,8 @@
     gap: var(--space-1);
   }
 
-  h1 {
-    margin: 0;
-    font-size: var(--font-xl);
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--text);
-  }
-
   .sales-off {
     margin-bottom: var(--space-3);
-  }
-
-  .filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-4);
-    align-items: center;
-    justify-content: flex-start;
-  }
-
-  .search {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-2);
-    flex: 1 1 220px;
-    max-width: 360px;
-    min-width: 0;
-  }
-
-  .filter-icons {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-2);
-    margin-left: auto;
-  }
-
-  .sort-button {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease;
-  }
-
-  .sort-button:hover:not(:disabled) {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
-  .sort-button:disabled {
-    opacity: 0.55;
-    cursor: not-allowed;
-  }
-
-  .sort-button.active {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .icon-badge {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    min-width: 16px;
-    height: 16px;
-    padding: 0 4px;
-    border-radius: 999px;
-    background: var(--primary);
-    color: #fff;
-    font-size: 10px;
-    line-height: 16px;
-    text-align: center;
-  }
-
-  .create-button {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    height: var(--control-height);
-    padding: 0 var(--space-3);
-    border: none;
-    border-radius: var(--radius-sm);
-    background: var(--primary);
-    color: #fff;
-    font-size: 14px;
-    font-weight: 500;
-    white-space: nowrap;
-    cursor: pointer;
-    transition: background 0.15s ease;
-  }
-
-  .create-button:hover {
-    background: var(--primary-hover);
-  }
-
-  .create-button:active {
-    background: var(--primary-active);
-  }
-
-  .create-button:focus-visible {
-    outline: 2px solid var(--primary);
-    outline-offset: 2px;
-  }
-
-  .create-label {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .toolbar-divider {
-    width: 1px;
-    height: 24px;
-    margin: 0 var(--space-1);
-    background: var(--border-secondary);
   }
 
   .notice,
@@ -1962,9 +1689,6 @@
   }
 
   @media (max-width: 1023.98px) {
-    .toolbar-divider {
-      display: none;
-    }
 
     .levels:not(.tiles) .cell-label {
       display: inline;
@@ -2106,110 +1830,6 @@
     padding: var(--space-6);
   }
 
-  .sort-hint {
-    margin: 0 0 var(--space-2);
-    font-size: 13px;
-    color: var(--text-description);
-  }
-
-  .sort-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 340px;
-    overflow-y: auto;
-  }
-
-  .sort-row {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    padding: 6px 8px;
-    border: 1px solid transparent;
-    border-radius: var(--radius-sm);
-  }
-
-  .sort-row.active {
-    border-color: var(--primary-border);
-    background: var(--primary-bg);
-  }
-
-  .sort-row.active .sort-row-label {
-    color: var(--text);
-    font-weight: 600;
-  }
-
-  .sort-row.drag-over {
-    border-color: var(--primary);
-    box-shadow: inset 0 2px 0 var(--primary);
-  }
-
-  .sort-drag {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex: 0 0 auto;
-    width: 18px;
-    height: 24px;
-    color: var(--text-description);
-    cursor: grab;
-  }
-
-  .sort-drag:active {
-    cursor: grabbing;
-  }
-
-  .sort-drag.off {
-    visibility: hidden;
-    cursor: default;
-  }
-
-  .sort-row-label {
-    flex: 1;
-    min-width: 0;
-    font-size: 14px;
-  }
-
-  .sort-order {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 18px;
-    height: 18px;
-    padding: 0 5px;
-    border-radius: 999px;
-    background: var(--primary);
-    color: #fff;
-    font-size: 11px;
-    font-weight: 600;
-  }
-
-  .dir-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-  }
-
-  .dir-btn:hover {
-    border-color: var(--primary);
-    color: var(--primary);
-  }
-
-  .dir-btn.on {
-    border-color: var(--primary);
-    color: var(--primary);
-    background: var(--primary-bg);
-  }
-
   .client-filter {
     position: relative;
   }
@@ -2321,35 +1941,6 @@
     color: var(--danger);
   }
 
-  @media (max-width: 720px) {
-    .filters {
-      row-gap: var(--space-2);
-    }
 
-    .search {
-      flex-basis: 100%;
-      max-width: 100%;
-    }
-
-    .filter-icons {
-      width: 100%;
-      margin-left: 0;
-      flex-wrap: nowrap;
-      justify-content: flex-start;
-    }
-
-    .create-button {
-      width: var(--control-height);
-      height: var(--control-height);
-      padding: 0;
-      margin-left: auto;
-      justify-content: center;
-      flex: 0 0 auto;
-    }
-
-    .create-label {
-      display: none;
-    }
-  }
 
 </style>

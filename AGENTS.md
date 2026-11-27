@@ -121,6 +121,7 @@ CI (GitHub Actions) гоняет `php -l`, `svelte-check`, `vitest`, `vite build
 - [`docs/architecture.md`](docs/architecture.md) — устройство системы, слои, данные, окружения.
 - [`docs/testing.md`](docs/testing.md) — тесты, e2e, дизайн-ревью.
 - [`docs/ui.md`](docs/ui.md) — дизайн-система (Ant), токены, компоненты.
+- [`docs/list-rollout.md`](docs/list-rollout.md) — правила раскатки эталонного CLI-LIST на другие списки: инвентаризация, обязательные компоненты, чек-лист приёмки.
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — процесс, ветки, PR, правила.
 - [`docs/deploy.md`](docs/deploy.md), [`docs/images.md`](docs/images.md), [`docs/migrations.md`](docs/migrations.md).
 - [`docs/server.md`](docs/server.md) — сервер `172.30.173.240`: доступ, карта контейнеров, домены, сборка и релиз.

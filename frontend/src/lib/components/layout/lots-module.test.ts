@@ -19,9 +19,10 @@ describe('stock lots module', () => {
     expect(store).toContain('this.lotsEnabled = data.lots_enabled !== false');
   });
 
-  it('gates the route and navigation by the module flag', () => {
+  it('gates the route by the module flag and exposes navigation via visibleNav', () => {
     expect(app).toContain("!appSettings.lotsEnabled || !auth.can('stocks.lots.view')");
-    expect(shell).toContain("appSettings.lotsEnabled && auth.can('stocks.lots.view')");
+    expect(shell).toContain('nodes={appSettings.visibleNav}');
+    expect(shell).not.toContain("appSettings.lotsEnabled && auth.can('stocks.lots.view')");
   });
 
   it('is registered with API guards and dedicated capabilities', () => {

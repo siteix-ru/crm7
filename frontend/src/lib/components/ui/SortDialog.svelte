@@ -2,6 +2,7 @@
   import Modal from './Modal.svelte';
   import Button from './Button.svelte';
   import Icon from './Icon.svelte';
+  import { cycleSortTerm, summarizeSort } from '../../views/sort-terms';
 
   export interface SortField {
     field: string;
@@ -19,16 +20,19 @@
 
   let { open, fields, sort, defaultValue, onclose, onapply }: Props = $props();
   let draft = $state<string[]>([]);
-  let dragField = $state<string | null>(null);
-  let dragOver = $state<string | null>(null);
+  let announcement = $state('');
 
   $effect(() => {
     if (!open) {
       return;
     }
 
-    const terms = sort.split(',').map((term) => term.trim()).filter((term) => term !== '');
+    const terms = sort
+      .split(',')
+      .map((term) => term.trim())
+      .filter((term) => term !== '');
     draft = terms.length > 0 ? [...terms] : [defaultValue];
+    announcement = '';
   });
 
   const rows = $derived.by(() => {
@@ -41,82 +45,36 @@
   });
 
   function draftIndex(field: string): number {
-    return draft.findIndex((term) => term === field || term.startsWith(`${field}_`)) + 1;
+    return draft.findIndex((term) => term.startsWith(`${field}_`)) + 1;
   }
 
-  function dirActive(field: string, dir: 'asc' | 'desc'): boolean {
-    return draft.includes(`${field}_${dir}`);
+  function summary(): string {
+    return summarizeSort(draft, fields);
   }
 
-  function toggleDir(field: string, dir: 'asc' | 'desc'): void {
-    const term = `${field}_${dir}`;
-    const index = draft.findIndex((item) => item.startsWith(`${field}_`));
-
-    if (index >= 0 && draft[index] === term) {
-      draft = draft.filter((_, itemIndex) => itemIndex !== index);
-      return;
-    }
-
-    if (index >= 0) {
-      const next = [...draft];
-      next[index] = term;
-      draft = next;
-      return;
-    }
-
-    draft = [...draft, term];
-  }
-
-  function move(fromField: string, toField: string): void {
-    const fromIndex = draft.findIndex((term) => term.startsWith(`${fromField}_`));
-    const toIndex = draft.findIndex((term) => term.startsWith(`${toField}_`));
-
-    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
-      return;
-    }
-
-    const next = [...draft];
-    const [moved] = next.splice(fromIndex, 1);
-    next.splice(toIndex, 0, moved);
-    draft = next;
-  }
-
-  /*
-   * Перестановка условий: pointer-события (мышь и палец), а не HTML5 drag&drop,
-   * который не работает на тач-устройствах.
+  /**
+   * Один контрол на поле: выкл → по возрастанию → по убыванию → выкл.
+   * Приоритет условий — по порядку включения, перестановка не нужна.
    */
-  function startDrag(event: PointerEvent, field: string): void {
-    if (draftIndex(field) === 0) {
-      return;
-    }
-
-    dragField = field;
-    dragOver = null;
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
-    event.preventDefault();
-  }
-
-  function dragMove(event: PointerEvent): void {
-    if (dragField === null) {
-      return;
-    }
-
-    const row = document.elementFromPoint(event.clientX, event.clientY)?.closest('[data-sort-field]');
-    const target = row?.getAttribute('data-sort-field') ?? null;
-
-    if (target !== null && target !== dragField && draftIndex(target) > 0) {
-      dragOver = target;
-      move(dragField, target);
-    }
-  }
-
-  function endDrag(): void {
-    dragField = null;
-    dragOver = null;
+  function cycle(field: string): void {
+    const next = cycleSortTerm(draft, field);
+    draft = next;
+    const label = fields.find((item) => item.field === field)?.label ?? field;
+    const index = draftIndex(field);
+    const state = next.includes(`${field}_desc`)
+      ? 'по убыванию'
+      : next.includes(`${field}_asc`)
+        ? 'по возрастанию'
+        : 'выключена';
+    announcement =
+      index > 0
+        ? `${label}: ${state}. ${summary()}. Порядок: ${index} из ${draft.length}`
+        : `${label}: ${state}. ${summary()}`;
   }
 
   function reset(): void {
     draft = [defaultValue];
+    announcement = `Сортировка сброшена: ${summary()}`;
   }
 
   function apply(): void {
@@ -124,69 +82,53 @@
   }
 </script>
 
-<Modal open={open} title="Сортировка" onclose={onclose}>
+<Modal open={open} title="Сортировка" size="md" {announcement} onclose={onclose}>
   <p class="sort-hint">
-    Можно задать несколько условий — они применяются сверху вниз. Нажмите стрелку, чтобы добавить
-    условие, и повторно — чтобы убрать.
+    Нажмите на переключатель условия: не сортировать → по возрастанию → по убыванию → выключить.
+    Порядок условий — по порядку включения.
   </p>
 
   <div class="sort-list" role="list">
     {#each rows as column (column.field)}
-      {@const active = draftIndex(column.field) > 0}
-      <div
-        class="sort-row"
-        class:active
-        class:drag-over={dragOver === column.field && dragField !== column.field}
-        role="listitem"
-        data-sort-field={column.field}
-      >
-        <span
-          class="sort-drag"
-          class:off={!active}
-          title={active ? 'Перетащите, чтобы изменить порядок' : undefined}
-          aria-hidden="true"
-          onpointerdown={(event) => startDrag(event, column.field)}
-          onpointermove={dragMove}
-          onpointerup={endDrag}
-          onpointercancel={endDrag}
-        >
-          <Icon name="holder" size={14} />
-        </span>
+      {@const asc = draft.includes(`${column.field}_asc`)}
+      {@const desc = draft.includes(`${column.field}_desc`)}
+      {@const active = asc || desc}
+      <div class="sort-row" class:active role="listitem">
         {#if active}
-          <span class="sort-order">{draftIndex(column.field)}</span>
+          <span class="sort-order" aria-hidden="true">{draftIndex(column.field)}</span>
         {/if}
         <span class="sort-row-label">{column.label}</span>
         <button
           type="button"
-          class="dir-btn"
-          class:on={dirActive(column.field, 'asc')}
-          title="По возрастанию"
-          aria-label={`${column.label}: по возрастанию`}
-          aria-pressed={dirActive(column.field, 'asc')}
-          onclick={() => toggleDir(column.field, 'asc')}
+          class="dir-toggle"
+          class:on={active}
+          aria-label={`${active ? `Условие ${draftIndex(column.field)} из ${draft.length}. ` : ''}${!active
+            ? `Добавить: ${column.label}, сортировка по возрастанию`
+            : asc
+              ? `${column.label}: по возрастанию, нажмите для убывания`
+              : `${column.label}: по убыванию, нажмите чтобы выключить`}`}
+          onclick={() => cycle(column.field)}
         >
-          <Icon name="arrow-up" size={16} />
-        </button>
-        <button
-          type="button"
-          class="dir-btn"
-          class:on={dirActive(column.field, 'desc')}
-          title="По убыванию"
-          aria-label={`${column.label}: по убыванию`}
-          aria-pressed={dirActive(column.field, 'desc')}
-          onclick={() => toggleDir(column.field, 'desc')}
-        >
-          <Icon name="arrow-down" size={16} />
+          {#if !active}
+            <Icon name="plus" size={14} />
+            <span>Добавить</span>
+          {:else if asc}
+            <Icon name="arrow-up" size={14} />
+            <span>По возрастанию</span>
+          {:else}
+            <Icon name="arrow-down" size={14} />
+            <span>По убыванию</span>
+          {/if}
         </button>
       </div>
     {/each}
   </div>
 
   <div class="modal-actions">
-    <Button variant="ghost" onclick={reset}>Сбросить</Button>
+    <Button variant="text" size="lg" onclick={reset}>Сбросить</Button>
     <div class="modal-buttons">
-      <Button variant="ghost" onclick={onclose}>Отмена</Button>
-      <Button onclick={apply}>Применить</Button>
+      <Button variant="ghost" size="lg" onclick={onclose}>Отмена</Button>
+      <Button size="lg" onclick={apply}>Применить</Button>
     </div>
   </div>
 </Modal>
@@ -201,16 +143,15 @@
   .sort-list {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    max-height: 340px;
-    overflow-y: auto;
+    gap: var(--space-2);
   }
 
   .sort-row {
     display: flex;
     align-items: center;
     gap: var(--space-2);
-    padding: 6px 8px;
+    min-height: var(--control-height-lg);
+    padding: var(--space-1) var(--space-2);
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
   }
@@ -220,86 +161,61 @@
     background: var(--primary-bg);
   }
 
-  .sort-row.active .sort-row-label {
-    font-weight: 600;
-  }
-
-  .sort-row.drag-over {
-    border-color: var(--primary);
-    box-shadow: inset 0 2px 0 var(--primary);
-  }
-
-  .sort-drag {
+  .sort-order {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    flex: 0 0 auto;
-    width: 18px;
-    height: 24px;
-    color: var(--muted);
-    cursor: grab;
-    touch-action: none;
-  }
-
-  .sort-drag:active {
-    cursor: grabbing;
-  }
-
-  .sort-drag.off {
-    visibility: hidden;
-    cursor: default;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: var(--on-primary);
+    font-size: var(--font-xs);
+    font-weight: 600;
   }
 
   .sort-row-label {
     flex: 1;
     min-width: 0;
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
-  .sort-order {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    border-radius: 50%;
-    background: var(--primary);
-    color: #fff;
-    font-size: 11px;
+  .sort-row.active .sort-row-label {
     font-weight: 600;
   }
 
-  .dir-btn {
+  .dir-toggle {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
+    gap: var(--space-1);
+    min-height: var(--control-height-lg);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
-    color: var(--text);
+    color: var(--text-description);
+    font: inherit;
+    font-size: var(--font-sm);
     cursor: pointer;
   }
 
-  .dir-btn:hover {
+  .dir-toggle:focus-visible {
+    outline: 2px solid var(--focus-soft);
+    outline-offset: -2px;
+  }
+
+  .dir-toggle:hover {
     border-color: var(--primary);
     color: var(--primary);
   }
 
-  .dir-btn.on {
+  .dir-toggle.on {
     border-color: var(--primary);
     background: var(--primary-bg);
     color: var(--primary);
-  }
-
-  .modal-actions {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: var(--space-2);
-    margin-top: var(--space-4);
+    font-weight: 500;
   }
 
   .modal-buttons {
@@ -307,5 +223,11 @@
     flex-wrap: wrap;
     gap: var(--space-2);
     margin-left: auto;
+  }
+
+  @media (pointer: coarse) {
+    .dir-toggle {
+      min-height: 44px;
+    }
   }
 </style>

@@ -1,9 +1,13 @@
 :root {
+  /* Вне оболочки (страницы входа) бокового рейла нет. */
+  --rail-width: 0px;
   --bg: #f6f7f9;
   --surface: #ffffff;
   --text: rgba(0, 0, 0, 0.88);
   --muted: rgba(0, 0, 0, 0.65);
   --border: #e2e5ea;
+  /* Граница контролов: 3:1 к surface по WCAG 1.4.11, когда она единственный идентификатор поля. */
+  --field-border: #8c9199;
   --border-secondary: #f0f0f0;
   --fill-tertiary: rgba(0, 0, 0, 0.02);
   --fill-hover: rgba(0, 0, 0, 0.06);
@@ -11,11 +15,14 @@
   --text-description: rgba(0, 0, 0, 0.55);
   /* Контрастные варианты Ant Design: основной синий тёмнее для текста
      и белого текста на заливке (WCAG AA ≥ 4.5:1). */
+  --on-primary: #ffffff;
   --primary: #0958d9;
-  --primary-hover: #1677ff;
+  /* Hover primary сохраняет ≥4.5:1 к --on-primary (было 4.10:1). */
+  --primary-hover: #0a54cf;
   --primary-active: #003eb3;
   --primary-bg: #e6f4ff;
   --primary-border: #91caff;
+  --focus-soft: color-mix(in srgb, var(--primary) 95%, var(--surface));
   --danger: #cf1322;
   --danger-bg: #fff2f0;
   --error-border: #ffccc7;
@@ -46,26 +53,54 @@
   --space-5: 24px;
   --space-6: 32px;
   --control-height: 32px;
+  --control-height-lg: 40px;
+  --field-label-gap: var(--space-3);
+  --field-grid-gap: var(--space-4);
+  --filters-group-gap: var(--space-5);
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Глобальная плотность интерфейса. Переключается настройкой пользователя. */
+:root[data-density='compact'] {
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-md: 13px;
+  --font-lg: clamp(15px, 1vw, 16px);
+  --font-xl: clamp(20px, 1.5vw, 24px);
+  --space-1: 3px;
+  --space-2: 6px;
+  --space-3: 9px;
+  --space-4: 12px;
+  --space-5: 18px;
+  --space-6: 24px;
+  --control-height: 28px;
+  --control-height-lg: 36px;
+  --field-label-gap: var(--space-2);
+  --field-grid-gap: var(--space-3);
+  --filters-group-gap: var(--space-4);
 }
 
 /* Тёмная тема: только токены, без изменений логики и разметки. */
 :root[data-theme='dark'] {
+  color-scheme: dark;
   --bg: #14161a;
   --surface: #1e2127;
   --text: rgba(255, 255, 255, 0.88);
   --muted: rgba(255, 255, 255, 0.68);
   --border: #343a44;
+  --field-border: #6b7280;
   --border-secondary: #2a2f37;
   --fill-tertiary: rgba(255, 255, 255, 0.04);
   --fill-hover: rgba(255, 255, 255, 0.08);
   --focus-ring: rgba(24, 144, 255, 0.25);
   --text-description: rgba(255, 255, 255, 0.55);
+  --on-primary: #14161a;
   --primary: #69b1ff;
   --primary-hover: #91caff;
   --primary-active: #3c9cff;
   --primary-bg: rgba(24, 144, 255, 0.16);
   --primary-border: rgba(24, 144, 255, 0.45);
+  --focus-soft: color-mix(in srgb, var(--primary) 95%, var(--surface));
   --danger: #ff7875;
   --danger-bg: rgba(255, 77, 79, 0.14);
   --error-border: rgba(255, 77, 79, 0.4);
@@ -156,7 +191,7 @@ button {
   padding: 8px 14px;
   border-radius: var(--radius-sm);
   background: var(--primary);
-  color: #fff;
+  color: var(--on-primary);
   font-size: 14px;
   transition: top 0.15s ease;
 }
@@ -240,26 +275,97 @@ main > .page > .levels-wrap {
   padding-top: var(--space-3);
 }
 
-/* Поля внутри модалки фильтров */
-.filter-field {
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Единый каркас полей в модалках фильтров и вида */
+:where(.filter-form, .filters-form) .filter-field {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
+  gap: var(--field-label-gap);
+  min-width: 0;
+  font-size: var(--font-sm);
   color: var(--muted);
 }
 
-.filter-field select,
-.filter-field input:not([type='checkbox']):not([type='radio']) {
-  padding: 4px 11px;
-  border: 1px solid var(--border);
+:where(.filter-form, .filters-form) .filter-field input:not([type='checkbox']):not([type='radio']),
+:where(.filter-form, .filters-form) .filter-field select {
+  width: 100%;
+  height: var(--control-height-lg);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--field-border);
   border-radius: var(--radius-sm);
   background: var(--surface);
   font: inherit;
   color: var(--text);
+  box-sizing: border-box;
 }
 
-/* Единый каркас модалок «Вид и фильтры» */
+:where(.filter-form, .filters-form) .filter-field input:not([type='checkbox']):not([type='radio']):focus,
+:where(.filter-form, .filters-form) .filter-field select:focus {
+  border-color: var(--primary-border);
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-soft);
+}
+
+/* Мягкий внутренний акцент: не выходит за рамки поля и не обрезается. */
+:where(.filter-form, .filters-form) .filter-field input:not([type='checkbox']):not([type='radio']):focus-visible,
+:where(.filter-form, .filters-form) .filter-field select:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--focus-soft);
+}
+
+:where(.filter-form, .filters-form) .filter-field input:not([type='checkbox']):not([type='radio']):disabled {
+  background: var(--fill-tertiary);
+  color: var(--text-description);
+  cursor: not-allowed;
+}
+
+:where(.filter-form, .filters-form) .filter-label {
+  display: block;
+  margin-bottom: 0;
+  color: var(--muted);
+  font-size: var(--font-sm);
+  line-height: 20px;
+}
+
+:where(.filter-form, .filters-form) fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+:where(.filter-form, .filters-form) legend {
+  padding: 0;
+}
+
+:where(.filter-form, .filters-form) .filter-hint {
+  margin: var(--space-1) 0 0;
+  color: var(--muted);
+  font-size: var(--font-xs);
+}
+
+:where(.filter-form, .filters-form) .filter-group + .filter-group,
+.filter-form .view-period + .filter-group {
+  margin-top: var(--filters-group-gap);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-secondary);
+}
+
+.filters-form .filter-group {
+  margin-top: var(--filters-group-gap);
+}
+
 .filters-form .view-options {
   display: flex;
   flex-wrap: wrap;
@@ -270,68 +376,34 @@ main > .page > .levels-wrap {
 .filters-form .radio {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--font-md);
   cursor: pointer;
-}
-
-.filters-form .filter-group {
-  margin-top: var(--space-4);
-}
-
-.filters-form .filter-label {
-  display: block;
-  margin-bottom: var(--space-2);
-  color: var(--muted);
-  font-size: 13px;
 }
 
 .filters-form .filter-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-3);
-  margin-top: var(--space-4);
 }
 
 .filters-form .filter-group .filter-fields {
   margin-top: 0;
 }
 
-.filters-form .filter-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  color: var(--muted);
-  font-size: 13px;
+.filter-form .view-period {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--field-grid-gap);
+  margin-top: var(--space-2);
 }
 
-.filters-form .filter-field input:not([type='checkbox']):not([type='radio']),
-.filters-form .filter-field select {
-  width: 100%;
-  height: 34px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  box-sizing: border-box;
-}
-
-.filters-form .filter-field input:not([type='checkbox']):not([type='radio']):focus,
-.filters-form .filter-field select:focus {
-  border-color: var(--primary);
-  outline: none;
-  box-shadow: 0 0 0 2px var(--focus-ring);
-}
-
-.filters-form .filter-field input:not([type='checkbox']):not([type='radio']):disabled {
-  background: var(--fill-tertiary);
-  color: var(--text-description);
-  cursor: not-allowed;
+.filter-form .multi .trigger {
+  height: var(--control-height-lg);
+  min-height: var(--control-height-lg);
+  padding: 0 var(--space-4);
+  max-width: 480px;
 }
 
 .filters-form .view-period {
@@ -341,20 +413,86 @@ main > .page > .levels-wrap {
   margin-top: var(--space-4);
 }
 
-.filters-form .modal-actions {
+@media (max-width: 480px) {
+  .filter-form .view-period {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.overlay .dialog-body .modal-actions {
   position: sticky;
   bottom: 0;
-  z-index: 1;
+  z-index: 2;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: var(--space-2);
-  margin-top: var(--space-4);
+  gap: var(--space-3);
+  margin-top: var(--filters-group-gap);
   padding-top: var(--space-3);
-  padding-right: 14px;
+  padding-bottom: env(safe-area-inset-bottom);
   border-top: 1px solid var(--border-secondary);
   background: var(--surface);
+}
+
+.overlay .dialog-body .modal-actions button.text {
+  color: var(--muted);
+}
+
+.overlay .dialog-body .modal-actions button.text:hover {
+  color: var(--text);
+}
+
+.search-chip-clear,
+.progress-stop,
+.sort-move,
+.sort-drag,
+.pending-more,
+.menu-trigger,
+.page-btn {
+  min-width: 24px;
+  min-height: 24px;
+}
+
+@media (pointer: coarse) {
+  :root,
+  :root[data-density='compact'] {
+    --control-height-lg: 44px;
+  }
+
+  .overlay .close {
+    width: 44px;
+    height: 44px;
+  }
+
+  .overlay .dialog-body .modal-actions button {
+    min-height: 44px;
+  }
+
+  .search-chip-clear,
+  .progress-stop,
+  .sort-move,
+  .sort-drag,
+  .pending-more,
+  .page-btn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  /* Кнопка «Ещё» остаётся визуально компактной, но сохраняет 44px- область нажатия. */
+  .menu-trigger {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .menu-trigger::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+  }
 }
 
 .crm-tooltip {
@@ -508,6 +646,24 @@ html.cookie-visible main {
   margin-top: 0;
 }
 
+/* Блоки модалки «Вид» — без рамок, только лёгкая линия между ними. */
+.view-modal fieldset {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.view-modal legend {
+  padding: 0;
+}
+
+.view-modal fieldset + fieldset {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-secondary);
+}
+
 .view-mode-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -538,6 +694,16 @@ html.cookie-visible main {
   pointer-events: none;
 }
 
+.view-mode-card input:focus-visible,
+.view-field-check input:focus-visible {
+  outline: none;
+}
+
+.view-field-check:focus-within {
+  outline: 2px solid var(--focus-soft);
+  outline-offset: -2px;
+}
+
 .view-mode-card:hover {
   border-color: var(--primary);
 }
@@ -550,20 +716,17 @@ html.cookie-visible main {
 }
 
 .view-mode-card:focus-within {
-  outline: 2px solid var(--primary);
-  outline-offset: 2px;
+  outline: 2px solid var(--focus-soft);
+  outline-offset: -2px;
 }
 
 .view-modal .modal-actions {
-  position: static;
   flex: 0 0 auto;
   margin-top: var(--space-2);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--border-secondary);
 }
 
-.dialog-body:has(.view-modal) {
-  overflow: hidden;
+.view-field-check {
+  min-height: var(--control-height-lg);
 }
 
 @media (max-width: 480px) {

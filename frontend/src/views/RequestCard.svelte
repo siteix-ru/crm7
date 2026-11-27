@@ -34,6 +34,7 @@
     uploadAttachment
   } from '../lib/api/attachments';
   import { router } from '../lib/router.svelte';
+  import { withReturnTo } from '../lib/navigation-context';
   import { tablist } from '../lib/a11y/tablist';
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
@@ -100,7 +101,23 @@
 
   let targetStatus = $state('');
   let transitionComment = $state('');
-  let cardTab = $state<CardTab>('request');
+  const tabFromUrl = router.current.query.get('tab');
+  let cardTab = $state<CardTab>(isCardTab(tabFromUrl) ? tabFromUrl : 'request');
+
+  function isCardTab(value: string | null): value is CardTab {
+    return value === 'request' || value === 'client' || value === 'comments' || value === 'chat' || value === 'files';
+  }
+
+  function syncTabUrl(tab: CardTab): void {
+    const params = new URLSearchParams(router.current.query.toString());
+    params.set('tab', tab);
+    // Смена таба не создаёт дублирующих записей истории.
+    router.navigate(`${router.current.path}?${params.toString()}`, true);
+  }
+
+  const cardReturnFrom = $derived(
+    `${router.current.path}${router.current.query.toString() ? `?${router.current.query.toString()}` : ''}`
+  );
 
   // ID уникальны для каждого экземпляра карточки на странице.
   const uid =
@@ -1393,6 +1410,7 @@
 
   async function openCardTab(next: CardTab): Promise<void> {
     cardTab = next;
+    syncTabUrl(next);
 
     if (next === 'client') {
       await loadClientCard();
@@ -2078,7 +2096,7 @@
         <div class="card">
           <div class="card-head">
             <h2>Клиент</h2>
-            <a class="link-btn" href={`#/clients/${detail.request.client.id}`}>
+            <a class="link-btn" href={`#${withReturnTo(`/clients/${detail.request.client.id}`, cardReturnFrom)}`}>
               Открыть карточку →
             </a>
           </div>
@@ -2180,7 +2198,7 @@
           <div class="card">
             <div class="card-head">
               <h2>Заявки</h2>
-              <a class="link-btn" href={`#/clients/${detail.request.client.id}`}>
+              <a class="link-btn" href={`#${withReturnTo(`/clients/${detail.request.client.id}`, cardReturnFrom)}`}>
                 Все заявки →
               </a>
             </div>
@@ -3065,10 +3083,10 @@
       </div>
 
       <div class="modal-actions">
-        <Button variant="ghost" onclick={resetItemsSort}>Сбросить</Button>
+        <Button variant="text" size="lg" onclick={resetItemsSort}>Сбросить</Button>
         <div class="modal-buttons">
-          <Button variant="ghost" onclick={() => (itemsSortOpen = false)}>Отмена</Button>
-          <Button onclick={applyItemsSort}>Применить</Button>
+          <Button variant="ghost" size="lg" onclick={() => (itemsSortOpen = false)}>Отмена</Button>
+          <Button size="lg" onclick={applyItemsSort}>Применить</Button>
         </div>
       </div>
     </Modal>

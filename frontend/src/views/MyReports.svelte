@@ -11,7 +11,11 @@
   import { clampPeriod, defaultPeriod, todayIso } from '../lib/period';
   import BarChart from '../lib/components/ui/BarChart.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+
+  let filtersRef: FiltersModal | null = $state(null);
 
   const filterDefaults = {
     from: defaultPeriod().from,
@@ -89,59 +93,66 @@
 </script>
 
 <section class="page">
-  <div class="page-hero">
-    <div class="head">
-      <h1>Мои отчёты</h1>
-      <div class="actions">
-        <FiltersModal
-          icon
-          count={countActive(reportFilters, filterDefaults)}
-          onopen={() => (reportDraft = { ...reportFilters })}
-          onapply={applyFilterDraft}
-          onreset={resetFilters}
-        >
-        <label class="filter-field">
-          <span>Период с</span>
-          <input type="date" bind:value={reportDraft.from} max={reportDraft.to} />
-        </label>
-        <label class="filter-field">
-          <span>Период по</span>
-          <input type="date" bind:value={reportDraft.to} min={reportDraft.from} max={todayIso()} />
-        </label>
+  <PageToolbar title="Мои отчёты" actionsLabel="Действия отчётов">
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия отчётов"
+        items={[
+          {
+            id: 'filters',
+            label: 'Фильтры',
+            icon: 'filter',
+            onclick: () => filtersRef?.show()
+          }
+        ]}
+      />
+    {/snippet}
+  </PageToolbar>
 
-        <label class="filter-field">
-          <span>Статус</span>
-          <select bind:value={reportDraft.status}>
-            <option value="">Все</option>
-            {#each summary?.statuses ?? [] as row (row.code)}
-              <option value={row.code}>{row.title}</option>
-            {/each}
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span>Приоритет</span>
-          <select bind:value={reportDraft.priority}>
-            <option value="">Любой</option>
-            {#each summary?.priorities ?? [] as row (row.value)}
-              <option value={String(row.value)}>{row.title}</option>
-            {/each}
-          </select>
-        </label>
-
-        <label class="filter-field">
-          <span>Склад</span>
-          <select bind:value={reportDraft.warehouse}>
-            <option value="">Все</option>
-            {#each summary?.warehouses ?? [] as row (`${row.id}|${row.name}`)}
-              <option value={String(row.id)}>{row.name}</option>
-            {/each}
-          </select>
-        </label>
-      </FiltersModal>
-      </div>
-    </div>
-  </div>
+  <FiltersModal
+    bind:this={filtersRef}
+    trigger={false}
+    count={countActive(reportFilters, filterDefaults)}
+    onopen={() => (reportDraft = { ...reportFilters })}
+    onapply={applyFilterDraft}
+    onreset={resetFilters}
+  >
+    <label class="filter-field">
+      <span>Период с</span>
+      <input type="date" bind:value={reportDraft.from} max={reportDraft.to} />
+    </label>
+    <label class="filter-field">
+      <span>Период по</span>
+      <input type="date" bind:value={reportDraft.to} min={reportDraft.from} max={todayIso()} />
+    </label>
+    <label class="filter-field">
+      <span>Статус</span>
+      <select bind:value={reportDraft.status}>
+        <option value="">Все</option>
+        {#each summary?.statuses ?? [] as row (row.code)}
+          <option value={row.code}>{row.title}</option>
+        {/each}
+      </select>
+    </label>
+    <label class="filter-field">
+      <span>Приоритет</span>
+      <select bind:value={reportDraft.priority}>
+        <option value="">Любой</option>
+        {#each summary?.priorities ?? [] as row (row.value)}
+          <option value={String(row.value)}>{row.title}</option>
+        {/each}
+      </select>
+    </label>
+    <label class="filter-field">
+      <span>Склад</span>
+      <select bind:value={reportDraft.warehouse}>
+        <option value="">Все</option>
+        {#each summary?.warehouses ?? [] as row (`${row.id}|${row.name}`)}
+          <option value={String(row.id)}>{row.name}</option>
+        {/each}
+      </select>
+    </label>
+  </FiltersModal>
 
   {#if error}<div class="alert">{error}</div>{/if}
 
@@ -230,15 +241,6 @@
     flex-direction: column;
     gap: var(--space-4);
   }
-
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    flex-wrap: wrap;
-  }
-
 
   h2 {
     margin: 0 0 var(--space-3);

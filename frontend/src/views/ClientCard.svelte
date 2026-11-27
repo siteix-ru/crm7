@@ -57,6 +57,11 @@
   import { auth } from '../lib/stores/auth.svelte';
   import { avatars } from '../lib/stores/avatar.svelte';
   import { router } from '../lib/router.svelte';
+  import { normalizeReturnTo, withReturnTo } from '../lib/navigation-context';
+
+  const backHref = $derived(
+    normalizeReturnTo(router.current.query.get('returnTo'), null, router.current.path) ?? '/clients'
+  );
 
   interface Props {
     id: number;
@@ -188,7 +193,18 @@
   let priceTypesOpen = $state(false);
   let priceTypesDraft = $state<string[]>([]);
   let priceTypesError = $state('');
-  let tab = $state<TabId>('requests');
+  const tabFromUrl = router.current.query.get('tab');
+  let tab = $state<TabId>(tabFromUrl === 'account' || tabFromUrl === 'requests' ? tabFromUrl : 'requests');
+
+  function syncTabUrl(next: TabId): void {
+    const params = new URLSearchParams(router.current.query.toString());
+    params.set('tab', next);
+    router.navigate(`${router.current.path}?${params.toString()}`, true);
+  }
+
+  const cardReturnFrom = $derived(
+    `${router.current.path}${router.current.query.toString() ? `?${router.current.query.toString()}` : ''}`
+  );
   let actionKind = $state<ActionKind | null>(null);
   let actionComment = $state('');
   let passwordConfirmOpen = $state(false);
@@ -800,6 +816,7 @@
     }
 
     tab = next;
+    syncTabUrl(next);
 
     if (next === 'account') {
       void loadPriceTypes();
@@ -1360,7 +1377,7 @@
     </div>
   {:else if card}
     <div class="hero">
-      <a class="back" href="#/clients" title="К списку клиентов" aria-label="К списку клиентов">
+      <a class="back" href={`#${backHref}`} title="К списку клиентов" aria-label="К списку клиентов">
         <Icon name="arrow-left" size={16} />
       </a>
       {#if canEditAvatar}
@@ -1665,7 +1682,7 @@
             {:else}
               <div class="requests">
                 {#each requestsItems as item (item.id)}
-                  <a class="request" href={`#/requests/${item.id}`}>
+                  <a class="request" href={`#${withReturnTo(`/requests/${item.id}`, cardReturnFrom)}`}>
                     <div class="line">
                       <span class="number">{item.number}</span>
                       <StatusBadge title={item.status.title} color={item.status.color} />
@@ -2308,11 +2325,11 @@
         </div>
 
         <div class="modal-actions">
-          <Button variant="ghost" onclick={resetRequestsFilters}>Сбросить</Button>
-        <div class="modal-buttons">
-          <Button variant="ghost" onclick={() => (requestsFiltersOpen = false)}>Отмена</Button>
-          <Button onclick={applyRequestsFilters}>Применить</Button>
-        </div>
+          <Button variant="text" size="lg" onclick={resetRequestsFilters}>Сбросить</Button>
+          <div class="modal-buttons">
+            <Button variant="ghost" size="lg" onclick={() => (requestsFiltersOpen = false)}>Отмена</Button>
+            <Button size="lg" onclick={applyRequestsFilters}>Применить</Button>
+          </div>
         </div>
       </div>
     </Modal>
@@ -2424,11 +2441,11 @@
       </div>
 
       <div class="modal-actions">
-        <Button variant="ghost" onclick={resetInterestsFilters}>Сбросить</Button>
-      <div class="modal-buttons">
-        <Button variant="ghost" onclick={() => (interestsFiltersOpen = false)}>Отмена</Button>
-        <Button onclick={applyInterestsFilters}>Применить</Button>
-      </div>
+        <Button variant="text" size="lg" onclick={resetInterestsFilters}>Сбросить</Button>
+        <div class="modal-buttons">
+          <Button variant="ghost" size="lg" onclick={() => (interestsFiltersOpen = false)}>Отмена</Button>
+          <Button size="lg" onclick={applyInterestsFilters}>Применить</Button>
+        </div>
       </div>
     </Modal>
 

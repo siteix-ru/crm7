@@ -81,20 +81,23 @@
 <div class="pager" role="navigation" aria-label="Постраничная навигация">
   {#if showSelector}
     <label class="per-page">
-      <span>Показывать</span>
-      <select value={perPage} disabled={loading} onchange={changePerPage} aria-label="Элементов на странице">
-        {#each perPageOptions as option (option)}
-          <option value={option}>{option}</option>
-        {/each}
-        <option value={0}>Все</option>
-      </select>
+      <span class="per-page-label">Показывать</span>
+      <span class="select-wrap">
+        <select value={perPage} disabled={loading} onchange={changePerPage}>
+          {#each perPageOptions as option (option)}
+            <option value={option}>{option}</option>
+          {/each}
+          <option value={0}>Все</option>
+        </select>
+      </span>
     </label>
   {:else}
     <span></span>
   {/if}
 
   <div class="pager-main">
-    <span class="pager-total" aria-live="polite">{rangeFrom}–{rangeTo} из {total}</span>
+    <span class="sr-only" aria-live="polite">{rangeFrom}–{rangeTo} из {total}</span>
+    <span class="pager-total" aria-hidden="true">{rangeFrom}–{rangeTo} из {total}</span>
 
     {#if pages > 1}
       <div class="pager-pages" aria-label="Постраничная навигация">
@@ -123,7 +126,9 @@
 
       <div class="pager-simple" aria-label="Постраничная навигация">
         {@render pagerPrev()}
-        <span class="pager-simple-count">{page} / {pages}</span>
+        <span class="pager-simple-count" aria-current="page" aria-label={`Страница ${page} из ${pages}`}>
+          {page} / {pages}
+        </span>
         {@render pagerNext()}
       </div>
 
@@ -158,22 +163,36 @@
   .per-page {
     display: inline-flex;
     align-items: center;
-    gap: 6px;
+    gap: var(--space-1);
+  }
+
+  .select-wrap {
+    position: relative;
+    display: inline-flex;
   }
 
   .per-page select {
-    padding: 4px 11px;
-    border: 1px solid var(--border);
+    height: var(--control-height);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     font: inherit;
-    font-size: 14px;
+    font-size: var(--font-sm);
   }
 
   .per-page select:focus {
     outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--focus-ring);
+    border-color: var(--primary-border);
+    box-shadow: inset 0 0 0 2px var(--focus-soft);
+  }
+
+  .per-page select:focus-visible,
+  .pager-jump input:focus-visible,
+  .page-btn:focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+    box-shadow: none;
   }
 
   .pager-main {
@@ -202,7 +221,7 @@
     min-width: 32px;
     height: 32px;
     padding: 0 6px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     color: var(--text);
@@ -225,7 +244,7 @@
   }
 
   .page-btn:disabled {
-    color: rgba(0, 0, 0, 0.25);
+    color: var(--muted);
     cursor: not-allowed;
   }
 
@@ -249,7 +268,7 @@
     width: 56px;
     height: 32px;
     padding: 0 8px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     font: inherit;
@@ -258,8 +277,8 @@
 
   .pager-jump input:focus {
     outline: none;
-    border-color: var(--primary);
-    box-shadow: 0 0 0 2px var(--focus-ring);
+    border-color: var(--primary-border);
+    box-shadow: inset 0 0 0 2px var(--focus-soft);
   }
 
   .pager-simple {
@@ -273,14 +292,71 @@
   }
 
   @media (max-width: 575.98px) {
+    .pager {
+      gap: var(--space-2);
+      padding-top: var(--space-2);
+    }
+
+    .pager-main {
+      gap: var(--space-2);
+      margin-left: 0;
+    }
+
     .pager-pages,
     .pager-jump,
     .pager-total {
       display: none;
     }
 
+    /* Подпись остаётся в доступном имени select, но не занимает место в ряду. */
+    .per-page-label {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+
+    .per-page select {
+      width: 56px;
+      height: 32px;
+      padding: 0 6px;
+    }
+
     .pager-simple {
       display: inline-flex;
+    }
+
+    .pager-simple-count {
+      font-size: var(--font-sm);
+      color: var(--muted);
+    }
+  }
+
+  @media (pointer: coarse) {
+    /* Визуально компактно, но область нажатия остаётся 44px. */
+    .pager-pages,
+    .pager-simple {
+      gap: 12px;
+    }
+
+    .page-btn {
+      position: relative;
+      min-width: 32px;
+      min-height: 32px;
+      width: 32px;
+      height: 32px;
+    }
+
+    .page-btn::after,
+    .select-wrap::after {
+      content: '';
+      position: absolute;
+      inset: -6px;
     }
   }
 </style>

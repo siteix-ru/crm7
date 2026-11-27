@@ -12,6 +12,8 @@
     emptyLabel?: string;
     emptyValuesLabel?: string;
     maxHeight?: string;
+    size?: 'md' | 'lg';
+    describedBy?: string;
     showCount?: boolean;
     disabled?: boolean;
     onchange?: (values: string[]) => void;
@@ -25,6 +27,8 @@
     emptyLabel = 'Нет данных',
     emptyValuesLabel = '',
     maxHeight = '260px',
+    size = 'md',
+    describedBy,
     showCount = false,
     disabled = false,
     onchange
@@ -80,19 +84,27 @@
       open = false;
     };
     const handleKeydown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (
+        event.key === 'Escape' &&
+        container !== null &&
+        container.contains(document.activeElement)
+      ) {
         event.stopPropagation();
         closeMenu();
       }
     };
 
     updatePosition();
+    const focusTimer = setTimeout(() => {
+      container?.querySelector<HTMLElement>('.option input:not([disabled])')?.focus();
+    }, 0);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', handleScroll);
     document.addEventListener('pointerdown', handlePointerDown, true);
     document.addEventListener('keydown', handleKeydown);
 
     return () => {
+      clearTimeout(focusTimer);
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', handleScroll);
       document.removeEventListener('pointerdown', handlePointerDown, true);
@@ -148,10 +160,13 @@
   <button
     type="button"
     class="trigger"
+    class:lg={size === 'lg'}
     bind:this={triggerEl}
-    aria-label={label || summary}
+    aria-label={label ? `${label}: ${summary}` : summary}
+    aria-describedby={describedBy}
+    aria-haspopup="dialog"
     aria-expanded={open}
-    aria-controls={open ? menuId : undefined}
+    aria-controls={menuId}
     disabled={options.length === 0 || disabled}
     onclick={toggleMenu}
   >
@@ -160,7 +175,7 @@
   </button>
 
   {#if open}
-    <div class="menu" id={menuId} role="group" aria-label={label} style={menuStyle}>
+    <div class="menu" id={menuId} role="dialog" aria-label={label ?? 'Выбор значений'} style={menuStyle}>
       {#each options as option (option.value)}
         <label class="option">
           <input
@@ -190,9 +205,10 @@
     justify-content: space-between;
     gap: var(--space-2);
     width: 100%;
-    min-height: 34px;
-    padding: 7px 11px;
-    border: 1px solid var(--border);
+    height: var(--control-height);
+    min-height: var(--control-height);
+    padding: 0 var(--space-3);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     color: var(--text);
@@ -200,6 +216,17 @@
     font: inherit;
     font-size: 14px;
     text-align: left;
+  }
+
+  .trigger:focus-visible {
+    outline: 2px solid var(--focus-soft);
+    outline-offset: -2px;
+  }
+
+  .trigger.lg {
+    height: var(--control-height-lg);
+    min-height: var(--control-height-lg);
+    padding: 0 var(--space-4);
   }
 
   .trigger:hover:not(:disabled),
@@ -237,7 +264,7 @@
     flex-direction: column;
     overflow-y: auto;
     padding: 4px;
-    border: 1px solid var(--border);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     box-shadow: var(--shadow-md);
@@ -248,7 +275,8 @@
     align-items: center;
     gap: var(--space-2);
     flex: 0 0 auto;
-    padding: 7px 8px;
+    min-height: var(--control-height);
+    padding: var(--space-2);
     border-radius: var(--radius-xs);
     color: var(--text);
     cursor: pointer;
@@ -264,8 +292,15 @@
   }
 
   .empty {
-    padding: 8px;
+    padding: var(--space-2);
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-sm);
+  }
+
+  @media (pointer: coarse) {
+    .trigger,
+    .option {
+      min-height: 44px;
+    }
   }
 </style>

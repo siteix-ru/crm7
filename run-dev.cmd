@@ -56,8 +56,8 @@ echo.
 
 if defined DRY_RUN goto :dry_run
 
-start "CRM7 API :%API_PORT%" cmd /k php -S 127.0.0.1:%API_PORT% -d upload_max_filesize=12M -d post_max_size=12M -t api/public api/public/router.php
-start "CRM7 WEB :%WEB_PORT%" cmd /k "set CRM_API_TARGET=http://127.0.0.1:%API_PORT%&& cd /d frontend&& npm run dev -- --port %WEB_PORT% --strictPort --host localhost"
+start "CRM7 API :%API_PORT%" cmd /k php -S 0.0.0.0:%API_PORT% -d upload_max_filesize=12M -d post_max_size=12M -t api/public api/public/router.php
+start "CRM7 WEB :%WEB_PORT%" cmd /k "set CRM_API_TARGET=http://127.0.0.1:%API_PORT%&& cd /d frontend&& npm run dev -- --port %WEB_PORT% --strictPort --host 0.0.0.0"
 
 echo Waiting for API...
 powershell -NoProfile -ExecutionPolicy Bypass -Command "for($i=0;$i -lt 40;$i++){ try { $c=New-Object System.Net.Sockets.TcpClient; $c.Connect('127.0.0.1', %API_PORT%); $c.Close(); exit 0 } catch { Start-Sleep -Milliseconds 500 } }; exit 1"

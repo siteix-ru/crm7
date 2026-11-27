@@ -139,6 +139,7 @@ export interface StaffListParams {
   sort?: string;
   page?: number;
   perPage?: number;
+  signal?: AbortSignal;
 }
 
 export interface StaffListResult {
@@ -172,7 +173,10 @@ export function listStaff(params: StaffListParams = {}): Promise<StaffListResult
   if (params.page) search.set('page', String(params.page));
   if (params.perPage !== undefined) search.set('per_page', String(params.perPage));
 
-  return apiRequest<StaffListResult>(`/users?${search.toString()}`, { auth: true });
+  return apiRequest<StaffListResult>(`/users?${search.toString()}`, {
+    auth: true,
+    signal: params.signal
+  });
 }
 
 export function getStaff(id: number): Promise<StaffUser> {

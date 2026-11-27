@@ -36,4 +36,26 @@ describe('design system consistency', () => {
   it('keeps the chat composer inside the viewport', () => {
     expect(chat).toMatch(/\.composer textarea\s*\{[^}]*min-width:\s*0/s);
   });
+
+  it('keeps primary hover background at AA contrast with its text', () => {
+    const light = appCss.slice(0, appCss.indexOf(":root[data-theme='dark']"));
+    const background = light.match(/--primary-hover:\s*(#[0-9a-f]{6})/i)?.[1];
+    const foreground = light.match(/--on-primary:\s*(#[0-9a-f]{6})/i)?.[1];
+    expect(background).toBeTruthy();
+    expect(foreground).toBeTruthy();
+
+    const luminance = (hex: string): number => {
+      const channels = hex
+        .slice(1)
+        .match(/../g)!
+        .map((value) => Number.parseInt(value, 16) / 255)
+        .map((value) => (value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4));
+      return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+    };
+    const a = luminance(background!);
+    const b = luminance(foreground!);
+    const ratio = (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
+
+    expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
 });

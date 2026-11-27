@@ -3,27 +3,33 @@
 Интерфейс приводится к рекомендациям Ant Design. Общие токены — в
 `frontend/src/app.css` (`:root`); компоненты — в `frontend/src/lib/components/ui/`.
 
+Правила переноса этого эталона на другие списки — в [`list-rollout.md`](list-rollout.md).
+
 ## Токены
 
 Цвета:
-- Основной: `--primary #1677ff`, `--primary-hover #4096ff`, `--primary-active #0958d9`, `--primary-bg #e6f4ff`, `--primary-border #91caff`.
-- Текст: `--text rgba(0,0,0,.88)`, `--muted rgba(0,0,0,.65)`, `--text-description rgba(0,0,0,.45)`.
-- Границы/заливки: `--border #d9d9d9`, `--border-secondary #f0f0f0`, `--fill-tertiary rgba(0,0,0,.02)`, `--fill-hover rgba(0,0,0,.06)`, `--focus-ring rgba(5,145,255,.1)`.
+- Основной: `--primary #0958d9`, `--primary-hover #0a54cf` (≥4.5:1 к `--on-primary`), `--primary-active #003eb3`, `--primary-bg #e6f4ff`, `--primary-border #91caff`, `--on-primary`.
+- Текст: `--text rgba(0,0,0,.88)`, `--muted rgba(0,0,0,.65)`, `--text-description rgba(0,0,0,.55)`.
+- Границы/заливки: `--border #e2e5ea`, `--border-secondary #f0f0f0`, `--fill-tertiary rgba(0,0,0,.02)`, `--fill-hover rgba(0,0,0,.06)`, `--focus-soft` (контрастный внутренний акцент фокуса).
 - Статусы: `--danger`, `--danger-bg`, `--error-border`, `--error-text #cf1322`; `--success`, `--success-bg`, `--success-border`, `--success-text #389e0d`; `--warning`, `--warning-bg`, `--warning-text #d48806`.
 
 Прочее:
-- Радиусы: `--radius-sm 6px`, `--radius-md 8px`. Тени: `--shadow-sm`, `--shadow-md`.
-- Отступы: `--space-1..6` = 4/8/12/16/24/32. Контролы: `--control-height 32px`.
+- Радиусы: `--radius-sm 8px`, `--radius-md 12px`. Тени: `--shadow-sm`, `--shadow-md`.
+- Отступы: `--space-1..6` = 4/8/12/16/24/32. Контролы: `--control-height 32px`,
+  `--control-height-lg 40px` (36 в compact, 44 на тач-устройствах);
+  `--field-label-gap`, `--field-grid-gap`, `--filters-group-gap`.
 - Шрифт: `--font` (системный), база 14px / line-height 1.5714.
 
 **Правило:** не хардкодить цвета вне токенов Ant — использовать переменные.
 
 ## Размеры
 
-- Контролы (инпуты, селекты, кнопки, иконочные кнопки, пагинация) — **32px** (Ant default).
+- Контролы — **32px** (`--control-height`); в модалках фильтров и их кнопках —
+  **40px** (`--control-height-lg`, compact 36, тач 44).
 - Иконки внутри кнопок — **16px**.
-- Радиус контролов — 6px; карточек, модалок и панелей — 8px.
-- Фокус полей — `border-color: var(--primary)` + `box-shadow: 0 0 0 2px var(--focus-ring)` (Ant controlOutline).
+- Радиус контролов — 8px; карточек, модалок и панелей — 12px.
+- Фокус полей — контрастный внутренний акцент `box-shadow: inset 0 0 0 2px var(--focus-soft)`
+  и `--primary-border`; внешний outline с positive offset запрещён (обрезается).
 
 ## Иконки
 
@@ -39,8 +45,8 @@
 ## Компоненты (`frontend/src/lib/components/ui/`)
 
 - **`Button.svelte`** — `variant: 'primary' | 'success' | 'ghost' | 'text' | 'danger'` (по умолч. `primary`;
-  `success` — мягкое позитивное действие), `size: 'md' | 'sm'` (32px), `loading`, `disabled`, `title`, `ariaLabel`, `onclick`.
-- **`Modal.svelte`** — общий шелл: `open`, `title`, `label`, `wide`, `closeButton`, `bodyMinHeight`, `onclose`.
+  `success` — мягкое позитивное действие), `size: 'sm' | 'md' | 'lg'` (32/40px), `loading`, `disabled`, `title`, `ariaLabel`, `onclick`.
+- **`Modal.svelte`** — общий шелл: `open`, `title`, `label`, `size: 'sm'|'md'|'lg'`, `wide`/`width` (deprecated), `closeButton`, `bodyMinHeight`, `onclose`.
   Рендерится только при `open`; Escape и клик по маске закрывают.
 - **`Input.svelte`** — `label`, `type`, `value` (bindable), `placeholder`, `error`, `name`, `inputmode`,
   `min`, `max`, `step`, `maxlength`, `id`, `ariaLabel`, `ariaInvalid`, `ariaDescribedby`. Высота 32.
@@ -51,7 +57,10 @@
 - **`SearchInput.svelte`** — поиск с историей (`historyKey`), `onclear`, `onpick`.
 - **`Spinner.svelte`** — `size` (по умолч. 18).
 - **`Pagination.svelte`** — `page`, `perPage`, `total`, `onchange`, `onperpage`, `perPageOptions`, `always`, `loading`.
-- **`FiltersModal.svelte`** — кнопка «Фильтры» + модалка (`onapply`, `onreset`, `onopen`, `count`).
+- **`FiltersModal.svelte`** — кнопка «Фильтры» + модалка (`onapply`, `onreset`, `onopen`, `count`,
+  `size`, `dirty`, `resetLabel`, `show()`, `announce()`). announce — скрытый `role="status"`
+рядом с диалогом (переживает закрытие); `onapply`/`onreset` могут вернуть строку — модалка
+объявит её сама.
 - **`ExportModal.svelte`** — выбор формата (XLSX/XLS/CSV/TXT/PDF) и способа (скачать/почта), `onpick(format, byEmail)`.
 - **`Logo.svelte`**, **`BarChart.svelte`** — логотип и гистограмма.
 - **`stocks/PhotoGallery.svelte`** — галерея фото: `photos`, `variant: 'list' | 'tile'` (tile — свайп/стрелки), `onopen`, `flush`. Пропорции/вписывание и размер запрашиваемого варианта берутся из настроек (список → `preview`, tile → `card`).
@@ -189,8 +198,10 @@
 остаются 1280 px. Расширение для `page-wide` задаётся в `app.css`, локальные `max-width` у страниц
 не нужны.
 
-Кнопки в подвале модалок (`.modal-actions` / `.modal-buttons`) на экранах ≤ 720 px всегда в один
-ряд и равной ширины — это общее правило в `app.css`; локальные `flex-wrap: wrap` его не перебивают.
+Кнопки в подвале модалок (`.modal-actions` / `.modal-buttons`) на экранах ≤ 720 px распределяются
+в один ряд равной ширины (общее правило в `app.css`, локальные `flex-wrap: wrap` его не перебивают).
+На ≤ 480 px последняя кнопка переносится в отдельный ряд на всю ширину, чтобы длинные подписи не
+обрезались; это тоже общее правило `app.css`, а не исключение конкретной страницы.
 
 Мобильное правило должно повторять селектор базового: если на десктопе сетка задана как
 `.it-row.prices`, то в медиазапросе `.it-row { grid-template-columns: ... }` её не перебьёт
@@ -213,8 +224,86 @@
 по складам в карточке номенклатуры идут карточкой (склад и корзина в строке, цены и остаток
 строками ниже), карточки модулей в админке — в одну колонку.
 
+## Шапка страницы (`PageToolbar`)
+
+Единый каркас для списковых страниц (REQ-LIST, CLI-LIST, STK-LIST, WH-LIST, STAFF-LIST,
+STAFF-SUBST, STK-IMPORT, REP-LIST):
+
+- `<PageToolbar>` — **плоская** шапка: без фона, рамки и разделителя. Группировку создают
+  сами контролы и карточка/список ниже. `page-hero` для списков устарел.
+- Слева — `leading` (только реальная навигация назад) и ровно один `h1` (`title` — строка
+  или сниппет). `<header>` связан с заголовком через `aria-labelledby`.
+- Справа — `actions` (`role="group"` с `aria-label`). В эталоне CLI-LIST все действия,
+  включая CTA «Новый клиент», лежат в одном `ToolbarMenu`; отдельный слот `primary`
+  остаётся доступным, но в списках сейчас не используется. Порядок пунктов меню:
+  поиск → сортировка → вид/фильтры → утилиты → CTA.
+- `tabs` — отдельный именованный регион для переключения видов одного экрана, **не** actions.
+  Маршруты (`/staff` ↔ `/substitutions`) — ссылки с `aria-current`, не ARIA-вкладки.
+- Все действия списка находятся в **одном** `ToolbarMenu` (кнопка «Ещё»): сортировка,
+  вид/фильтры, утилиты и создание. Переключаемые пункты — `role="menuitemcheckbox"` с
+  `aria-checked`; тяжёлые модалки (фильтры) открываются через `FiltersModal.show()`.
+- Поиск тоже живёт в `ToolbarMenu`: пункт «Поиск» открывает общую модалку с подсказками
+  из истории (`getHistory`) и названий загруженных записей. Запуск — только по «Найти»;
+  пока идёт запрос, показывается плавающий лоадер с «Остановить» и таймаутом 15 с.
+  При активном поиске рядом с «Ещё» показывается чип `Поиск: …` с кнопкой очистки.
+- Адаптив ≤720 px: заголовок отдельной строкой, затем поиск/действия; компактная кнопка
+  «Ещё» сохраняет область нажатия 44 px и `aria-label`. Отступы и высоты — только токены
+  (`--space-*`, `--control-height`), цвета — только токены (`--on-primary` для текста на `--primary`).
+- Фокус: контрастный внутренний акцент 2 px (`--focus-soft`) через `box-shadow: inset`,
+  не внешний контур с positive offset — он обрезается краями поля.
+
+## Эталонная модалка фильтров
+
+`FiltersModal` + `Modal` — единый каркас для всех модалок фильтрации (эталон — CLI-LIST):
+
+- Размер задаётся `size: 'sm' | 'md' | 'lg'` (560 / 640 / 780 px). `width` и `wide`
+  остаются только для обратной совместимости; новые страницы используют `size`.
+- Высота контролов и кнопок — `--control-height-lg` (40 px, 36 px в compact),
+  внутренний padding `--space-4`; отступ подписи — `--field-label-gap`, между
+  группами — `--filters-group-gap`. Локальные `:global()`-переопределения на страницах
+  запрещены: значения живут в общих компонентах и токенах.
+- Порядок блоков: статусы → менеджеры → города → даты. Даты — две колонки с общим
+  заголовком «Дата регистрации» и подписями «Дата регистрации с/по».
+- Группы разделяются тонкой линией `--border-secondary`; подвал `.modal-actions`
+  липкий, с фоном `--surface` и safe-area. «Сбросить» (text, `size="lg"`) стоит у левого
+  края, «Отмена» (ghost) и «Применить» (primary) — в правой группе `.modal-buttons`
+  в этом порядке; все кнопки `size="lg"`. `resetLabel` по умолчанию «Сбросить»,
+  эталон использует «Сбросить всё».
+- `MultiSelect` внутри модалки: `size="lg"`, `aria-haspopup="dialog"`, `aria-controls`,
+  имя триггера включает выбранное, фокус при открытии переходит к первому чекбоксу,
+  Escape закрывает только поповер; цели ≥44 px при `(pointer: coarse)`.
+- `SortDialog` — общая модалка сортировки для всех списков (CLI-LIST, `Staff`, заявки
+  в карточке клиента): по одному циклическому переключателю на поле
+  (`выкл → ↑ → ↓ → выкл`), порядок условий — по порядку включения; drag и кнопки
+  приоритета удалены. `size="md"`, кнопки единой высоты, анонс полного порядка внутри диалога.
+- `Modal` принимает `announcement`: live-регион рендерится **внутри** `role="dialog"`,
+  иначе `aria-modal="true"` может скрыть анонс от скринридера. Вне диалога остаётся
+  страничный `role="status"` — для действий тулбара и для результатов, получаемых после
+  закрытия модалки (такой регион имеет `aria-hidden={open}`).
+- Осознанные компромиссы CLI-LIST как эталона: поиск и создание живут в `ToolbarMenu`
+  (единый паттерн «все действия в «Ещё»»); брейкпоинты 1200/1024/900/720 для таблицы
+  клиентов — локальное исключение из общего канона 1024/1600.
+- Применение фильтров обновляет скрытый `role="status"` («Фильтры применены. Найдено: N»);
+  «Сбросить» очищает значения и сразу применяет их.
+- Тёмная тема использует только токены (`color-scheme: dark`, `--on-primary` для бейджей,
+  `--muted`/`--fill-hover` для кнопки закрытия).
+
+## Реестр полей списка
+
+`frontend/src/lib/views/client-fields.ts` — единственное описание поля для CLI-LIST: подпись
+в чекбоксе «Вид», колонка таблицы (`headClass`/`cellClass`/`width`/`value`), зона плитки
+(`tileRegion`: `title`/`row`/`foot`) и мета-строка мобильного списка. Необязательные колонки,
+их шапки, ячейки и плитки рендерятся `{#each}` по дескрипторам — новое необязательное поле
+добавляется одной записью. Брейкпоинты и ширины живут в `minWidth`/`width`, а не в `{#if}`
+в разметке. Составные поля (email и адрес) используют `kind: 'email'`; остальные —
+`value`/`title`. Обязательные поля («Клиент», «Заявки», «Статус») имеют нестандартную разметку
+(ссылка, счётчик, чипы) и остаются описанными в странице; их подписи и порядок тоже берутся
+из реестра. Поведенческие тесты чистых правил — `client-fields.test.ts`, `sort-terms.test.ts`;
+`page-toolbar.test.ts` и `modal-offset.test.ts` — строковые проверки контракта, а не доказательство AA.
+
 ## Примеры в коде
 
+- `frontend/src/views/Clients.svelte` — эталонный список: реестр полей, общий `SortDialog`, раздельные модалки «Вид»/«Фильтры», возврат с контекстом.
 - `frontend/src/views/Stocks.svelte` — таблица/плитки, пагинация, модалки фильтров/импорта/экспорта, карточка позиции.
 - `frontend/src/views/ItemEdit.svelte` — форма (поля, селекты, цены, управление фото).
 - `frontend/src/lib/components/ui/*` — сами компоненты и их стили.

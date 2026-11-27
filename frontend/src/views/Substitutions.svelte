@@ -7,6 +7,8 @@
   import { formatDate } from '../lib/format';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
 
   let {
     embedded = false,
@@ -131,27 +133,22 @@
 
 <svelte:element this={embedded ? 'div' : 'section'} class="page">
   {#if !embedded}
-    <div class="page-hero">
-      <div class="head">
-        <h1>Замещения</h1>
-        <div class="head-actions">
-          <button
-            type="button"
-            class="page-icon-btn"
-            title="Обновить"
-            aria-label="Обновить"
-            disabled={loading}
-            onclick={() => void load()}
-          >
-            {#if loading}
-              <Spinner size={16} />
-            {:else}
-              <Icon name="refresh" size={16} />
-            {/if}
-          </button>
-        </div>
-      </div>
-    </div>
+    <PageToolbar title="Замещения" actionsLabel="Действия с замещениями">
+      {#snippet actions()}
+        <ToolbarMenu
+          label="Действия с замещениями"
+          items={[
+            {
+              id: 'refresh',
+              label: 'Обновить',
+              icon: 'refresh',
+              disabled: loading,
+              onclick: () => void load()
+            }
+          ]}
+        />
+      {/snippet}
+    </PageToolbar>
   {/if}
 
   {#if error}<p class="alert error">{error}</p>{/if}
@@ -258,14 +255,6 @@
     flex-direction: column;
     gap: var(--space-4);
   }
-
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-  }
-
 
   .alert {
     margin: 0;

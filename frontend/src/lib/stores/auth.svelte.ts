@@ -1,7 +1,10 @@
 import { ApiError, apiRequest, setTokenProvider, setUnauthorizedHandler } from '../api/client';
 import type { LoginResponse, MeResponse, UserProfile } from '../api/types';
 import { clearHistory } from '../search-history';
+import { clearLocalNavigationState } from '../navigation-context';
 import { cart } from './cart.svelte';
+import { filterPrefs } from './filter-prefs.svelte';
+import { recentPages } from './recent-pages.svelte';
 
 const TOKEN_KEY = 'crm_token';
 const USER_KEY = 'crm_user';
@@ -103,11 +106,15 @@ class AuthStore {
   }
 
   clearSession(): void {
+    const userId = this.user?.id ?? null;
     this.token = null;
     this.user = null;
     this.capabilities = [];
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    filterPrefs.cancelPending();
+    clearLocalNavigationState(userId);
+    recentPages.clear();
     cart.setUser(null);
     clearHistory();
   }

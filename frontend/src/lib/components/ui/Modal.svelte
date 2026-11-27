@@ -1,5 +1,6 @@
 <script module lang="ts">
   let scrollLockCount = 0;
+  const openDialogs: HTMLElement[] = [];
 
   function lockBodyScroll(): void {
     if (scrollLockCount === 0) {
@@ -27,9 +28,13 @@
     title?: string;
     label?: string;
     wide?: boolean;
+    width?: number;
+    size?: 'sm' | 'md' | 'lg';
     closeButton?: boolean;
     persistent?: boolean;
     bodyMinHeight?: number;
+    /** Анонс внутри диалога: live-регион снаружи aria-modal может быть не услышан. */
+    announcement?: string;
     onclose: () => void;
     children?: Snippet;
   }
@@ -39,13 +44,17 @@
     title = '',
     label,
     wide = false,
+    width,
+    size = 'sm',
     closeButton = true,
     persistent = false,
     bodyMinHeight,
+    announcement,
     onclose,
     children
   }: Props = $props();
 
+  const modalWidth = $derived(width ?? (wide ? 780 : { sm: 560, md: 640, lg: 780 }[size]));
   const hasHead = $derived(title !== '' || closeButton);
   const titleId = `modal-title-${Math.random().toString(36).slice(2, 9)}`;
   let dialogEl: HTMLDivElement | null = $state(null);
@@ -60,11 +69,13 @@
       dialogEl.querySelectorAll<HTMLElement>(
         'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
       )
-    ).filter((element) => element.offsetParent !== null);
+    ).filter(
+      (element) => element.getClientRects().length > 0 && element.closest('[hidden]') === null
+    );
   }
 
   function onKeydown(event: KeyboardEvent): void {
-    if (!open) {
+    if (!open || (dialogEl !== null && openDialogs.at(-1) !== dialogEl)) {
       return;
     }
 
@@ -109,6 +120,9 @@
 
     previouslyFocused = document.activeElement as HTMLElement | null;
     lockBodyScroll();
+    if (dialogEl !== null) {
+      openDialogs.push(dialogEl);
+    }
     const timer = setTimeout(() => {
       const preferred =
         dialogEl?.querySelector<HTMLElement>('[data-autofocus], [autofocus]')
@@ -122,6 +136,10 @@
 
     return () => {
       clearTimeout(timer);
+      const index = dialogEl === null ? -1 : openDialogs.indexOf(dialogEl);
+      if (index >= 0) {
+        openDialogs.splice(index, 1);
+      }
       unlockBodyScroll();
       previouslyFocused?.focus?.();
     };
@@ -145,7 +163,8 @@
     {/if}
     <div
       class="dialog"
-      class:wide
+      class:wide={wide || size === 'lg'}
+      style:width={`min(${modalWidth}px, 100%)`}
       bind:this={dialogEl}
       role="dialog"
       aria-modal="true"
@@ -163,6 +182,9 @@
             </button>
           {/if}
         </div>
+      {/if}
+      {#if announcement !== undefined}
+        <div class="sr-only" role="status" aria-live="polite">{announcement}</div>
       {/if}
       <div
         class="dialog-body"
@@ -183,6 +205,8 @@
     grid-template-columns: minmax(0, 1fr);
     place-items: center;
     padding: var(--space-4);
+    /* Рейл занимает место слева — центрируем окно в рабочей области, а не в окне браузера. */
+    padding-left: calc(var(--rail-width, 0px) + var(--space-4));
   }
 
   .backdrop {
@@ -205,7 +229,7 @@
     width: min(560px, 100%);
     min-width: 0;
     max-height: min(82vh, 760px);
-    padding: 20px 24px;
+    padding: var(--space-4) var(--space-5);
     background: var(--surface);
     border-radius: var(--radius-md);
     box-shadow: var(--shadow-md);
@@ -245,20 +269,30 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: rgba(0, 0, 0, 0.45);
+    color: var(--muted);
     cursor: pointer;
     transition: color 0.2s ease, background-color 0.2s ease;
   }
 
   .close:hover {
-    color: rgba(0, 0, 0, 0.88);
-    background: rgba(0, 0, 0, 0.06);
+    color: var(--text);
+    background: var(--fill-hover);
   }
 
   .dialog-body {
     flex: 1 1 auto;
     min-height: 0;
     overflow: auto;
+    scrollbar-width: thin;
+  }
+
+  .dialog-body::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .dialog-body::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: var(--border);
   }
 
   /* Мобильный паттерн: шторка снизу с отступами от краёв экрана. */
@@ -266,6 +300,7 @@
     .overlay {
       place-items: end center;
       padding: 8px clamp(6px, 2.5vw, 16px) calc(clamp(6px, 2.5vw, 16px) + env(safe-area-inset-bottom));
+      padding-left: clamp(6px, 2.5vw, 16px);
     }
 
     .dialog-body {

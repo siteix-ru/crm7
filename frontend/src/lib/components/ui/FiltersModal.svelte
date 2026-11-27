@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { tick, type Snippet } from 'svelte';
   import Button from './Button.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -8,59 +8,107 @@
     count?: number;
     title?: string;
     icon?: boolean;
-    onapply: () => void;
-    onreset?: () => void;
+    wide?: boolean;
+    width?: number;
+    size?: 'sm' | 'md' | 'lg';
+    dirty?: boolean;
+    resetLabel?: string;
+    trigger?: boolean;
+    onapply: () => void | string | Promise<string | void>;
+    onreset?: () => void | string | Promise<string | void>;
     onopen?: () => void;
     children?: Snippet;
   }
 
-  let { count = 0, title = 'Фильтры', icon = false, onapply, onreset, onopen, children }: Props =
-    $props();
+  let {
+    count = 0,
+    title = 'Фильтры',
+    icon = false,
+    wide = false,
+    width,
+    size = 'md',
+    dirty = false,
+    resetLabel = 'Сбросить',
+    trigger = true,
+    onapply,
+    onreset,
+    onopen,
+    children
+  }: Props = $props();
 
   let open = $state(false);
+  let announcement = $state('');
+
+  export function show(): void {
+    openModal();
+  }
+
+  export async function announce(text: string): Promise<void> {
+    // Очищаем перед установкой — иначе повтор той же строки не обновит live-регион.
+    announcement = '';
+    await tick();
+    announcement = text;
+  }
 
   function openModal(): void {
     onopen?.();
     open = true;
   }
 
-  function apply(): void {
+  async function apply(): Promise<void> {
     open = false;
-    onapply();
+    const result = await onapply();
+    if (typeof result === 'string') {
+      await announce(result);
+    }
+  }
+
+  async function reset(): Promise<void> {
+    const result = await onreset?.();
+    if (typeof result === 'string') {
+      await announce(result);
+    }
   }
 </script>
 
-{#if icon}
-  <button
-    type="button"
-    class="icon-trigger"
-    class:active={count > 0}
-    title="Фильтры"
-    aria-label={count > 0 ? `Фильтры, активно: ${count}` : 'Фильтры'}
-    aria-haspopup="dialog"
-    onclick={openModal}
-  >
-    <Icon name="filter" size={16} />
-    {#if count > 0}<span class="badge" aria-hidden="true">{count}</span>{/if}
-  </button>
-{:else}
-  <Button variant="ghost" onclick={openModal}>
-    Фильтры{#if count > 0}<span class="count">{count}</span>{/if}
-  </Button>
+{#if trigger}
+  {#if icon}
+    <button
+      type="button"
+      class="icon-trigger"
+      class:active={count > 0}
+      title="Фильтры"
+      aria-label={count > 0 ? `Фильтры, активно: ${count}` : 'Фильтры'}
+      aria-haspopup="dialog"
+      onclick={openModal}
+    >
+      <Icon name="filter" size={16} />
+      {#if count > 0}<span class="badge" aria-hidden="true">{count}</span>{/if}
+    </button>
+  {:else}
+    <Button variant="ghost" onclick={openModal}>
+      Фильтры{#if count > 0}<span class="count">{count}</span>{/if}
+    </Button>
+  {/if}
 {/if}
 
-<Modal {open} {title} onclose={() => (open = false)}>
+<div class="sr-only" role="status" aria-live="polite" aria-hidden={open}>{announcement}</div>
+
+<Modal {open} {title} {wide} {width} {size} {announcement} onclose={() => (open = false)}>
   <div class="filter-form">
+    {#if dirty}
+      <p class="dirty-hint" role="status">Есть несохранённые изменения — нажмите «Применить»</p>
+    {/if}
     {@render children?.()}
   </div>
 
   <div class="modal-actions">
     {#if onreset}
-      <Button variant="ghost" onclick={() => onreset?.()}>Сбросить</Button>
+      <Button variant="text" size="lg" onclick={() => void reset()}>{resetLabel}</Button>
     {/if}
   <div class="modal-buttons">
-    <Button variant="ghost" onclick={() => (open = false)}>Отмена</Button>
-    <Button onclick={apply}>Применить</Button>
+    <Button variant="ghost" size="lg" onclick={() => (open = false)}>Отмена</Button>
+    <Button size="lg" onclick={apply}>Применить</Button>
   </div>
   </div>
 </Modal>
@@ -74,7 +122,7 @@
     width: 32px;
     height: 32px;
     padding: 0;
-    border: 1px solid var(--border);
+    border: 1px solid var(--field-border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     color: var(--text);
@@ -101,7 +149,7 @@
     padding: 0 4px;
     border-radius: 999px;
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     font-size: 10px;
     line-height: 16px;
     text-align: center;
@@ -113,26 +161,30 @@
     padding: 0 5px;
     border-radius: 999px;
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     font-size: 11px;
     line-height: 17px;
     text-align: center;
   }
 
-  .filter-form {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
+  .dirty-hint {
+    margin: 0;
+    color: var(--text-description);
+    font-size: var(--font-xs);
   }
 
-  .modal-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: var(--space-2);
-    margin-top: var(--space-4);
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
   }
+
   .modal-buttons {
     display: flex;
     flex-wrap: wrap;

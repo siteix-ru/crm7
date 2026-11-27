@@ -17,6 +17,8 @@
   } from '../lib/api/types';
   import { clearFilters, countActive, loadFilters, saveFilters } from '../lib/filters';
   import Button from '../lib/components/ui/Button.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
@@ -52,7 +54,9 @@
 
   const perPageOptions = [10, 20, 50, 100];
 
-  const filterDefaults = {
+  let filtersRef: FiltersModal | null = $state(null);
+
+const filterDefaults = {
     from: defaultPeriod().from,
     to: defaultPeriod().to
   };
@@ -326,37 +330,42 @@
 </script>
 
 <section class="page">
-  <div class="page-hero">
-    <div class="head">
-      <h1>Отчёты</h1>
-      <div class="actions">
-        <FiltersModal
-          icon
-          count={countActive(reportFilters, filterDefaults)}
-          onopen={() => (reportDraft = { ...reportFilters })}
-          onapply={applyFilterDraft}
-          onreset={resetFilters}
-        >
-        <div class="presets">
-          <Button variant="ghost" onclick={() => setPreset('days30')}>30 дней</Button>
-          <Button variant="ghost" onclick={() => setPreset('today')}>Сегодня</Button>
-          <Button variant="ghost" onclick={() => setPreset('week')}>7 дней</Button>
-          <Button variant="ghost" onclick={() => setPreset('month')}>Этот месяц</Button>
-          <Button variant="ghost" onclick={() => setPreset('prev-month')}>Прошлый месяц</Button>
-        </div>
+  <PageToolbar title="Отчёты" actionsLabel="Действия отчётов">
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия отчётов"
+        items={[
+          { id: 'filters', label: 'Фильтры', icon: 'filter', onclick: () => filtersRef?.show() }
+        ]}
+      />
+    {/snippet}
+  </PageToolbar>
 
-        <label class="filter-field">
-          <span>Период с</span>
-          <input type="date" bind:value={reportDraft.from} max={reportDraft.to} />
-        </label>
-        <label class="filter-field">
-          <span>Период по</span>
-          <input type="date" bind:value={reportDraft.to} min={reportDraft.from} max={todayIso()} />
-        </label>
-      </FiltersModal>
-      </div>
+  <FiltersModal
+    bind:this={filtersRef}
+    trigger={false}
+    count={countActive(reportFilters, filterDefaults)}
+    onopen={() => (reportDraft = { ...reportFilters })}
+    onapply={applyFilterDraft}
+    onreset={resetFilters}
+  >
+    <div class="presets">
+      <Button variant="ghost" onclick={() => setPreset('days30')}>30 дней</Button>
+      <Button variant="ghost" onclick={() => setPreset('today')}>Сегодня</Button>
+      <Button variant="ghost" onclick={() => setPreset('week')}>7 дней</Button>
+      <Button variant="ghost" onclick={() => setPreset('month')}>Этот месяц</Button>
+      <Button variant="ghost" onclick={() => setPreset('prev-month')}>Прошлый месяц</Button>
     </div>
-  </div>
+
+    <label class="filter-field">
+      <span>Период с</span>
+      <input type="date" bind:value={reportDraft.from} max={reportDraft.to} />
+    </label>
+    <label class="filter-field">
+      <span>Период по</span>
+      <input type="date" bind:value={reportDraft.to} min={reportDraft.from} max={todayIso()} />
+    </label>
+  </FiltersModal>
 
   {#if visibleError}
     <div class="alert">{visibleError}</div>
@@ -800,24 +809,12 @@
     gap: var(--space-4);
   }
 
-  .head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    flex-wrap: wrap;
-  }
-
   h2 {
     margin: 0;
     font-size: 16px;
   }
 
   @media print {
-    .head .actions {
-      display: none;
-    }
-
     .page {
       gap: 8px;
     }
@@ -827,11 +824,6 @@
       break-inside: avoid;
       box-shadow: none;
     }
-  }
-
-  .actions {
-    display: flex;
-    gap: var(--space-2);
   }
 
   .report-tabs {

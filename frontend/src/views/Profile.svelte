@@ -18,7 +18,6 @@
   import { auth } from '../lib/stores/auth.svelte';
   import { avatars } from '../lib/stores/avatar.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
-  import { theme } from '../lib/stores/theme.svelte';
   import Button from '../lib/components/ui/Button.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import { tablist } from '../lib/a11y/tablist';
@@ -516,17 +515,6 @@
       </form>
     </div>
 
-    <div class="card appearance-card">
-      <div class="card-head">
-        <div>
-          <h2>Оформление</h2>
-          <p class="hint">Тёмная тема сохраняется на этом устройстве.</p>
-        </div>
-      </div>
-      <Button variant="ghost" onclick={() => theme.toggle()}>
-        {theme.dark ? 'Светлая тема' : 'Тёмная тема'}
-      </Button>
-    </div>
   {/if}
 
   {#if tab === 'notifications'}
@@ -844,10 +832,6 @@
 
   .card-head {
     margin-bottom: var(--space-4);
-  }
-
-  .appearance-card {
-    margin-top: var(--space-4);
   }
 
   .card-head .hint {

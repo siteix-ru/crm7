@@ -140,15 +140,17 @@
   }
 
   .accept {
+    position: relative;
     flex: 0 0 auto;
-    padding: 8px 18px;
+    min-height: var(--control-height);
+    padding: 0 var(--space-3);
     border: none;
     border-radius: var(--radius-sm);
     background: var(--primary);
-    color: #fff;
+    color: var(--on-primary);
     cursor: pointer;
     font: inherit;
-    font-size: 13px;
+    font-size: var(--font-sm);
   }
 
   @media (max-width: 720px) {
@@ -190,7 +192,14 @@
     }
 
     .accept {
-      padding: 8px 12px;
+      min-height: 36px;
+      padding: 0 var(--space-2);
+    }
+
+    .accept::after {
+      content: '';
+      position: absolute;
+      inset: -4px;
     }
   }
 </style>

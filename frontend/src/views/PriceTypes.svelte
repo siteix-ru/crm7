@@ -6,6 +6,8 @@
   import { router } from '../lib/router.svelte';
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
+  import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
+  import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
 
   let types = $state<PriceType[]>([]);
@@ -31,41 +33,36 @@
 </script>
 
 <section class="page">
-  <div class="hero page-hero">
-    <div class="head">
+  <PageToolbar
+    title="Типы цен"
+    description="Типы профиля задают цену номенклатуры для клиента. Цены вводятся при редактировании номенклатуры на складе."
+    actionsLabel="Действия с типами цен"
+  >
+    {#snippet leading()}
       <button
         type="button"
         class="back"
-        title="Вернуться к складу"
-        aria-label="Вернуться к складу"
+        title="Назад к номенклатуре"
+        aria-label="Назад к номенклатуре"
         onclick={() => router.navigate('/stocks')}
       >
         <Icon name="arrow-left" size={16} />
       </button>
-      <div class="head-text">
-        <h1>
-          <HelpTip
-            text="Типы профиля задают цену номенклатуры для клиента. Цены вводятся при редактировании номенклатуры на складе."
-          >
-            {#snippet trigger()}
-              Типы цен
-            {/snippet}
-          </HelpTip>
-        </h1>
-      </div>
-      <div class="head-actions">
-        <button
-          type="button"
-          class="icon-btn"
-          title="Добавить тип цен"
-          aria-label="Добавить тип цен"
-          onclick={() => router.navigate('/stocks/price-types/new')}
-        >
-          <Icon name="plus" size={16} />
-        </button>
-      </div>
-    </div>
-  </div>
+    {/snippet}
+    {#snippet actions()}
+      <ToolbarMenu
+        label="Действия с типами цен"
+        items={[
+          {
+            id: 'create',
+            label: 'Добавить тип цен',
+            icon: 'plus',
+            onclick: () => router.navigate('/stocks/price-types/new')
+          }
+        ]}
+      />
+    {/snippet}
+  </PageToolbar>
 
   {#if error}
     <div class="alert" role="alert">
@@ -131,41 +128,6 @@
     margin-inline: auto;
   }
 
-  .hero {
-    padding: var(--space-4);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-md);
-    background: var(--surface);
-    box-shadow: var(--shadow-sm);
-  }
-
-  .head {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: var(--space-3);
-  }
-
-  .icon-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text-description);
-    cursor: pointer;
-    transition: color 0.12s ease, border-color 0.12s ease;
-  }
-
-  .icon-btn:hover {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
-  }
-
   .back {
     display: inline-flex;
     align-items: center;
@@ -186,29 +148,9 @@
     color: var(--primary-hover);
   }
 
-  .head-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-  }
-
-  h1 {
-    margin: 0;
-    font-size: var(--font-xl);
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--text);
-  }
 
 
-  .head-actions {
-    display: flex;
-    align-items: center;
-    gap: var(--space-2);
-    flex: 0 0 auto;
-    margin-left: auto;
-  }
+
 
   .alert {
     display: flex;
