@@ -62,13 +62,18 @@ ssh crm7-server "cd /srv/projects/crm7-test && docker compose logs --tail=100 ph
 | crm7 | `siteix-ru/crm7` (`master`) | `C:\AI_Proects\crm7` |
 | GlowCRM | `siteix-ru/glowcrm` | `C:\AI_Proects\GlowCRM` |
 
-## Версии стендов crm7 (на 13 ноября 2026)
+## Версии стендов crm7 (на 27 ноября 2026)
 
 | Стенд | `CRM7_VERSION` в `.env` | Образ в контейнерах |
 | --- | --- | --- |
 | `crm7-k` | `1.8.17` | `crm7-app/web:1.8.17` (= `sha-372d6b3`) |
-| `crm7-test` | `1.8.17` | `crm7-app/web:1.8.17` (те же digest) |
+| `crm7-test` | `sha-8cc12e3` | `crm7-app/web:sha-8cc12e3` |
 | `crm7-demo` | `1.8.17` | `crm7-app/web:1.8.17` (те же digest) |
+
+`crm7-test` обновлён 27 ноября 2026 вручную: `build_images.py --skip-build --push`
+и `release_crm7.py --env test --tag sha-8cc12e3` (ветка
+`feature/stage-3.4.5-security-access-hardening`, навигация 2.0 и эталонные списки).
+Миграций к применению не было, health `ok`/`database ok`.
 
 Образ `1.8.17` собран `deploy/build_images.py --push` с машины разработчика
 (фронтенд собирается локально, Docker — на сервере) и соответствует коммиту
