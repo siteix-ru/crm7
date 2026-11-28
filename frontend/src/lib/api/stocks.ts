@@ -59,7 +59,8 @@ export function listLevels(
   page = 1,
   perPage = 50,
   clientId = 0,
-  priceTypeId = 0
+  priceTypeId = 0,
+  signal?: AbortSignal
 ): Promise<{
   items: StockLevel[];
   total: number;
@@ -85,7 +86,7 @@ export function listLevels(
     params.set('price_type_id', String(priceTypeId));
   }
 
-  return apiRequest(`/stocks/levels?${params.toString()}`, { auth: true });
+  return apiRequest(`/stocks/levels?${params.toString()}`, { auth: true, signal });
 }
 
 export function getStockLevel(itemId: number): Promise<{

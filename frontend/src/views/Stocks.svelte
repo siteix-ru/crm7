@@ -16,6 +16,7 @@
   import Icon from '../lib/components/ui/Icon.svelte';
   import { tablist } from '../lib/a11y/tablist';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import SortDialog from '../lib/components/ui/SortDialog.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
@@ -161,6 +162,7 @@
   let perPage = $state<number>(initialView === 'tiles' ? initialPerPageTiles : initialPerPageList);
   let showPhotos = $state<boolean>(initialStockFilters.photos !== false);
   let viewOpen = $state(false);
+  let filtersRef: FiltersModal | null = $state(null);
   let moreOpen = $state(false);
   let moreEl = $state<HTMLElement | null>(null);
 
@@ -255,6 +257,12 @@
   let warehouseOpen = $state(false);
   let warehouseDraft = $state<number[]>([]);
   let searchTimer: ReturnType<typeof setTimeout> | undefined;
+  let searchAbort: AbortController | null = null;
+
+  function abortSearch(): void {
+    searchAbort?.abort();
+    searchAbort = null;
+  }
   let loadSeq = 0;
 
   const columnRows = $derived.by(() => groupStockLevels(levels));
@@ -393,7 +401,11 @@
   const pricesEnabled = $derived(appSettings.pricesEnabled);
   const groupsEnabled = $derived(appSettings.groupsEnabled);
   const availableSortFields = $derived(
-    sortFields.filter((item) => item.field !== 'price' || pricesEnabled)
+    // Сервер понимает только `warehouse`, а не `warehouse_<id>` — не предлагаем неработающие поля.
+    sortFields.filter(
+      (item) =>
+        (item.field !== 'price' || pricesEnabled) && !item.field.startsWith('warehouse_')
+    )
   );
   let priceTypes = $state<{ id: number; title: string }[]>([]);
   let priceTypesLoaded = $state(false);
@@ -656,10 +668,10 @@
     void applyFilters();
   }
 
-  async function applyFilters(): Promise<void> {
+  async function applyFilters(signal?: AbortSignal): Promise<void> {
     page = 1;
     void refreshCounts();
-    await loadLevels();
+    await loadLevels(false, signal);
   }
 
   function cartCount(warehouseId: number): number {
@@ -760,8 +772,50 @@
   function openView(): void {
     viewDraft = viewMode;
     photoDraft = showPhotos;
+    viewOpen = true;
+  }
+
+  function applyView(): void {
+    viewOpen = false;
+  }
+
+  function setViewModeNow(mode: 'list' | 'tiles' | 'columns'): void {
+    if (mode === viewMode) {
+      return;
+    }
+    viewMode = mode;
+    viewDraft = mode;
+    stockSort = 'name_asc';
+    perPage = mode === 'tiles' ? perPageTiles : perPageList;
+    page = 1;
+    saveStockFilters();
+    void loadLevels();
+  }
+
+  function setPhotosNow(value: boolean): void {
+    showPhotos = value;
+    photoDraft = value;
+    saveStockFilters();
+  }
+
+  function resetView(): void {
+    viewDraft = 'list';
+    photoDraft = true;
+    if (viewMode !== 'list') {
+      viewMode = 'list';
+      stockSort = 'name_asc';
+      perPage = perPageList;
+      page = 1;
+      void loadLevels();
+    }
+    showPhotos = true;
+    saveStockFilters();
+  }
+
+  function openFilters(): void {
     statusDraft = [
-      ...(statusActive ? ['active'] : []), ...(statusInactive ? ['inactive'] : [])
+      ...(statusActive ? ['active'] : []),
+      ...(statusInactive ? ['inactive'] : [])
     ];
     const selectedPrices =
       priceTypeFilter.length > 0
@@ -770,21 +824,10 @@
     priceTypesDraft = selectedPrices.map(String);
     qtyOpsDraft = [...qtyOps];
     qtyDraft = qty;
-    viewOpen = true;
+    filtersRef?.show();
   }
 
-  function resetView(): void {
-    viewDraft = 'list';
-    photoDraft = true;
-    statusDraft = ['active', 'inactive'];
-    priceTypesDraft = availablePriceTypes.map((type) => String(type.id));
-    qtyOpsDraft = [];
-    qtyDraft = '';
-  }
-
-  function applyView(): void {
-    viewOpen = false;
-
+  function applyFilterDraft(): string {
     const allIds = availablePriceTypes.map((type) => type.id);
     const selectedIds = priceTypesDraft
       .map(Number)
@@ -811,18 +854,9 @@
     const priceChanged =
       nextFilter.length !== currentFilter.length ||
       nextFilter.some((id, index) => id !== currentFilter[index]);
-    const photoChanged = photoDraft !== showPhotos;
-    const viewChanged = viewDraft !== viewMode;
 
-    if (!statusChanged && !qtyChanged && !priceChanged && !photoChanged && !viewChanged) {
-      return;
-    }
-
-    viewMode = viewDraft;
-    showPhotos = photoDraft;
-
-    if (viewChanged) {
-      stockSort = 'name_asc';
+    if (!statusChanged && !qtyChanged && !priceChanged) {
+      return 'Изменений нет';
     }
 
     priceTypeFilter = nextFilter;
@@ -834,21 +868,18 @@
       statusInactive = nextStatusInactive;
     }
 
+    page = 1;
     saveStockFilters();
+    void applyFilters();
+    return 'Фильтры применены';
+  }
 
-    if (statusChanged || qtyChanged || viewChanged) {
-      if (viewChanged) {
-        perPage = viewMode === 'tiles' ? perPageTiles : perPageList;
-      }
-
-      page = 1;
-
-      if (statusChanged || qtyChanged) {
-        void applyFilters();
-      } else {
-        void loadLevels();
-      }
-    }
+  function resetFilterDraft(): string {
+    statusDraft = ['active', 'inactive'];
+    priceTypesDraft = availablePriceTypes.map((type) => String(type.id));
+    qtyOpsDraft = [];
+    qtyDraft = '';
+    return applyFilterDraft();
   }
 
   function changeSort(): void {
@@ -923,7 +954,7 @@
     void setWarehouses(next);
   }
 
-  async function loadLevels(silent = false): Promise<void> {
+  async function loadLevels(silent = false, signal?: AbortSignal): Promise<void> {
     if (silent && loadingLevels) {
       return;
     }
@@ -945,7 +976,13 @@
 
     try {
       const data = await listLevels(
-        selectedIds, filters, viewMode === 'columns' ? 1 : page, viewMode === 'columns' ? 0 : perPage
+        selectedIds,
+        filters,
+        viewMode === 'columns' ? 1 : page,
+        viewMode === 'columns' ? 0 : perPage,
+        0,
+        0,
+        signal
       );
 
       if (seq !== loadSeq) {
@@ -970,6 +1007,9 @@
         }
       }
     } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        return;
+      }
       if (seq === loadSeq && !silent) {
         error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить остатки';
       }
@@ -980,20 +1020,23 @@
     }
   }
 
-  async function runSearch(record: boolean): Promise<void> {
+  async function runSearch(record: boolean, signal?: AbortSignal): Promise<void> {
     query = searchInput.trim();
 
     if (record && query !== '') {
       addHistory('stocks', query);
     }
 
-    await applyFilters();
+    await applyFilters(signal);
     saveStockFilters();
   }
 
   async function search(): Promise<void> {
     clearTimeout(searchTimer);
-    await runSearch(true);
+    abortSearch();
+    const controller = new AbortController();
+    searchAbort = controller;
+    await runSearch(true, controller.signal);
   }
 
   async function goToPage(target: number): Promise<void> {
@@ -1085,7 +1128,8 @@
             clearTimeout(searchTimer);
             searchInput = next;
             return search();
-          }, onclear: () => {
+          }, onstop: abortSearch, onclear: () => {
+            abortSearch();
             clearTimeout(searchTimer);
             searchInput = '';
             query = '';
@@ -1096,21 +1140,27 @@
         }}
         items={[
           {
-            id: 'sort', label: 'Сортировка', icon: 'sort', checked: stockSort !== stockFilterDefaults.sort, onclick: openSort
+            id: 'sort', label: 'Сортировка', icon: 'sort', dialog: true, checked: stockSort !== stockFilterDefaults.sort, onclick: openSort
           }, ...(warehousesEnabled && warehouses.length > 1
             ? [
                 {
-                  id: 'warehouse', label: 'Выбор складов', icon: 'stocks', checked: selectedIds.length !== warehouses.length, onclick: openWarehouse
+                  id: 'warehouse', label: 'Выбор складов', icon: 'stocks', dialog: true, checked: selectedIds.length !== warehouses.length, onclick: openWarehouse
                 }
               ]
             : []), ...(groupsEnabled
             ? [
                 {
-                  id: 'groups', label: 'Группы', icon: 'group', checked: groupFilterActive, onclick: openGroup
+                  id: 'groups', label: 'Группы', icon: 'group', dialog: true, checked: groupFilterActive, onclick: openGroup
                 }
               ]
             : []), {
-            id: 'view', label: 'Вид и фильтры', icon: 'view', checked: viewMode !== 'list', onclick: openView
+            id: 'view', label: 'Вид', icon: 'view', dialog: true, checked: viewMode !== 'list' || !showPhotos, onclick: openView
+          }, {
+            id: 'filters', label: 'Фильтры', icon: 'filter', dialog: true,
+            count: (statusActive && statusInactive ? 0 : 1) +
+              (priceTypeFilter.length > 0 ? 1 : 0) +
+              (qtyOps.length > 0 || qty !== '' ? 1 : 0),
+            onclick: openFilters
           }, { id: 'sep-1', label: '', separator: true, onclick: () => {} }, ...(auth.can('settings.manage')
             ? [
                 ...(appSettings.groupsConfigured
@@ -1218,44 +1268,85 @@
     </Modal>
     {/if}
 
-    <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
+        <Modal open={viewOpen} title="Вид" onclose={() => (viewOpen = false)}>
       <div class="filters-form view-modal">
-      <div class="view-filters-body">
-        <div class="filter-group view-mode-group">
-        <span class="filter-label">Вид</span>
-        <div class="view-mode-grid">
-          <label class="view-mode-card" class:active={viewDraft === 'list'}>
-            <input type="radio" name="stock-view" value="list" bind:group={viewDraft} />
-            <Icon name="list" size={18} />
-            <span>Список</span>
-          </label>
-          <label class="view-mode-card" class:active={viewDraft === 'tiles'}>
-            <input type="radio" name="stock-view" value="tiles" bind:group={viewDraft} />
-            <Icon name="tiles" size={18} />
-            <span>Плитка</span>
-          </label>
-          <label class="view-mode-card" class:active={viewDraft === 'columns'}>
-            <input type="radio" name="stock-view" value="columns" bind:group={viewDraft} />
-            <Icon name="columns" size={18} />
-            <span>Колонки</span>
-          </label>
+        <fieldset class="filter-group view-mode-group" aria-label="Отображение">
+          <div class="view-mode-grid">
+            <label class="view-mode-card" class:active={viewDraft === 'list'}>
+              <input
+                type="radio"
+                name="stock-view"
+                value="list"
+                checked={viewDraft === 'list'}
+                onchange={() => setViewModeNow('list')}
+              />
+              <Icon name="list" size={18} />
+              <span>Список</span>
+            </label>
+            <label class="view-mode-card" class:active={viewDraft === 'tiles'}>
+              <input
+                type="radio"
+                name="stock-view"
+                value="tiles"
+                checked={viewDraft === 'tiles'}
+                onchange={() => setViewModeNow('tiles')}
+              />
+              <Icon name="tiles" size={18} />
+              <span>Плитка</span>
+            </label>
+            <label class="view-mode-card" class:active={viewDraft === 'columns'}>
+              <input
+                type="radio"
+                name="stock-view"
+                value="columns"
+                checked={viewDraft === 'columns'}
+                onchange={() => setViewModeNow('columns')}
+              />
+              <Icon name="columns" size={18} />
+              <span>Колонки</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="filter-group">
+          <span class="filter-label">Фото в номенклатуре</span>
+          <div class="view-options">
+            <label class="radio">
+              <input
+                type="radio"
+                name="stock-photos"
+                checked={photoDraft}
+                onchange={() => setPhotosNow(true)}
+              />
+              <span>С фото</span>
+            </label>
+            <label class="radio">
+              <input
+                type="radio"
+                name="stock-photos"
+                checked={!photoDraft}
+                onchange={() => setPhotosNow(false)}
+              />
+              <span>Без фото</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
+          <div class="modal-buttons">
+            <Button size="lg" onclick={applyView}>Готово</Button>
+          </div>
         </div>
       </div>
+    </Modal>
 
-      <div class="filter-group">
-        <span class="filter-label">Фото в номенклатуре</span>
-        <div class="view-options">
-          <label class="radio">
-            <input type="radio" name="stock-photos" value={true} bind:group={photoDraft} />
-            <span>С фото</span>
-          </label>
-          <label class="radio">
-            <input type="radio" name="stock-photos" value={false} bind:group={photoDraft} />
-            <span>Без фото</span>
-          </label>
-        </div>
-      </div>
-
+    <FiltersModal
+      bind:this={filtersRef}
+      trigger={false}
+      onapply={applyFilterDraft}
+      onreset={resetFilterDraft}
+    >
       {#if canDeactivate}
         <div class="filter-group">
           <span class="filter-label" title="Если ничего не выбрано — показываются все">Статусы</span>
@@ -1264,6 +1355,7 @@
             options={statusOptions}
             bind:values={statusDraft}
             allLabel="Все статусы"
+            size="lg"
           />
         </div>
       {/if}
@@ -1278,6 +1370,7 @@
             allLabel="Любое"
             emptyLabel="Нет условий"
             maxHeight="180px"
+            size="lg"
           />
           <input
             class="qty-filter-input"
@@ -1302,22 +1395,12 @@
             allLabel="Все типы цен"
             emptyLabel="Нет типов цен"
             maxHeight="280px"
+            size="lg"
           />
         </div>
       {/if}
-
-        </div>
-        <div class="modal-actions">
-          <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
-          <div class="modal-buttons">
-            <Button variant="ghost" size="lg" onclick={() => (viewOpen = false)}>Отмена</Button>
-            <Button size="lg" onclick={applyView}>Применить</Button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-
-    {#if loadingLevels}
+    </FiltersModal>
+{#if loadingLevels}
       <ListSkeleton rows={6} />
     {:else if selectedIds.length === 0}
       <EmptyState
@@ -1885,15 +1968,6 @@
     flex-direction: column;
     min-height: 0;
     max-height: min(68vh, 620px);
-  }
-
-  .view-filters-body {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-x: hidden;
-    overflow-y: auto;
-    padding-right: var(--space-3);
-    scrollbar-gutter: stable;
   }
 
   .view-mode-group {

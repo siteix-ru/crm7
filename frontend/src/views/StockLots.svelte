@@ -19,6 +19,7 @@
   import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
   import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import Select from '../lib/components/ui/Select.svelte';
   import StatusBadge from '../lib/components/StatusBadge.svelte';
@@ -68,6 +69,8 @@
   let expiresBefore = $state('');
   let expiresAfter = $state('');
   let status = $state('');
+  let filtersRef: FiltersModal | null = $state(null);
+  let draft = $state({ itemId: 0, warehouseId: 0, lotCode: '', expiresBefore: '', expiresAfter: '', status: '' });
 
   const canEdit = $derived(appSettings.stockEditEnabled && auth.can('stocks.edit'));
 
@@ -236,14 +239,29 @@
     void loadLots(1);
   }
 
-  function resetFilters(): void {
-    itemId = 0;
-    warehouseId = 0;
-    lotCode = '';
-    expiresBefore = '';
-    expiresAfter = '';
-    status = '';
+  function openFilters(): void {
+    draft = { itemId, warehouseId, lotCode, expiresBefore, expiresAfter, status };
+    filtersRef?.show();
+  }
+
+  function applyFilterDraft(): string {
+    itemId = draft.itemId;
+    warehouseId = draft.warehouseId;
+    lotCode = draft.lotCode;
+    expiresBefore = draft.expiresBefore;
+    expiresAfter = draft.expiresAfter;
+    status = draft.status;
     applyFilters();
+    return 'Фильтры применены';
+  }
+
+  function resetFilterDraft(): string {
+    draft = { itemId: 0, warehouseId: 0, lotCode: '', expiresBefore: '', expiresAfter: '', status: '' };
+    return applyFilterDraft();
+  }
+
+  function resetFilters(): void {
+    resetFilterDraft();
   }
 
   function openReceive(): void {
@@ -379,6 +397,16 @@
         label="Действия со складскими партиями"
         items={[
           { id: 'refresh', label: 'Обновить список', icon: 'refresh', onclick: () => void loadLots() },
+          {
+            id: 'filters',
+            label: 'Фильтры',
+            icon: 'filter',
+            dialog: true,
+            count: [itemId, warehouseId, lotCode, expiresBefore, expiresAfter, status].filter(
+              (value) => value !== 0 && value !== ''
+            ).length,
+            onclick: openFilters
+          },
           { id: 'separator', label: '', separator: true, onclick: () => {} },
           ...(canEdit
             ? [
@@ -417,33 +445,33 @@
     <div class="alert" role="alert">{referenceError}</div>
   {/if}
 
-  <section class="filters" aria-label="Фильтры партий">
-    <Select label="Товар" bind:value={itemId}>
-      <option value={0}>Все товары</option>
-      {#each levels as level (level.id)}
-        <option value={level.id}>{level.name} · {level.warehouse_name}</option>
-      {/each}
+  <FiltersModal
+    bind:this={filtersRef}
+    trigger={false}
+    onapply={applyFilterDraft}
+    onreset={resetFilterDraft}
+  >
+    <Select label="Товар" bind:value={draft.itemId}>
+        <option value={0}>Все товары</option>
+        {#each levels as level (level.id)}
+          <option value={level.id}>{level.name} · {level.warehouse_name}</option>
+        {/each}
     </Select>
-    <Select label="Склад" bind:value={warehouseId}>
-      <option value={0}>Все склады</option>
-      {#each warehouses as warehouse (warehouse.id)}
-        <option value={warehouse.id}>{warehouse.name}</option>
-      {/each}
+    <Select label="Склад" bind:value={draft.warehouseId}>
+        <option value={0}>Все склады</option>
+        {#each warehouses as warehouse (warehouse.id)}
+          <option value={warehouse.id}>{warehouse.name}</option>
+        {/each}
     </Select>
-    <Input label="Код партии" bind:value={lotCode} placeholder="Например, LOT-24-001" />
-    <Input label="Срок годности до" type="date" bind:value={expiresBefore} ariaLabel="Срок годности до" />
-    <Input label="Срок годности с" type="date" bind:value={expiresAfter} ariaLabel="Срок годности с" />
-    <Select label="Статус" bind:value={status}>
-      {#each statusOptions as option (option.value)}
-        <option value={option.value}>{option.label}</option>
-      {/each}
+    <Input label="Код партии" bind:value={draft.lotCode} placeholder="Например, LOT-24-001" />
+    <Input label="Срок годности с" type="date" bind:value={draft.expiresAfter} ariaLabel="Срок годности с" />
+    <Input label="Срок годности до" type="date" bind:value={draft.expiresBefore} ariaLabel="Срок годности до" />
+    <Select label="Статус" bind:value={draft.status}>
+        {#each statusOptions as option (option.value)}
+          <option value={option.value}>{option.label}</option>
+        {/each}
     </Select>
-    <div class="filter-actions">
-      <Button onclick={applyFilters}><Icon name="filter" size={16} /> Применить</Button>
-      <Button variant="ghost" onclick={resetFilters}>Сбросить</Button>
-    </div>
-  </section>
-
+  </FiltersModal>
   <section class="results" aria-label="Список складских партий">
     {#if loading}
       <ListSkeleton rows={6} />
@@ -659,7 +687,6 @@
     min-width: 0;
   }
 
-  .filter-actions,
   .modal-actions {
     display: flex;
     align-items: center;
@@ -700,21 +727,6 @@
     background: none;
     color: inherit;
     cursor: pointer;
-  }
-
-  .filters {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-    gap: var(--space-3);
-    align-items: end;
-    padding: var(--space-4);
-    border: 1px solid var(--border-secondary);
-    border-radius: var(--radius-md);
-    background: var(--surface);
-  }
-
-  .filter-actions {
-    grid-column: 1 / -1;
   }
 
   .results {
@@ -862,11 +874,6 @@
   }
 
   @media (max-width: 720px) {
-    .filters {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      padding: var(--space-3);
-    }
-
     .form-grid,
     .line {
       grid-template-columns: minmax(0, 1fr);

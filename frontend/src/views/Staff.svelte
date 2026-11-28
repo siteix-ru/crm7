@@ -588,19 +588,6 @@
   </div>
 
   <PageToolbar title={tab === 'staff' ? 'Сотрудники' : 'Замещения'}>
-    {#snippet leading()}
-      {#if tab === 'substitutions'}
-        <button
-          type="button"
-          class="back"
-          title="К списку сотрудников"
-          aria-label="К списку сотрудников"
-          onclick={() => router.navigate('/staff')}
-        >
-          <Icon name="arrow-left" size={16} />
-        </button>
-      {/if}
-    {/snippet}
     {#snippet actions()}
       <ToolbarMenu
         label="Действия со списком"
@@ -964,26 +951,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-4);
-  }
-
-  .back {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    flex: 0 0 auto;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    cursor: pointer;
-  }
-
-  .back:hover {
-    border-color: var(--primary-hover);
-    color: var(--primary-hover);
   }
 
   .alert {

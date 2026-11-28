@@ -233,6 +233,20 @@ describe('ToolbarMenu', () => {
     expect(requests).not.toContain('function headerSort(');
   });
 
+  it('splits Stocks view/filters and moves StockLots filters into a dialog', () => {
+    const stocks = view('Stocks.svelte');
+    expect(stocks).toContain('title="Вид"');
+    expect(stocks).toContain('<FiltersModal');
+    expect(stocks).not.toContain('Вид и фильтры');
+    expect(stocks).toContain("!item.field.startsWith('warehouse_')");
+    expect(stocks).toContain('onstop: abortSearch');
+
+    const lots = view('StockLots.svelte');
+    expect(lots).toContain('<FiltersModal');
+    expect(lots).not.toContain('class="filters" aria-label="Фильтры партий"');
+    expect(lots).toContain('function resetFilters()');
+  });
+
   it('keeps STK-LOTS actions in one menu', () => {
     const lots = view('StockLots.svelte');
     expect(lots).toContain("label: 'Обновить список'");

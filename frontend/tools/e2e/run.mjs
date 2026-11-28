@@ -818,20 +818,23 @@ const scenarios = [
         'на вкладке сотрудников видна лишняя иконка'
       );
 
-      await page.getByRole('button', { name: 'Замещения' }).click();
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Замещения' }).click();
       await expectVisible(
         page.getByRole('heading', { name: 'Замещения', exact: true }),
         'не открылась вкладка'
       );
-      assert(
-        (await page.getByRole('button', { name: 'Замещения' }).count()) === 0,
-        'на вкладке замещений видна лишняя иконка'
-      );
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
       await expectVisible(
-        page.getByPlaceholder('Поиск: кто, заместитель, причина, даты'),
+        page.getByRole('menuitemcheckbox', { name: 'Сортировка' }),
+        'нет сортировки'
+      );
+      await page.getByRole('menuitem', { name: 'Поиск' }).click();
+      await expectVisible(
+        page.getByPlaceholder('Кто, заместитель, причина, даты'),
         'нет поиска по замещениям'
       );
-      await expectVisible(page.getByRole('button', { name: 'Сортировка' }), 'нет сортировки');
+      await page.getByRole('dialog').getByRole('button', { name: 'Отмена' }).click();
       await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
       await page.getByRole('menuitem', { name: 'Фильтры' }).click();
       const substitutionFilterDialog = page.getByRole('dialog');
@@ -864,7 +867,8 @@ const scenarios = [
         'во вкладке замещений форма видна без запроса'
       );
 
-      await page.getByRole('button', { name: 'Новое замещение' }).click();
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Новое замещение' }).click();
       await expectVisible(
         page.getByRole('heading', { name: 'Новое замещение' }),
         'не открылась страница нового замещения'
@@ -883,10 +887,10 @@ const scenarios = [
         'после отмены не вернулись к списку замещений'
       );
 
-      await page.getByRole('button', { name: 'К списку сотрудников' }).click();
+      await page.goto(`${BASE}/#/staff`, { waitUntil: 'domcontentloaded' });
       await expectVisible(
         page.getByRole('heading', { name: 'Сотрудники', exact: true }),
-        'кнопка назад не вернула к сотрудникам'
+        'не удалось вернуться к сотрудникам'
       );
       await expectVisible(
         page.locator('.tiles-grid .tile, .list .row:not(.row-head)').first(),
@@ -943,7 +947,11 @@ const scenarios = [
 
       await page.goto(`${BASE}/#/substitutions`, { waitUntil: 'domcontentloaded' });
       await page.reload({ waitUntil: 'domcontentloaded' });
-      const substitutionSearch = page.getByPlaceholder('Поиск: кто, заместитель, причина, даты');
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Поиск' }).click();
+      const substitutionSearch = page
+        .getByRole('dialog')
+        .getByPlaceholder('Кто, заместитель, причина, даты');
       await substitutionSearch.fill('E2E edit substitution');
       await substitutionSearch.press('Enter');
       await page.getByRole('button', { name: 'Редактировать замещение' }).first().click();
