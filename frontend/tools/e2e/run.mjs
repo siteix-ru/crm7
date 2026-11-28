@@ -1152,12 +1152,23 @@ const scenarios = [
       await page.goto(`${BASE}/#/stocks`, { waitUntil: 'domcontentloaded' });
       await expectVisible(page.locator('.levels .level').first(), 'не загрузился список склада');
 
-      await page.getByRole('button', { name: /^Вид/ }).click();
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitemcheckbox', { name: 'Вид' }).click();
 
-      const dialog = page.getByRole('dialog');
+      const viewDialog = page.getByRole('dialog');
       // Radio визуально перекрыт подписью внутри label — кликаем по label,
       // как это делает пользователь.
-      await dialog.locator('label.view-mode-card', { hasText: 'Плитка' }).click();
+      await viewDialog.locator('label.view-mode-card', { hasText: 'Плитка' }).click();
+      assert(
+        await viewDialog.getByRole('radio', { name: 'Плитка', exact: true }).isChecked(),
+        'не выбрался вид «Плитка»'
+      );
+      await viewDialog.getByRole('button', { name: 'Закрыть' }).click();
+      await expectVisible(page.locator('.levels.tiles'), 'не переключился вид на плитку');
+
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Фильтры' }).click();
+      const dialog = page.getByRole('dialog');
       await dialog.getByRole('button', { name: 'Статусы' }).click();
       const inactiveBox = dialog.getByRole('checkbox', {
         name: 'Деактивированные',
@@ -1171,11 +1182,6 @@ const scenarios = [
       await dialog.getByRole('checkbox', { name: 'Больше', exact: true }).check();
       await dialog.getByRole('button', { name: /Условие/ }).click();
       await dialog.getByLabel('Количество').fill('0');
-
-      assert(
-        await dialog.getByRole('radio', { name: 'Плитка', exact: true }).isChecked(),
-        'не выбрался вид «Плитка»'
-      );
       assert((await dialog.getByLabel('Количество').inputValue()) === '0', 'не задано значение остатка');
 
       const requestPromise = page.waitForRequest((request) =>

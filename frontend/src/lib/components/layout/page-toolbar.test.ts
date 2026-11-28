@@ -247,6 +247,15 @@ describe('ToolbarMenu', () => {
     expect(lots).toContain('function resetFilters()');
   });
 
+  it('lets STK-LIST configure fields for all three view modes', () => {
+    const stocks = view('Stocks.svelte');
+    expect(stocks).toContain('title="Вид"');
+    expect(stocks).toContain('legend class="filter-label">Поля в списке и карточках');
+    expect(stocks).toContain('{#each STOCK_VIEW_MODES as mode (mode)}');
+    expect(stocks).toContain('toggleViewField(field.key, mode)');
+    expect(stocks).toContain('fields: { list: [...fieldsByView.list]');
+  });
+
   it('keeps STK-LOTS actions in one menu', () => {
     const lots = view('StockLots.svelte');
     expect(lots).toContain("label: 'Обновить список'");

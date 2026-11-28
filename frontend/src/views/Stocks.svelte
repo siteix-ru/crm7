@@ -33,14 +33,25 @@
   import { config } from '../lib/config';
   import { formatDate, formatPrice, stockQuantityText } from '../lib/format';
   import { groupStockLevels, sortStockColumns } from '../lib/stocks/columns';
+  import {
+    STOCK_FIELDS,
+    STOCK_VIEW_MODES,
+    normalizeStockFields,
+    stockFields,
+    type StockViewMode
+  } from '../lib/views/stock-fields';
 
   let warehouses = $state<StockWarehouse[]>([]);
   let levels = $state<StockLevel[]>([]);
   let selectedIds = $state<number[]>([]);
   const stockFilterDefaults = {
-    sort: 'name_asc', group_ids: null as number[] | null, group_no_group: true, per_page_list: 20, per_page_tiles: 12, view: 'list', photos: true, price_types: [] as number[], warehouse_ids: null as number[] | null, query: '', page: 1, active: 'all', qty_op: '', qty: ''
+    sort: 'name_asc', group_ids: null as number[] | null, group_no_group: true, per_page_list: 20, per_page_tiles: 12, view: 'list', photos: true, price_types: [] as number[], warehouse_ids: null as number[] | null, query: '', page: 1, active: 'all', qty_op: '', qty: '',
+    fields: { list: [...STOCK_FIELDS.map((f) => f.key)], tiles: [...STOCK_FIELDS.map((f) => f.key)], columns: [...STOCK_FIELDS.map((f) => f.key)] }
   };
   const initialStockFilters = loadFilters('stocks', stockFilterDefaults);
+  let fieldsByView = $state<Record<StockViewMode, string[]>>(
+    normalizeStockFields(initialStockFilters.fields)
+  );
   const initialWarehouseIds = Array.isArray(initialStockFilters.warehouse_ids)
     ? (initialStockFilters.warehouse_ids as number[])
         .map(Number)
@@ -56,6 +67,14 @@
   let loadingLevels = $state(false);
   let error = $state('');
   let message = $state('');
+  let listAnnouncement = $state('');
+
+  function announceList(text: string): void {
+    listAnnouncement = '';
+    requestAnimationFrame(() => {
+      listAnnouncement = text;
+    });
+  }
   let canEdit = $state(false);
   let busy = $state(false);
   let exportOpen = $state(false);
@@ -247,8 +266,15 @@
     };
   });
 
-  let viewDraft = $state<'list' | 'tiles' | 'columns'>('list');
-  let photoDraft = $state<boolean>(true);
+  let viewDraft = $state<{
+    view: StockViewMode;
+    photo: boolean;
+    fields: Record<StockViewMode, string[]>;
+  }>({
+    view: initialView,
+    photo: initialStockFilters.photos !== false,
+    fields: normalizeStockFields(initialStockFilters.fields)
+  });
   let sortOpen = $state(false);
   let groupOpen = $state(false);
   let groupDraft = $state<number[]>([]);
@@ -765,13 +791,21 @@
 
   function saveStockFilters(): void {
     saveFilters('stocks', {
-      sort: stockSort, group_ids: stockGroups, group_no_group: stockNoGroup, per_page_list: perPageList, per_page_tiles: perPageTiles, view: viewMode, photos: showPhotos, price_types: priceTypeFilter, warehouse_ids: selectedIds, query, page, active: stockActive, qty_op: qtyOps.join(','), qty
+      sort: stockSort, group_ids: stockGroups, group_no_group: stockNoGroup, per_page_list: perPageList, per_page_tiles: perPageTiles, view: viewMode, photos: showPhotos, price_types: priceTypeFilter, warehouse_ids: selectedIds, query, page, active: stockActive, qty_op: qtyOps.join(','), qty,
+      fields: { list: [...fieldsByView.list], tiles: [...fieldsByView.tiles], columns: [...fieldsByView.columns] }
     });
   }
 
   function openView(): void {
-    viewDraft = viewMode;
-    photoDraft = showPhotos;
+    viewDraft = {
+      view: viewMode,
+      photo: showPhotos,
+      fields: {
+        list: [...fieldsByView.list],
+        tiles: [...fieldsByView.tiles],
+        columns: [...fieldsByView.columns]
+      }
+    };
     viewOpen = true;
   }
 
@@ -779,28 +813,54 @@
     viewOpen = false;
   }
 
-  function setViewModeNow(mode: 'list' | 'tiles' | 'columns'): void {
+  function setViewModeNow(mode: StockViewMode): void {
     if (mode === viewMode) {
       return;
     }
     viewMode = mode;
-    viewDraft = mode;
+    viewDraft = { ...viewDraft, view: mode };
     stockSort = 'name_asc';
     perPage = mode === 'tiles' ? perPageTiles : perPageList;
     page = 1;
     saveStockFilters();
+    announceList(`Вид: ${mode === 'tiles' ? 'плитки' : mode === 'columns' ? 'колонки' : 'список'}`);
     void loadLevels();
   }
 
   function setPhotosNow(value: boolean): void {
     showPhotos = value;
-    photoDraft = value;
+    viewDraft = { ...viewDraft, photo: value };
     saveStockFilters();
+    announceList(value ? 'Фото включены' : 'Фото выключены');
+  }
+
+  function toggleViewField(key: string, mode: StockViewMode): void {
+    const next = fieldsByView[mode].includes(key)
+      ? fieldsByView[mode].filter((item) => item !== key)
+      : STOCK_FIELDS.filter((field) => field.key === key || fieldsByView[mode].includes(field.key)).map(
+          (field) => field.key
+        );
+    fieldsByView = { ...fieldsByView, [mode]: next };
+    viewDraft = {
+      ...viewDraft,
+      fields: { ...viewDraft.fields, [mode]: [...next] }
+    };
+    saveStockFilters();
+    announceList('Поля вида обновлены');
+  }
+
+  function isStockFieldVisible(key: string, mode: StockViewMode): boolean {
+    return viewDraft.fields[mode].includes(key);
   }
 
   function resetView(): void {
-    viewDraft = 'list';
-    photoDraft = true;
+    const defaults = STOCK_FIELDS.map((field) => field.key);
+    fieldsByView = { list: [...defaults], tiles: [...defaults], columns: [...defaults] };
+    viewDraft = {
+      view: 'list',
+      photo: true,
+      fields: { list: [...defaults], tiles: [...defaults], columns: [...defaults] }
+    };
     if (viewMode !== 'list') {
       viewMode = 'list';
       stockSort = 'name_asc';
@@ -810,6 +870,7 @@
     }
     showPhotos = true;
     saveStockFilters();
+    announceList('Вид сброшен');
   }
 
   function openFilters(): void {
@@ -1113,11 +1174,15 @@
     </div>
   {/if}
   {#if message}
-    <div class="notice" role="status">
+    <div class="notice" role="status" aria-hidden={viewOpen}>
       <span class="notice-icon"><Icon name="check-circle" size={16} /></span>
       <span>{message}</span>
     </div>
   {/if}
+
+  <div class="sr-only" role="status" aria-live="polite" aria-hidden={viewOpen}>
+    {listAnnouncement}
+  </div>
 
   <PageToolbar title="Номенклатура" actionsLabel="Действия со списком">
     {#snippet actions()}
@@ -1268,38 +1333,47 @@
     </Modal>
     {/if}
 
-        <Modal open={viewOpen} title="Вид" onclose={() => (viewOpen = false)}>
+        <Modal
+      open={viewOpen}
+      title="Вид"
+      size="md"
+      announcement={listAnnouncement}
+      onclose={() => (viewOpen = false)}
+    >
       <div class="filters-form view-modal">
         <fieldset class="filter-group view-mode-group" aria-label="Отображение">
           <div class="view-mode-grid">
-            <label class="view-mode-card" class:active={viewDraft === 'list'}>
+            <label class="view-mode-card" class:active={viewDraft.view === 'list'}>
               <input
                 type="radio"
                 name="stock-view"
                 value="list"
-                checked={viewDraft === 'list'}
+                checked={viewDraft.view === 'list'}
+                data-autofocus={viewDraft.view === 'list' ? '' : undefined}
                 onchange={() => setViewModeNow('list')}
               />
               <Icon name="list" size={18} />
               <span>Список</span>
             </label>
-            <label class="view-mode-card" class:active={viewDraft === 'tiles'}>
+            <label class="view-mode-card" class:active={viewDraft.view === 'tiles'}>
               <input
                 type="radio"
                 name="stock-view"
                 value="tiles"
-                checked={viewDraft === 'tiles'}
+                checked={viewDraft.view === 'tiles'}
+                data-autofocus={viewDraft.view === 'tiles' ? '' : undefined}
                 onchange={() => setViewModeNow('tiles')}
               />
               <Icon name="tiles" size={18} />
               <span>Плитка</span>
             </label>
-            <label class="view-mode-card" class:active={viewDraft === 'columns'}>
+            <label class="view-mode-card" class:active={viewDraft.view === 'columns'}>
               <input
                 type="radio"
                 name="stock-view"
                 value="columns"
-                checked={viewDraft === 'columns'}
+                checked={viewDraft.view === 'columns'}
+                data-autofocus={viewDraft.view === 'columns' ? '' : undefined}
                 onchange={() => setViewModeNow('columns')}
               />
               <Icon name="columns" size={18} />
@@ -1308,14 +1382,14 @@
           </div>
         </fieldset>
 
-        <div class="filter-group">
-          <span class="filter-label">Фото в номенклатуре</span>
+        <fieldset class="filter-group">
+          <legend class="filter-label">Фото в номенклатуре</legend>
           <div class="view-options">
             <label class="radio">
               <input
                 type="radio"
                 name="stock-photos"
-                checked={photoDraft}
+                checked={viewDraft.photo}
                 onchange={() => setPhotosNow(true)}
               />
               <span>С фото</span>
@@ -1324,18 +1398,43 @@
               <input
                 type="radio"
                 name="stock-photos"
-                checked={!photoDraft}
+                checked={!viewDraft.photo}
                 onchange={() => setPhotosNow(false)}
               />
               <span>Без фото</span>
             </label>
           </div>
-        </div>
+        </fieldset>
+
+        <fieldset class="filter-group">
+          <legend class="filter-label">Поля в списке и карточках</legend>
+          <div class="view-field-table stock-view-fields">
+            <span></span>
+            {#each STOCK_VIEW_MODES as mode (mode)}
+              <span class="view-field-head">
+                {mode === 'list' ? 'Список' : mode === 'tiles' ? 'Плитки' : 'Колонки'}
+              </span>
+            {/each}
+            {#each STOCK_FIELDS as field (field.key)}
+              <span class="view-field-name">{field.label}</span>
+              {#each STOCK_VIEW_MODES as mode (mode)}
+                <label class="view-field-check">
+                  <input
+                    type="checkbox"
+                    checked={isStockFieldVisible(field.key, mode)}
+                    aria-label={`${field.label}: ${mode === 'list' ? 'список' : mode === 'tiles' ? 'плитки' : 'колонки'}`}
+                    onchange={() => toggleViewField(field.key, mode)}
+                  />
+                </label>
+              {/each}
+            {/each}
+          </div>
+        </fieldset>
 
         <div class="modal-actions">
           <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
           <div class="modal-buttons">
-            <Button size="lg" onclick={applyView}>Готово</Button>
+            <Button size="lg" onclick={applyView}>Закрыть</Button>
           </div>
         </div>
       </div>
@@ -1543,9 +1642,19 @@
                     >
                       {row.name}
                     </button>
-                    {#if groupsEnabled && row.group_title}
-                      <span class="column-group">{row.group_title}</span>
-                    {/if}
+                    {#each stockFields(fieldsByView.columns) as field (field.key)}
+                      {#if field.key === 'warehouse' && warehousesEnabled && first?.warehouse_name}
+                        <span class="column-warehouse">{first.warehouse_name}</span>
+                      {:else if field.key === 'group' && groupsEnabled && row.group_title}
+                        <span class="column-group">{row.group_title}</span>
+                      {:else if field.key === 'article' && field.value(first ?? ({} as StockLevel))}
+                        <span class="column-article">{field.value(first ?? ({} as StockLevel))}</span>
+                      {:else if field.key === 'unit' && row.unit}
+                        <span class="column-unit">{row.unit}</span>
+                      {:else if field.key === 'description' && first?.description}
+                        <span class="column-description">{first.description}</span>
+                      {/if}
+                    {/each}
                     <span class="column-total">Всего: {stockQuantityText(total, row.unit)}</span>
                   </div>
                     </div>
@@ -1683,6 +1792,12 @@
       <div class="levels" class:tiles={viewMode === 'tiles'} style={listVars}>
         {#each levels as level (level.id)}
           {@const cartQty = inCart(level)}
+          {@const visibleMetaFields = stockFields(fieldsByView[viewMode]).filter(
+            (field) =>
+              field.value(level) !== '' &&
+              (field.key !== 'warehouse' || warehousesEnabled) &&
+              (field.key !== 'group' || groupsEnabled)
+          )}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -1740,10 +1855,15 @@
                 <span class="tile-badge out-of-stock">Нет в наличии</span>
               {/if}
             </div>
-            {#if (warehousesEnabled && level.warehouse_name) || (groupsEnabled && level.group_title)}
+            {#if visibleMetaFields.length > 0}
               <div class="meta col-meta">
-                {#if warehousesEnabled && level.warehouse_name}<span class="meta-chip wh">{level.warehouse_name}</span>{/if}
-                {#if groupsEnabled && level.group_title}<span class="meta-chip group">{level.group_title}</span>{/if}
+                {#each visibleMetaFields as field (field.key)}
+                  <span
+                    class="meta-chip"
+                    class:wh={field.key === 'warehouse'}
+                    class:group={field.key === 'group'}
+                  >{field.value(level)}</span>
+                {/each}
               </div>
             {/if}
             <div class="level-bottom">
@@ -1963,73 +2083,25 @@
     overflow: hidden;
   }
 
-  .view-modal {
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    max-height: min(68vh, 620px);
-  }
-
-  .view-mode-group {
-    margin-top: 0;
-  }
-
-  .view-mode-grid {
+  /* Общие стили «Вид» живут в app.css; здесь только раскладка под три режима. */
+  .stock-view-fields {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: var(--space-2);
+    grid-template-columns: minmax(0, 1fr) repeat(3, 72px);
+    gap: var(--space-1) var(--space-2);
   }
 
-  .view-mode-card {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    min-height: 44px;
-    padding: 8px 6px;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-sm);
-    background: var(--surface);
-    color: var(--text);
-    font-size: 13px;
+  .view-field-head {
+    font-size: var(--font-xs);
+    color: var(--text-description);
     text-align: center;
-    cursor: pointer;
-    transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
   }
 
-  .view-mode-card input {
-    position: absolute;
-    opacity: 0;
-    pointer-events: none;
-  }
-
-  .view-mode-card:hover {
-    border-color: var(--primary);
-  }
-
-  .view-mode-card.active {
-    border-color: var(--primary);
-    background: var(--primary-bg);
-    color: var(--primary);
-    font-weight: 600;
-  }
-
-  .view-mode-card:focus-within {
-    outline: 2px solid var(--focus-ring);
-    outline-offset: 1px;
-  }
-
-  .view-modal .modal-actions {
-    position: static;
-    flex: 0 0 auto;
-    margin-top: var(--space-2);
-    padding-top: var(--space-3);
-    border-top: 1px solid var(--border-secondary);
-  }
-
-  :global(.dialog-body:has(.view-modal)) {
+  .view-field-name {
+    min-width: 0;
     overflow: hidden;
+    font-size: var(--font-sm);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .qty-filter-group {
@@ -2396,12 +2468,20 @@
     line-height: 1.35;
   }
 
-  .column-group {
+  .column-group,
+  .column-warehouse,
+  .column-article,
+  .column-unit,
+  .column-description {
     display: block;
+    max-width: 100%;
     margin-top: 2px;
+    overflow: hidden;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-xs);
     font-weight: 400;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .columns-cell {

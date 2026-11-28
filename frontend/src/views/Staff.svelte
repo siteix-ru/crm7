@@ -874,7 +874,7 @@
     <div class="modal-actions">
       <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
       <div class="modal-buttons">
-        <Button size="lg" onclick={applyView}>Готово</Button>
+        <Button size="lg" onclick={applyView}>Закрыть</Button>
       </div>
     </div>
   </div>

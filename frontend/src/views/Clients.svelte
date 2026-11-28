@@ -572,7 +572,7 @@
       <div class="modal-actions">
         <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
         <div class="modal-buttons">
-          <Button size="lg" onclick={() => (viewOpen = false)}>Готово</Button>
+          <Button size="lg" onclick={() => (viewOpen = false)}>Закрыть</Button>
         </div>
       </div>
     </div>
