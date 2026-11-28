@@ -67,14 +67,14 @@ ssh crm7-server "cd /srv/projects/crm7-test && docker compose logs --tail=100 ph
 | Стенд | `CRM7_VERSION` в `.env` | Образ в контейнерах |
 | --- | --- | --- |
 | `crm7-k` | `1.8.17` | `crm7-app/web:1.8.17` (= `sha-372d6b3`) |
-| `crm7-test` | `sha-8a3aa78` | `crm7-app/web:sha-8a3aa78` |
+| `crm7-test` | `sha-d6b7c97` | `crm7-app/web:sha-d6b7c97` |
 | `crm7-demo` | `1.8.17` | `crm7-app/web:1.8.17` (те же digest) |
 
 `crm7-test` обновлён 28 ноября 2026 вручную: `build_images.py --skip-build --push`
-и `release_crm7.py --env test --tag sha-8a3aa78` (ветка
-`feature/stage-3.4.5-security-access-hardening`, волны 1–2 раскатки списков).
-Предыдущая версия — `sha-8cc12e3` (27 ноября, навигация 2.0 и эталон CLI-LIST).
-Миграций к применению не было, health `ok`/`database ok`.
+и `release_crm7.py --env test --tag sha-d6b7c97` (ветка
+`feature/stage-3.4.5-security-access-hardening`, волна 3 раскатки списков — `Stocks`/`StockLots`).
+Предыдущие версии за тот же день: `sha-8a3aa78` (волны 1–2) и `sha-8cc12e3` (навигация 2.0 и
+эталон CLI-LIST). Миграций к применению не было, health `ok`/`database ok`.
 
 Образ `1.8.17` собран `deploy/build_images.py --push` с машины разработчика
 (фронтенд собирается локально, Docker — на сервере) и соответствует коммиту
