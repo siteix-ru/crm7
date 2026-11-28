@@ -17,6 +17,7 @@
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { auth } from '../lib/stores/auth.svelte';
+  import { directoryValue, type DirectoryField } from '../lib/views/directory-fields';
 
   const canCreateWarehouse = $derived(auth.can('stocks.warehouses.create'));
 
@@ -32,12 +33,18 @@
     return typeTitles[value] ?? value;
   }
 
-  const columns = [
-    { field: 'name', label: 'Название' },
-    { field: 'address', label: 'Адрес' },
-    { field: 'positions', label: 'Остаток' },
-    { field: 'active', label: 'Доступен' }
+  const columns: DirectoryField<WarehouseDirectoryItem>[] = [
+    { key: 'name', label: 'Название', value: (row) => row.name },
+    { key: 'address', label: 'Адрес', value: (row) => row.address || '—' },
+    { key: 'positions', label: 'Номенклатуры', value: (row) => String(row.positions) },
+    {
+      key: 'active',
+      label: 'Доступен',
+      on: (row) => row.active,
+      value: (row) => (row.active ? 'Доступен' : 'Выключен')
+    }
   ];
+  const detailColumns = columns.filter((column) => column.key !== 'name');
 
   let items = $state<WarehouseDirectoryItem[]>([]);
   let loading = $state(true);
@@ -169,58 +176,52 @@
     {#if sorted.length === 0}
       <EmptyState icon="warehouse" title="Складов пока нет" description="Добавьте первый склад." />
     {:else}
-      <div class="levels-wrap">
-        <div class="levels-head">
-          {#each columns as column (column.field)}
-            <div class="levels-head-cell col-{column.field}">
-              <span class="levels-head-label">{column.label}</span>
+      <div class="levels-wrap" role="table" aria-label="Склады">
+        <div class="levels-head" role="row">
+          {#each columns as column (column.key)}
+            <div class="levels-head-cell col-{column.key}" role="columnheader">
+              {column.label}
             </div>
           {/each}
         </div>
 
         <div class="levels">
           {#each paged as item (item.id)}
-            <!-- svelte-ignore a11y_click_events_have_key_events -->
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="level" onclick={() => router.navigate(`/stocks/warehouses/${item.id}/edit`)}>
-              <div class="name-col col-name">
-                <div class="name-line">
-                  <a
-                    class="name"
-                    href={`#/stocks/warehouses/${item.id}/edit`}
-                    title="Открыть склад"
-                    onclick={(event) => event.stopPropagation()}
-                  >
-                    {item.name}
-                  </a>
-                </div>
-                <div class="meta">
+            <div class="level" role="row">
+              <div class="name-col col-name" role="cell">
+                <a
+                  class="name"
+                  href={`#/stocks/warehouses/${item.id}/edit`}
+                  aria-describedby={`warehouse-meta-${item.id}`}
+                  title="Открыть склад"
+                >
+                  {item.name}
+                </a>
+                <span id={`warehouse-meta-${item.id}`} class="meta">
                   {#if item.type !== 'main'}<span>{typeTitle(item.type)}</span>{/if}
                   {#if item.responsible_name}<span>Ответственный: {item.responsible_name}</span>{/if}
-                </div>
+                </span>
               </div>
 
-              <div class="level-bottom">
-                <div class="stat col-address">
-                  <span class="stat-label">Адрес</span>
-                  <span class="value">{item.address ?? '—'}</span>
-                </div>
-                <div class="stat col-positions">
-                  <span class="stat-label">Номенклатуры</span>
-                  <span class="value">{item.positions}</span>
-                </div>
-                <div class="stat col-active">
-                  <span class="stat-label">Доступен</span>
-                  <span class="state" class:on={item.active}>
-                    {item.active ? 'Доступен' : 'Выключен'}
+              {#each detailColumns as column (column.key)}
+                <div class="stat col-{column.key}" role="cell">
+                  <span class="stat-label">{column.label}</span>
+                  <span class="value" class:state={column.key === 'active'} class:on={column.on?.(item)}>
+                    {directoryValue(column, item)}
                   </span>
                 </div>
-              </div>
+              {/each}
+
+              <a
+                class="row-overlay"
+                href={`#/stocks/warehouses/${item.id}/edit`}
+                tabindex="-1"
+                aria-hidden="true"
+              ></a>
             </div>
           {/each}
         </div>
       </div>
-
       <Pager
         {page}
         {perPage}
@@ -261,15 +262,16 @@
   }
 
   .level {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: var(--space-3);
-    padding: 12px var(--space-4);
+    padding: var(--space-3) var(--space-4);
     border-bottom: 1px solid var(--border-secondary);
-    font-size: 14px;
+    font-size: var(--font-md);
     cursor: pointer;
-    transition: background 0.12s ease;
+
   }
 
   .level:hover {
@@ -280,10 +282,15 @@
     border-bottom: none;
   }
 
+  .row-overlay {
+    position: absolute;
+    inset: 0;
+  }
+
   .name-col {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-1);
     min-width: 0;
   }
 
@@ -311,23 +318,14 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--space-3);
-    font-size: 13px;
+    font-size: var(--font-sm);
     color: var(--text-description);
-  }
-
-  .level-bottom {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 6px var(--space-3);
-    min-width: 0;
   }
 
   .stat {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: var(--space-1);
     min-width: 0;
   }
 
@@ -337,7 +335,7 @@
   }
 
   .stat-label {
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--text-description);
   }
 
@@ -348,7 +346,7 @@
   .state {
     align-self: flex-start;
     color: var(--text-description);
-    font-size: 13px;
+    font-size: var(--font-sm);
     white-space: nowrap;
   }
 
@@ -363,7 +361,7 @@
   .levels-head-cell {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: var(--space-1);
     min-width: 0;
     padding: 0;
     text-align: left;
@@ -386,14 +384,14 @@
       background: var(--fill-tertiary);
       border: 1px solid var(--border-secondary);
       border-radius: var(--radius-md) var(--radius-md) 0 0;
-      font-size: 14px;
+      font-size: var(--font-md);
       font-weight: 600;
       color: var(--text);
     }
 
     .levels-head-cell {
       position: relative;
-      padding: 12px var(--space-4);
+      padding: var(--space-3) var(--space-4);
     }
 
     .levels-head-cell:not(:last-child)::after {
@@ -424,12 +422,8 @@
     }
 
     .levels .level > .name-col,
-    .levels .level > .level-bottom > .stat {
-      padding: 12px var(--space-4);
-    }
-
-    .levels .level-bottom {
-      display: contents;
+    .levels .level > .stat {
+      padding: var(--space-3) var(--space-4);
     }
 
     .levels .stat-label {
@@ -447,6 +441,20 @@
   }
 
   @media (max-width: 719.98px) {
+    /* Шапка остаётся в accessibility-дереве, хотя визуально не занимает место. */
+    .levels-head {
+      position: absolute;
+      display: flex;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
+    }
+
     .levels .level {
       flex-wrap: wrap;
       row-gap: 6px;
@@ -457,14 +465,10 @@
       flex: 1 1 100%;
     }
 
-    .levels .level-bottom {
-      display: contents;
-    }
-
     .levels .stat {
       flex-direction: row;
       align-items: baseline;
-      gap: 4px;
+      gap: var(--space-1);
     }
 
     .levels .stat-label::after {
@@ -503,7 +507,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
   .alert {

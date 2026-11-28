@@ -298,6 +298,11 @@
               class="menu-item"
               role="menuitemcheckbox"
               aria-checked={item.checked}
+              aria-label={item.count
+                ? `${item.label}, активно: ${item.count}`
+                : item.dialog
+                  ? item.label
+                  : undefined}
               aria-haspopup={item.dialog ? 'dialog' : undefined}
               disabled={item.disabled}
               onclick={() => run(item)}

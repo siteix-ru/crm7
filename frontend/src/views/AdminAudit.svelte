@@ -13,62 +13,138 @@
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import { formatDateTime } from '../lib/format';
   import { auditLabel, entityLabel } from '../lib/labels';
+  import { maxPage } from '../lib/views/pagination';
+  import Button from '../lib/components/ui/Button.svelte';
 
   let filtersRef: FiltersModal | null = $state(null);
 
   const auditFilterDefaults = { from: '', to: '' };
+  const initialAuditState = loadFilters('admin-audit', {
+    from: '',
+    to: '',
+    action: '',
+    page: 1,
+    per_page: 20
+  });
 
   let audit = $state<AuditEntry[]>([]);
   let auditTotal = $state(0);
-  let auditPage = $state(1);
-  let auditPerPage = $state(20);
-  let auditAction = $state('');
-  const initialAuditFilters = loadFilters('admin-audit', auditFilterDefaults);
-  let auditFilters = $state({ ...initialAuditFilters });
-  let auditDraft = $state({ ...initialAuditFilters });
+  let auditPage = $state(Math.max(1, Math.trunc(Number(initialAuditState.page) || 1)));
+  let auditPerPage = $state(
+    [0, 10, 20, 50, 100].includes(Number(initialAuditState.per_page))
+      ? Number(initialAuditState.per_page)
+      : 20
+  );
+  let auditActionInput = $state(String(initialAuditState.action ?? ''));
+  let auditAction = $state(String(initialAuditState.action ?? ''));
+  let auditFilters = $state({
+    from: String(initialAuditState.from ?? ''),
+    to: String(initialAuditState.to ?? '')
+  });
+  let auditDraft = $state({
+    from: String(initialAuditState.from ?? ''),
+    to: String(initialAuditState.to ?? '')
+  });
   let auditLoading = $state(true);
   let error = $state('');
+  let loadSeq = 0;
+  let searchAbort: AbortController | null = null;
 
   onMount(() => {
     void loadAudit();
   });
 
+  function persistAudit(): void {
+    saveFilters('admin-audit', {
+      ...auditFilters,
+      action: auditAction,
+      page: auditPage,
+      per_page: auditPerPage
+    });
+  }
+
+  function abortSearch(): void {
+    searchAbort?.abort();
+    searchAbort = null;
+  }
+
+  const hasQuery = $derived(
+    auditAction !== '' || countActive(auditFilters, auditFilterDefaults) > 0
+  );
+
+  function clearAll(): void {
+    abortSearch();
+    auditAction = '';
+    auditActionInput = '';
+    auditFilters = { ...auditFilterDefaults };
+    auditPage = 1;
+    persistAudit();
+    void loadAudit();
+  }
+
   function clampAuditDates(): void {
     const dates = clampDates(auditDraft.from, auditDraft.to);
-
     auditDraft.from = dates.from;
     auditDraft.to = dates.to;
   }
 
-  function applyAuditDraft(): void {
+  async function applyAuditDraft(): Promise<string> {
     clampAuditDates();
     auditFilters = { ...auditDraft };
-    saveFilters('admin-audit', auditFilters);
     auditPage = 1;
-    void loadAudit();
+    persistAudit();
+    const result = await loadAudit();
+    return result.ok
+      ? `Фильтры применены. Найдено: ${result.total}`
+      : 'Не удалось применить фильтры. Попробуйте ещё раз.';
   }
 
-  function submitSearch(): void {
-    auditPage = 1;
-    addHistory('admin-audit', auditAction);
-    void loadAudit();
-  }
-
-  function clearSearch(): void {
-    auditAction = '';
-    auditPage = 1;
-    void loadAudit();
-  }
-
-  function resetAuditFilters(): void {
+  async function resetAuditFilters(): Promise<string> {
     auditDraft = { ...auditFilterDefaults };
     auditFilters = { ...auditFilterDefaults };
     clearFilters('admin-audit');
     auditPage = 1;
+    persistAudit();
+    const result = await loadAudit();
+    return result.ok
+      ? `Фильтры сброшены. Найдено: ${result.total}`
+      : 'Не удалось сбросить фильтры. Попробуйте ещё раз.';
+  }
+
+  async function submitSearch(): Promise<void> {
+    abortSearch();
+    searchAbort = new AbortController();
+    auditAction = auditActionInput.trim();
+    auditPage = 1;
+    addHistory('admin-audit', auditAction);
+    persistAudit();
+    await loadAudit(searchAbort.signal);
+  }
+
+  function clearSearch(): void {
+    abortSearch();
+    auditAction = '';
+    auditActionInput = '';
+    auditPage = 1;
+    persistAudit();
     void loadAudit();
   }
 
-  async function loadAudit(): Promise<void> {
+  function goToPage(next: number): void {
+    auditPage = next;
+    persistAudit();
+    void loadAudit();
+  }
+
+  function changePerPage(next: number): void {
+    auditPerPage = next;
+    auditPage = 1;
+    persistAudit();
+    void loadAudit();
+  }
+
+  async function loadAudit(signal?: AbortSignal): Promise<{ ok: boolean; total: number }> {
+    const seq = ++loadSeq;
     auditLoading = true;
     error = '';
 
@@ -78,15 +154,34 @@
         from: auditFilters.from,
         to: auditFilters.to,
         page: auditPage,
-        per_page: auditPerPage
+        per_page: auditPerPage,
+        signal
       });
-
+      if (seq !== loadSeq) {
+        return { ok: false, total: 0 };
+      }
+      const pagesCount = maxPage(data.total, auditPerPage);
+      if (auditPage > pagesCount) {
+        auditPage = pagesCount;
+        persistAudit();
+        return loadAudit(signal);
+      }
       audit = data.items;
       auditTotal = data.total;
+      return { ok: true, total: data.total };
     } catch (cause) {
+      if (seq !== loadSeq) {
+        return { ok: false, total: 0 };
+      }
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        return { ok: false, total: 0 };
+      }
       error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить журнал';
+      return { ok: false, total: 0 };
     } finally {
-      auditLoading = false;
+      if (seq === loadSeq) {
+        auditLoading = false;
+      }
     }
   }
 </script>
@@ -97,19 +192,26 @@
       <ToolbarMenu
         label="Действия журнала"
         search={{
-          value: auditAction,
+          value: auditActionInput,
           historyKey: 'admin-audit',
           title: 'Поиск по журналу',
           placeholder: 'Действие (например, request.transition)',
-          suggestions: audit.map((entry) => auditLabel(entry.action)),
-          onsearch: (query) => {
-            auditAction = query;
-            submitSearch();
+          suggestions: audit.map((entry) => entry.action),
+          onsearch: async (query) => {
+            auditActionInput = query;
+            await submitSearch();
           },
-          onclear: clearSearch
+          onclear: clearSearch,
+          onstop: abortSearch
         }}
         items={[
-          { id: 'filters', label: 'Фильтры', icon: 'filter', onclick: () => filtersRef?.show() }
+          {
+            id: 'filters',
+            label: 'Фильтры',
+            icon: 'filter',
+            dialog: true,
+            onclick: () => filtersRef?.show()
+          }
         ]}
       />
     {/snippet}
@@ -134,26 +236,37 @@
   </FiltersModal>
 
   {#if error}
-    <div class="alert">{error}</div>
+    <div class="alert" role="alert">{error}</div>
   {/if}
 
   {#if auditLoading}
     <div class="center"><Spinner size={26} /></div>
   {:else if audit.length === 0}
-    <div class="empty">Записей нет</div>
+    <div class="empty">
+      <p>{hasQuery ? 'Ничего не найдено' : 'Записей нет'}</p>
+      {#if hasQuery}
+        <Button variant="ghost" onclick={clearAll}>Сбросить поиск и фильтры</Button>
+      {/if}
+    </div>
   {:else}
-    <div class="audit">
+    <div class="audit" role="list" aria-label="Записи журнала">
       {#each audit as entry (entry.id)}
-        <div class="entry">
+        <div class="entry" role="listitem">
           <div class="row">
             <span class="action">{auditLabel(entry.action)}</span>
             <span class="when">{formatDateTime(entry.created_at)}</span>
           </div>
           <div class="meta">
-            {#if entry.user}<span>{entry.user.name}</span>{/if}
-            {#if entry.entity}<span>{entityLabel(entry.entity)} #{entry.entity_id}</span>{/if}
-            {#if entry.ip}<span>{entry.ip}</span>{/if}
-            <span class="action-code">{entry.action}</span>
+            {#if entry.user}
+              <span><span class="sr-only">Пользователь: </span>{entry.user.name}</span>
+            {/if}
+            {#if entry.entity}
+              <span><span class="sr-only">Объект: </span>{entityLabel(entry.entity)} #{entry.entity_id}</span>
+            {/if}
+            {#if entry.ip}
+              <span><span class="sr-only">IP: </span>{entry.ip}</span>
+            {/if}
+            <span class="action-code"><span class="sr-only">Код действия: </span>{entry.action}</span>
           </div>
           {#if Object.keys(entry.data).length > 0}
             <div class="data">
@@ -171,15 +284,8 @@
       perPage={auditPerPage}
       total={auditTotal}
       loading={auditLoading}
-      onchange={(next) => {
-        auditPage = next;
-        void loadAudit();
-      }}
-      onperpage={(next) => {
-        auditPerPage = next;
-        auditPage = 1;
-        void loadAudit();
-      }}
+      onchange={goToPage}
+      onperpage={changePerPage}
     />
   {/if}
 </section>
@@ -225,17 +331,16 @@
 
   .entry .action {
     font-weight: 500;
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
   .entry .action-code {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 11px;
-    opacity: 0.75;
+    font-size: var(--font-xs);
   }
 
   .entry .when {
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--muted);
   }
 
@@ -244,7 +349,7 @@
     flex-wrap: wrap;
     gap: var(--space-3);
     margin-top: 4px;
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--muted);
   }
 
@@ -253,7 +358,7 @@
     flex-wrap: wrap;
     gap: var(--space-3);
     margin-top: 4px;
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--muted);
   }
 

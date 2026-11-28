@@ -9,6 +9,43 @@
   import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
   import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+  import { directoryValue, type DirectoryField } from '../lib/views/directory-fields';
+
+  const columns: DirectoryField<PriceType>[] = [
+    {
+      key: 'title',
+      label: 'Название',
+      kind: 'title',
+      href: (row) => `#/stocks/price-types/${row.id}`,
+      description: (row) => row.description,
+      value: (row) => row.title
+    },
+    { key: 'code', label: 'Код', kind: 'code', value: (row) => row.code },
+    {
+      key: 'users',
+      label: 'Пользователи',
+      headClass: 'num-head',
+      cellClass: 'num',
+      kind: 'count',
+      value: (row) => String(row.users_count ?? 0)
+    },
+    {
+      key: 'prices',
+      label: 'Цены',
+      headClass: 'num-head',
+      cellClass: 'num',
+      kind: 'count',
+      value: (row) => String(row.prices_count ?? 0)
+    },
+    {
+      key: 'enabled',
+      label: 'Доступен',
+      headClass: 'state-head',
+      kind: 'state',
+      on: (row) => row.enabled !== false,
+      value: (row) => (row.enabled === false ? 'Выключен' : 'Доступен')
+    }
+  ];
 
   let types = $state<PriceType[]>([]);
   let loading = $state(true);
@@ -82,32 +119,36 @@
           <table>
             <thead>
               <tr>
-                <th>Название</th>
-                <th>Код</th>
-                <th class="num-head">Пользователи</th>
-                <th class="num-head">Цены</th>
-                <th class="state-head">Доступен</th>
+                {#each columns as column (column.key)}
+                  <th class={column.headClass} scope="col">{column.label}</th>
+                {/each}
               </tr>
             </thead>
             <tbody>
               {#each types as type (type.id)}
                 <tr>
-                  <td>
-                    <div class="name">
-                      <a class="title" href={`#/stocks/price-types/${type.id}`}>{type.title}</a>
-                      {#if type.description}
-                        <span class="desc">{type.description}</span>
+                  {#each columns as column (column.key)}
+                    <td class={column.cellClass}>
+                      {#if column.kind === 'title'}
+                        <div class="name">
+                          <a class="title" href={column.href?.(type)} aria-label={`${column.value(type)}, код ${type.code}`}>
+                            {column.value(type)}
+                          </a>
+                          {#if column.description?.(type)}
+                            <span class="desc">{column.description(type)}</span>
+                          {/if}
+                        </div>
+                      {:else if column.kind === 'code'}
+                        <code>{directoryValue(column, type)}</code>
+                      {:else if column.kind === 'state'}
+                        <span class="state" class:on={column.on?.(type)}>
+                          {directoryValue(column, type)}
+                        </span>
+                      {:else}
+                        {directoryValue(column, type)}
                       {/if}
-                    </div>
-                  </td>
-                  <td><code>{type.code}</code></td>
-                  <td class="num">{type.users_count ?? 0}</td>
-                  <td class="num">{type.prices_count ?? 0}</td>
-                  <td>
-                    <span class="state" class:on={type.enabled !== false}>
-                      {type.enabled === false ? 'Выключен' : 'Доступен'}
-                    </span>
-                  </td>
+                    </td>
+                  {/each}
                 </tr>
               {/each}
             </tbody>
@@ -161,7 +202,7 @@
     border-radius: var(--radius-sm);
     background: var(--danger-bg);
     color: var(--error-text);
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
   .alert-icon {
@@ -197,7 +238,7 @@
     padding: 10px 12px;
     border-bottom: 2px solid var(--border);
     color: var(--text-description);
-    font-size: 12px;
+    font-size: var(--font-xs);
     font-weight: 500;
     text-align: left;
     white-space: nowrap;
@@ -214,7 +255,7 @@
   td {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
-    font-size: 14px;
+    font-size: var(--font-md);
     vertical-align: middle;
   }
 
@@ -247,7 +288,7 @@
 
   .desc {
     color: var(--text-description);
-    font-size: 13px;
+    font-size: var(--font-sm);
     overflow-wrap: anywhere;
   }
 
@@ -256,7 +297,7 @@
     border-radius: var(--radius-xs);
     background: var(--bg);
     color: var(--text-description);
-    font-size: 12px;
+    font-size: var(--font-xs);
   }
 
   .num {
@@ -266,7 +307,7 @@
 
   .state {
     color: var(--text-description);
-    font-size: 13px;
+    font-size: var(--font-sm);
     white-space: nowrap;
   }
 
@@ -335,7 +376,7 @@
 
     td:nth-child(3),
     td:nth-child(4) {
-      font-size: 13px;
+      font-size: var(--font-sm);
     }
 
     td:nth-child(3)::before {

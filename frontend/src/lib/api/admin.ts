@@ -275,6 +275,7 @@ export function listAudit(params: {
   to?: string;
   page?: number;
   per_page?: number;
+  signal?: AbortSignal;
 }): Promise<{ items: AuditEntry[]; total: number; page: number; per_page: number }> {
   const search = new URLSearchParams();
 
@@ -288,7 +289,7 @@ export function listAudit(params: {
 
   const suffix = search.toString() !== '' ? `?${search.toString()}` : '';
 
-  return apiRequest(`/admin/audit${suffix}`, { auth: true });
+  return apiRequest(`/admin/audit${suffix}`, { auth: true, signal: params.signal });
 }
 
 export function searchLog(): Promise<SearchLogResponse> {

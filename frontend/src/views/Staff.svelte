@@ -12,14 +12,30 @@
   import { auth } from '../lib/stores/auth.svelte';
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { countActive, loadFilters, saveFilters } from '../lib/filters';
+  import { filterStorageKey } from '../lib/stores/filter-prefs.svelte';
   import { formatDateTime } from '../lib/format';
   import { addHistory } from '../lib/search-history';
   import { router } from '../lib/router.svelte';
+  import { withReturnTo } from '../lib/navigation-context';
+  import { maxPage } from '../lib/views/pagination';
+  import {
+    isLegacyStaffView,
+    STAFF_FIELDS,
+    STAFF_OPTIONAL_KEYS,
+    normalizeStaffFields,
+    initialStaffViewMode,
+    listStaffFields,
+    hiddenStaffFields,
+    staffTileFields,
+    staffMetaFields,
+    type ViewMode
+  } from '../lib/views/staff-fields';
   import Button from '../lib/components/ui/Button.svelte';
   import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
   import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import SortDialog from '../lib/components/ui/SortDialog.svelte';
@@ -41,7 +57,12 @@
     offices: [] as string[],
     positions: [] as string[],
     sort: 'level_desc',
-    view: 'list'
+    view: 'list',
+    viewExplicit: false,
+    q: '',
+    page: 1,
+    per_page: 20,
+    fields: { list: [...STAFF_OPTIONAL_KEYS], tiles: [...STAFF_OPTIONAL_KEYS] }
   };
 
   const filterCountDefaults = {
@@ -101,14 +122,31 @@
 
   const initialFilters = loadFilters('staff', filterDefaults);
 
+  // Legacy-записи сохраняли view без viewExplicit: считаем их явным выбором пользователя.
+  let legacyView = false;
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem(filterStorageKey('staff', auth.user?.id ?? null)) ?? '{}'
+    );
+    legacyView = isLegacyStaffView(raw);
+  } catch {
+    legacyView = false;
+  }
+  const restoredViewExplicit = legacyView ? true : initialFilters.viewExplicit === true;
+
   let items = $state<StaffUser[]>([]);
   let total = $state(0);
-  let page = $state(1);
-  let perPage = $state(20);
+  let page = $state(Math.max(1, Math.trunc(Number(initialFilters.page) || 1)));
+  let perPage = $state(
+    [0, 10, 20, 50, 100].includes(Number(initialFilters.per_page))
+      ? Number(initialFilters.per_page)
+      : 20
+  );
   let loading = $state(true);
   let error = $state('');
-  let search = $state('');
-  let searchInput = $state('');
+  let listAnnouncement = $state('');
+  let search = $state(String(initialFilters.q ?? ''));
+  let searchInput = $state(String(initialFilters.q ?? ''));
   let filters = $state({ ...initialFilters });
   let draft = $state({
     levels: [...initialFilters.levels],
@@ -116,8 +154,7 @@
     cities: [...initialFilters.cities],
     departments: [...initialFilters.departments],
     offices: [...initialFilters.offices],
-    positions: [...initialFilters.positions],
-    view: initialFilters.view
+    positions: [...initialFilters.positions]
   });
   let facets = $state({
     cities: [] as string[],
@@ -135,9 +172,36 @@
   const positionOptions = $derived(
     facets.positions.map((position) => ({ value: position, label: position }))
   );
-  let viewMode = $state<'list' | 'tiles'>(initialFilters.view === 'tiles' ? 'tiles' : 'list');
+  let viewportWidth = $state(typeof window === 'undefined' ? 1440 : window.innerWidth);
+  let viewMode = $state<'list' | 'tiles'>(
+    initialStaffViewMode(initialFilters.view, legacyView ? undefined : restoredViewExplicit, window.innerWidth)
+  );
+  let viewExplicit = $state(restoredViewExplicit);
+  let fieldsByView = $state<Record<ViewMode, string[]>>(
+    normalizeStaffFields(initialFilters.fields)
+  );
   let sortOpen = $state(false);
   let viewOpen = $state(false);
+  let filtersRef: FiltersModal | null = $state(null);
+  let viewDraft = $state<{ view: ViewMode; fields: Record<ViewMode, string[]> }>({
+    view: initialStaffViewMode(initialFilters.view, legacyView ? undefined : restoredViewExplicit, window.innerWidth),
+    fields: normalizeStaffFields(initialFilters.fields)
+  });
+
+  const columns = $derived(listStaffFields(fieldsByView.list, viewportWidth));
+  const headFields = $derived([
+    STAFF_FIELDS.find((field) => field.key === 'name')!,
+    ...columns,
+    STAFF_FIELDS.find((field) => field.key === 'status')!
+  ]);
+  const hiddenFields = $derived(hiddenStaffFields(fieldsByView.list, viewportWidth));
+  const showRowMeta = $derived(hiddenFields.length > 0 || viewportWidth <= 720);
+  const viewColumns = $derived(
+    ['minmax(220px, 1.5fr)', ...columns.map((field) => field.width ?? 'minmax(120px, 1fr)'), '90px'].join(' ')
+  );
+  const currentFullRoute = $derived(
+    `${router.current.path}${router.current.query.toString() ? `?${router.current.query.toString()}` : ''}`
+  );
   let tab = $state<'staff' | 'substitutions'>(initialTabValue());
   let substSearch = $state('');
   let substSearchInput = $state('');
@@ -178,6 +242,15 @@
     void load();
     void loadFacets();
     void loadSubstManagers();
+
+    const breakpoints = [720, 900, 1024, 1200].map((width) =>
+      window.matchMedia(`(min-width: ${width + 1}px)`)
+    );
+    const update = (): void => {
+      viewportWidth = window.innerWidth;
+    };
+    breakpoints.forEach((query) => query.addEventListener('change', update));
+    return () => breakpoints.forEach((query) => query.removeEventListener('change', update));
   });
 
   async function loadSubstManagers(): Promise<void> {
@@ -204,7 +277,19 @@
     searchAbort = null;
   }
 
-  async function load(signal?: AbortSignal): Promise<void> {
+  function saveStaffFilters(): void {
+    saveFilters('staff', {
+      ...filters,
+      q: search,
+      page,
+      per_page: perPage,
+      view: viewMode,
+      viewExplicit,
+      fields: { list: [...fieldsByView.list], tiles: [...fieldsByView.tiles] }
+    });
+  }
+
+  async function load(signal?: AbortSignal): Promise<{ ok: boolean; total: number }> {
     const seq = ++loadSeq;
     loading = true;
     error = '';
@@ -225,23 +310,38 @@
         signal
       });
       if (seq !== loadSeq) {
-        return;
+        return { ok: false, total: 0 };
+      }
+      const pagesCount = maxPage(data.total, perPage);
+      if (page > pagesCount) {
+        page = pagesCount;
+        saveStaffFilters();
+        return load(signal);
       }
       items = data.items;
       total = data.total;
+      return { ok: true, total: data.total };
     } catch (cause) {
       if (seq !== loadSeq) {
-        return;
+        return { ok: false, total: 0 };
       }
       if (cause instanceof DOMException && cause.name === 'AbortError') {
-        return;
+        return { ok: false, total: 0 };
       }
       error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить сотрудников';
+      return { ok: false, total: 0 };
     } finally {
       if (seq === loadSeq) {
         loading = false;
       }
     }
+  }
+
+  function announceList(text: string): void {
+    listAnnouncement = '';
+    requestAnimationFrame(() => {
+      listAnnouncement = text;
+    });
   }
 
   async function submitSearch(): Promise<void> {
@@ -251,7 +351,8 @@
     }
 
     abortSearch();
-    searchAbort = new AbortController();
+    const controller = new AbortController();
+    searchAbort = controller;
     search = searchInput.trim();
 
     if (search !== '') {
@@ -259,7 +360,12 @@
     }
 
     page = 1;
-    await load(searchAbort.signal);
+    saveStaffFilters();
+    const result = await load(controller.signal);
+    if (controller.signal.aborted) {
+      return;
+    }
+    announceList(result.ok ? `Найдено: ${result.total}` : 'Не удалось выполнить поиск');
   }
 
   function applySearch(): void {
@@ -271,32 +377,99 @@
 
     abortSearch();
     page = 1;
+    saveStaffFilters();
     void load();
   }
 
   function goToPage(next: number): void {
     page = next;
+    saveStaffFilters();
     void load();
   }
 
   function changePerPage(value: number): void {
     perPage = value;
     page = 1;
+    saveStaffFilters();
     void load();
   }
 
   function openView(): void {
     if (tab === 'substitutions') {
-      substDraft = cloneSubstFilters(substFilters);
-      draft = {
-        levels: [],
-        states: [],
-        cities: [],
-        departments: [],
-        offices: [],
-        positions: [],
-        view: substView
+      viewDraft = { view: substView, fields: viewDraft.fields };
+    } else {
+      viewDraft = {
+        view: viewMode,
+        fields: { list: [...fieldsByView.list], tiles: [...fieldsByView.tiles] }
       };
+    }
+    viewOpen = true;
+  }
+
+  function applyView(): void {
+    if (tab === 'substitutions') {
+      substView = viewDraft.view;
+    }
+    viewOpen = false;
+  }
+
+  function resetView(): void {
+    if (tab === 'substitutions') {
+      substView = 'list';
+      viewDraft = { view: substView, fields: viewDraft.fields };
+      return;
+    }
+
+    viewMode = initialStaffViewMode('list', false, viewportWidth);
+    viewExplicit = false;
+    fieldsByView = {
+      list: [...STAFF_OPTIONAL_KEYS],
+      tiles: [...STAFF_OPTIONAL_KEYS]
+    };
+    viewDraft = {
+      view: viewMode,
+      fields: { list: [...fieldsByView.list], tiles: [...fieldsByView.tiles] }
+    };
+    saveStaffFilters();
+    announceList(`Вид сброшен. Найдено: ${total}`);
+  }
+
+  function isStaffFieldVisible(key: string, mode: ViewMode): boolean {
+    return (
+      STAFF_FIELDS.find((field) => field.key === key)?.required === true ||
+      viewDraft.fields[mode].includes(key)
+    );
+  }
+
+  function toggleViewField(key: string, mode: ViewMode): void {
+    const next = fieldsByView[mode].includes(key)
+      ? fieldsByView[mode].filter((item) => item !== key)
+      : STAFF_OPTIONAL_KEYS.filter((item) => item === key || fieldsByView[mode].includes(item));
+    fieldsByView = { ...fieldsByView, [mode]: next };
+    viewDraft = {
+      ...viewDraft,
+      fields: { ...viewDraft.fields, [mode]: [...next] }
+    };
+    saveStaffFilters();
+    announceList(`Вид обновлён. Найдено: ${total}`);
+  }
+
+  function setViewModeNow(mode: ViewMode): void {
+    if (tab === 'substitutions') {
+      substView = mode;
+      viewDraft = { ...viewDraft, view: mode };
+      return;
+    }
+    viewMode = mode;
+    viewExplicit = true;
+    viewDraft = { ...viewDraft, view: mode };
+    saveStaffFilters();
+    announceList(`Вид: ${mode === 'tiles' ? 'плитки' : 'список'}. Найдено: ${total}`);
+  }
+
+  function openFilters(): void {
+    if (tab === 'substitutions') {
+      substDraft = cloneSubstFilters(substFilters);
     } else {
       draft = {
         levels: [...filters.levels],
@@ -304,20 +477,16 @@
         cities: [...filters.cities],
         departments: [...filters.departments],
         offices: [...filters.offices],
-        positions: [...filters.positions],
-        view: viewMode
+        positions: [...filters.positions]
       };
     }
-
-    viewOpen = true;
+    filtersRef?.show();
   }
 
-  function applyView(): void {
+  async function applyFilterDraft(): Promise<string> {
     if (tab === 'substitutions') {
-      substView = draft.view === 'tiles' ? 'tiles' : 'list';
       substFilters = cloneSubstFilters(substDraft);
-      viewOpen = false;
-      return;
+      return 'Фильтры применены';
     }
 
     filters = {
@@ -329,19 +498,19 @@
       offices: [...draft.offices],
       positions: [...draft.positions]
     };
-    viewMode = draft.view === 'tiles' ? 'tiles' : 'list';
-    filters = { ...filters, view: viewMode };
-    saveFilters('staff', filters);
-    viewOpen = false;
     page = 1;
-    void load();
+    saveStaffFilters();
+    const result = await load();
+    return result.ok
+      ? `Фильтры применены. Найдено: ${result.total}`
+      : 'Не удалось применить фильтры. Попробуйте ещё раз.';
   }
 
-  function resetView(): void {
+  async function resetFilterDraft(): Promise<string> {
     if (tab === 'substitutions') {
       substDraft = cloneSubstFilters();
-      draft = { ...draft, view: 'list' };
-      return;
+      substFilters = cloneSubstFilters();
+      return 'Фильтры сброшены';
     }
 
     draft = {
@@ -350,16 +519,30 @@
       cities: [],
       departments: [],
       offices: [],
-      positions: [],
-      view: 'list'
+      positions: []
     };
+    const result = await applyFilterDraft();
+    return result.startsWith('Не удалось') ? result : `Фильтры сброшены. ${result}`;
   }
 
   function resetFilters(): void {
     filters = { ...filterDefaults };
-    viewMode = 'list';
-    saveFilters('staff', filters);
+    draft = {
+      levels: [],
+      states: [],
+      cities: [],
+      departments: [],
+      offices: [],
+      positions: []
+    };
+    viewMode = initialStaffViewMode('list', false, viewportWidth);
+    viewExplicit = false;
+    fieldsByView = {
+      list: [...STAFF_OPTIONAL_KEYS],
+      tiles: [...STAFF_OPTIONAL_KEYS]
+    };
     page = 1;
+    saveStaffFilters();
     void load();
   }
 
@@ -369,8 +552,8 @@
     }
 
     filters = { ...filters, sort: next };
-    saveFilters('staff', filters);
     page = 1;
+    saveStaffFilters();
     void load();
   }
 
@@ -400,6 +583,10 @@
 </script>
 
 <section class="page page-wide">
+  <div class="sr-only" role="status" aria-live="polite" aria-hidden={viewOpen}>
+    {listAnnouncement}
+  </div>
+
   <PageToolbar title={tab === 'staff' ? 'Сотрудники' : 'Замещения'}>
     {#snippet leading()}
       {#if tab === 'substitutions'}
@@ -439,6 +626,7 @@
               searchInput = '';
               search = '';
               page = 1;
+              saveStaffFilters();
               void load();
             } else {
               substSearchInput = '';
@@ -453,16 +641,30 @@
             label: 'Сортировка',
             icon: 'sort',
             checked: tab === 'staff' ? sortActive : substSortActive,
+            dialog: true,
             onclick: () => (sortOpen = true)
           },
           {
             id: 'view',
-            label: 'Вид и фильтры',
+            label: `Вид: ${tab === 'staff' ? (viewMode === 'tiles' ? 'Плитки' : 'Список') : (substView === 'tiles' ? 'Плитки' : 'Список')}`,
             icon: 'view',
+            dialog: true,
             checked: tab === 'staff'
-              ? viewMode === 'tiles' || filtersActive
-              : substView === 'tiles' || substFiltersActive,
+              ? viewMode === 'tiles' ||
+                fieldsByView.list.length !== STAFF_OPTIONAL_KEYS.length ||
+                fieldsByView.tiles.length !== STAFF_OPTIONAL_KEYS.length
+              : substView === 'tiles',
             onclick: openView
+          },
+          {
+            id: 'filters',
+            label: 'Фильтры',
+            icon: 'filter',
+            dialog: true,
+            count: tab === 'staff'
+              ? (filtersActive ? countActive(filters, filterCountDefaults) : 0)
+              : (substFiltersActive ? countActive(substFilters, substFilterDefaults) : 0),
+            onclick: openFilters
           },
           ...(showSubstitutionsTab && tab === 'staff'
             ? [
@@ -529,7 +731,7 @@
   {:else if viewMode === 'tiles'}
     <div class="tiles-grid">
       {#each items as staff (staff.id)}
-        <button type="button" class="tile" onclick={() => openStaff(staff)}>
+        <a class="tile" href={`#${withReturnTo(`/staff/${staff.id}`, currentFullRoute)}`}>
           <div class="tile-head">
             <span class="avatar">{initials(staff.name)}</span>
             <div class="tile-title">
@@ -537,58 +739,56 @@
               <span class="login">{staff.login}</span>
             </div>
           </div>
-          <div class="tile-row"><span>Роль</span><strong>{staffLevelTitle(staff.level)}</strong></div>
-          <div class="tile-row"><span>Телефон</span><strong>{staff.phone || '—'}</strong></div>
-          <div class="tile-row"><span>E-mail</span><strong>{staff.email || '—'}</strong></div>
-          {#if staff.department || staff.city || staff.office}
-            <div class="tile-row">
-              <span>Организация</span>
-              <strong>{[staff.department, staff.city, staff.office].filter(Boolean).join(' · ')}</strong>
-            </div>
-          {/if}
-          <div class="tile-row">
-            <span>Последний вход</span>
-            <strong>{formatDateTime(staff.last_seen_at)}</strong>
-          </div>
+          {#each staffTileFields(fieldsByView.tiles) as field (field.key)}
+            {#each field.rows(staff) as row (row.label)}
+              <div class="tile-row"><span>{row.label}</span><strong>{row.value}</strong></div>
+            {/each}
+          {/each}
           <div class="tile-footer">
             <span class="state" class:on={staff.active}>{staffStateTitle(staff.active)}</span>
           </div>
-        </button>
+        </a>
       {/each}
     </div>
   {:else}
-    <div class="list">
-      <div class="row row-head" aria-hidden="true">
-        <span>Сотрудник</span>
-        <span>Роль</span>
-        <span>Контакты</span>
-        <span>Последний вход</span>
-        <span>Статус</span>
+    <div class="list" role="table" aria-label="Сотрудники" style:--st-columns={viewColumns}>
+      <div class="row row-head" role="row">
+        {#each headFields as field (field.key)}
+          <span class={field.headClass} role="columnheader">{field.headLabel ?? field.label}</span>
+        {/each}
       </div>
 
       {#each items as staff (staff.id)}
-        <a class="row" href={`#/staff/${staff.id}`} onclick={(event) => { event.preventDefault(); openStaff(staff); }}>
-          <span class="who">
+        <div class="row" role="row">
+          <div class="who" role="cell">
             <span class="avatar">{initials(staff.name)}</span>
             <span class="who-text">
-              <span class="name">{staff.name}</span>
+              <a
+                class="name link row-link"
+                href={`#${withReturnTo(`/staff/${staff.id}`, currentFullRoute)}`}
+                aria-describedby={showRowMeta ? `staff-meta-${staff.id}` : undefined}
+              >{staff.name}</a>
               <span class="login">{staff.login}</span>
+              {#if showRowMeta}
+                <span id={`staff-meta-${staff.id}`} class="row-meta">
+                  {#each staffMetaFields(staff, hiddenFields) as field (field.label)}
+                    <span><span class="muted">{field.label}:</span> {field.value}</span>
+                  {/each}
+                </span>
+              {/if}
             </span>
+          </div>
+
+          {#each columns as field (field.key)}
+            <span class={field.cellClass} role="cell">{field.value(staff)}</span>
+          {/each}
+
+          <span role="cell">
+            <span class="state" class:on={staff.active}>{staffStateTitle(staff.active)}</span>
           </span>
-          <span class="role">{staffLevelTitle(staff.level)}</span>
-          <span class="contacts">
-            <span>{staff.phone || 'Телефон не указан'}</span>
-            <span class="muted">{staff.email || 'E-mail не указан'}</span>
-            {#if staff.department || staff.city || staff.office}
-              <span class="muted">
-                {[staff.department, staff.city, staff.office].filter(Boolean).join(' · ')}
-              </span>
-            {/if}
-          </span>
-          <span class="seen">{formatDateTime(staff.last_seen_at)}</span>
-          <span><span class="state" class:on={staff.active}>{staffStateTitle(staff.active)}</span></span>
-        </a>
+        </div>
       {/each}
+
     </div>
   {/if}
 
@@ -616,93 +816,118 @@
 
 <Modal
   open={viewOpen}
-  title="Вид и фильтры"
+  title="Вид"
+  size="md"
+  announcement={listAnnouncement}
   onclose={() => (viewOpen = false)}
 >
   <div class="filters-form view-modal">
-      <div class="view-filters-body">
-              <div class="filter-group view-mode-group">
-          <span class="filter-label">Вид</span>
-          <div class="view-mode-grid">
-            <label class="view-mode-card" class:active={draft.view === 'list'}>
-              <input type="radio" name="staff-view" value="list" bind:group={draft.view} />
-              <Icon name="list" size={18} />
-              <span>Список</span>
-            </label>
-            <label class="view-mode-card" class:active={draft.view === 'tiles'}>
-              <input type="radio" name="staff-view" value="tiles" bind:group={draft.view} />
-              <Icon name="tiles" size={18} />
-              <span>Плитки</span>
-            </label>
-          </div>
-        </div>
+    <fieldset class="filter-group view-mode-group" aria-label="Отображение">
+      <div class="view-mode-grid">
+        <label class="view-mode-card" class:active={viewDraft.view === 'list'}>
+          <input
+            type="radio"
+            name="staff-view"
+            value="list"
+            checked={viewDraft.view === 'list'}
+            onchange={() => setViewModeNow('list')}
+          />
+          <Icon name="list" size={18} />
+          <span>Список</span>
+        </label>
+        <label class="view-mode-card" class:active={viewDraft.view === 'tiles'}>
+          <input
+            type="radio"
+            name="staff-view"
+            value="tiles"
+            checked={viewDraft.view === 'tiles'}
+            onchange={() => setViewModeNow('tiles')}
+          />
+          <Icon name="tiles" size={18} />
+          <span>Плитки</span>
+        </label>
+      </div>
+    </fieldset>
 
+    {#if tab === 'staff'}
+      <fieldset class="filter-group">
+        <legend class="filter-label">Поля в списке и карточках</legend>
+        <div class="view-field-table">
+          <span></span>
+          <span class="view-field-head">Список</span>
+          <span class="view-field-head">Плитки</span>
+          {#each STAFF_FIELDS as field (field.key)}
+            <span class="view-field-name">
+              {field.label}{#if field.required}<span class="view-field-required"> •</span>{/if}
+            </span>
+            <label class="view-field-check" title={field.required ? 'Обязательное поле' : undefined}>
+              <input
+                type="checkbox"
+                checked={isStaffFieldVisible(field.key, 'list')}
+                disabled={field.required}
+                aria-label={`${field.label}: список`}
+                onchange={() => toggleViewField(field.key, 'list')}
+              />
+            </label>
+            <label class="view-field-check" title={field.required ? 'Обязательное поле' : undefined}>
+              <input
+                type="checkbox"
+                checked={isStaffFieldVisible(field.key, 'tiles')}
+                disabled={field.required}
+                aria-label={`${field.label}: плитки`}
+                onchange={() => toggleViewField(field.key, 'tiles')}
+              />
+            </label>
+          {/each}
+        </div>
+        <p class="hint">Обязательные поля (•) отключить нельзя — настройки видов независимы.</p>
+      </fieldset>
+    {/if}
+
+    <div class="modal-actions">
+      <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
+      <div class="modal-buttons">
+        <Button size="lg" onclick={applyView}>Готово</Button>
+      </div>
+    </div>
+  </div>
+</Modal>
+
+<FiltersModal
+  bind:this={filtersRef}
+  trigger={false}
+  count={tab === 'staff' ? countActive(filters, filterCountDefaults) : countActive(substFilters, substFilterDefaults)}
+  onapply={applyFilterDraft}
+  onreset={resetFilterDraft}
+>
   {#if tab === 'staff'}
     <div class="filter-group">
       <span class="filter-label">Роль</span>
-      <MultiSelect
-        label="Роль"
-        options={roleOptions}
-        bind:values={draft.levels}
-        allLabel="Все роли"
-      />
+      <MultiSelect label="Роль" options={roleOptions} bind:values={draft.levels} allLabel="Все роли" size="lg" />
     </div>
 
     <div class="filter-group">
       <span class="filter-label">Статусы</span>
-      <MultiSelect
-        label="Статусы"
-        options={stateOptions}
-        bind:values={draft.states}
-        allLabel="Все статусы"
-      />
+      <MultiSelect label="Статусы" options={stateOptions} bind:values={draft.states} allLabel="Все статусы" size="lg" />
     </div>
 
     <div class="filter-fields">
-      <div class="filter-field">
+      <label class="filter-field">
         <span>Город</span>
-        <MultiSelect
-          label="Город"
-          options={cityOptions}
-          bind:values={draft.cities}
-          allLabel="Все города"
-          emptyLabel="Нет городов"
-          maxHeight="280px"
-        />
-      </div>
-      <div class="filter-field">
+        <MultiSelect label="Город" options={cityOptions} bind:values={draft.cities} allLabel="Все города" emptyLabel="Нет городов" maxHeight="280px" size="lg" />
+      </label>
+      <label class="filter-field">
         <span>Отдел</span>
-        <MultiSelect
-          label="Отдел"
-          options={departmentOptions}
-          bind:values={draft.departments}
-          allLabel="Все отделы"
-          emptyLabel="Нет отделов"
-          maxHeight="260px"
-        />
-      </div>
-      <div class="filter-field">
+        <MultiSelect label="Отдел" options={departmentOptions} bind:values={draft.departments} allLabel="Все отделы" emptyLabel="Нет отделов" maxHeight="260px" size="lg" />
+      </label>
+      <label class="filter-field">
         <span>Офис</span>
-        <MultiSelect
-          label="Офис"
-          options={officeOptions}
-          bind:values={draft.offices}
-          allLabel="Все офисы"
-          emptyLabel="Нет офисов"
-          maxHeight="260px"
-        />
-      </div>
-      <div class="filter-field">
+        <MultiSelect label="Офис" options={officeOptions} bind:values={draft.offices} allLabel="Все офисы" emptyLabel="Нет офисов" maxHeight="260px" size="lg" />
+      </label>
+      <label class="filter-field">
         <span>Должность</span>
-        <MultiSelect
-          label="Должность"
-          options={positionOptions}
-          bind:values={draft.positions}
-          allLabel="Все должности"
-          emptyLabel="Нет должностей"
-          maxHeight="260px"
-        />
-      </div>
+        <MultiSelect label="Должность" options={positionOptions} bind:values={draft.positions} allLabel="Все должности" emptyLabel="Нет должностей" maxHeight="260px" size="lg" />
+      </label>
     </div>
   {:else}
     <div class="filter-fields">
@@ -718,51 +943,21 @@
 
     <div class="filter-group">
       <span class="filter-label">Статусы</span>
-      <MultiSelect
-        label="Статусы"
-        options={substitutionStatusOptions}
-        bind:values={substDraft.statuses}
-        allLabel="Все статусы"
-      />
+      <MultiSelect label="Статусы" options={substitutionStatusOptions} bind:values={substDraft.statuses} allLabel="Все статусы" size="lg" />
     </div>
 
     <div class="filter-group">
       <span class="filter-label">Кто отсутствует</span>
-      <MultiSelect
-        label="Кто отсутствует"
-        options={substManagerOptions}
-        bind:values={substDraft.managerIds}
-        allLabel="Все сотрудники"
-        emptyLabel="Нет сотрудников"
-        maxHeight="280px"
-      />
+      <MultiSelect label="Кто отсутствует" options={substManagerOptions} bind:values={substDraft.managerIds} allLabel="Все сотрудники" emptyLabel="Нет сотрудников" maxHeight="280px" size="lg" />
     </div>
 
     <div class="filter-group">
       <span class="filter-label">Заместитель</span>
-      <MultiSelect
-        label="Заместитель"
-        options={substManagerOptions}
-        bind:values={substDraft.substituteIds}
-        allLabel="Все заместители"
-        emptyLabel="Нет сотрудников"
-        maxHeight="280px"
-      />
+      <MultiSelect label="Заместитель" options={substManagerOptions} bind:values={substDraft.substituteIds} allLabel="Все заместители" emptyLabel="Нет сотрудников" maxHeight="280px" size="lg" />
     </div>
-
   {/if}
+</FiltersModal>
 
-      </div>
-
-      <div class="modal-actions">
-        <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
-        <div class="modal-buttons">
-          <Button variant="ghost" size="lg" onclick={() => (viewOpen = false)}>Отмена</Button>
-          <Button size="lg" onclick={applyView}>Применить</Button>
-        </div>
-      </div>
-  </div>
-</Modal>
 
 <style>
   .page {
@@ -800,7 +995,7 @@
     border-radius: var(--radius-md);
     background: var(--danger-bg);
     color: var(--text);
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
   .alert-icon {
@@ -843,14 +1038,13 @@
 
   .row {
     display: grid;
-    grid-template-columns: minmax(220px, 1.4fr) 130px minmax(220px, 1.3fr) 170px 130px;
+    grid-template-columns: var(--st-columns, minmax(220px, 1.5fr) 90px);
     gap: var(--space-3);
     align-items: center;
-    padding: 12px 16px;
+    padding: var(--space-3) var(--space-4);
     border-bottom: 1px solid var(--border-secondary);
     color: var(--text);
     text-decoration: none;
-    transition: background 0.12s ease;
   }
 
   .row:last-child {
@@ -866,7 +1060,7 @@
     padding-bottom: 10px;
     background: var(--fill-tertiary);
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-xs);
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.02em;
@@ -889,7 +1083,7 @@
     border-radius: 50%;
     background: color-mix(in srgb, var(--primary) 12%, var(--surface));
     color: var(--primary);
-    font-size: 13px;
+    font-size: var(--font-sm);
     font-weight: 600;
   }
 
@@ -897,6 +1091,64 @@
     display: flex;
     flex-direction: column;
     min-width: 0;
+  }
+
+  .row-link {
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .row-link:hover {
+    color: var(--primary);
+  }
+
+  .row-link:focus-visible {
+    outline: 2px solid var(--focus-soft);
+    outline-offset: -2px;
+  }
+
+  .view-field-table {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 72px 72px;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .view-field-head {
+    font-size: var(--font-xs);
+    color: var(--text-description);
+    text-align: center;
+  }
+
+  .view-field-name {
+    font-size: var(--font-sm);
+  }
+
+  .view-field-required {
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .view-field-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--control-height-lg);
+  }
+
+  .hint {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-xs);
+    color: var(--text-description);
+  }
+
+  .row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    font-size: var(--font-xs);
+    font-weight: 400;
+    white-space: normal;
   }
 
   .name {
@@ -910,13 +1162,13 @@
   .muted {
     overflow: hidden;
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-xs);
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .role {
-    font-size: 13px;
+    font-size: var(--font-sm);
   }
 
   .contacts {
@@ -924,12 +1176,12 @@
     flex-direction: column;
     gap: 2px;
     min-width: 0;
-    font-size: 13px;
+    font-size: var(--font-sm);
   }
 
   .seen {
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-sm);
   }
 
   .state {
@@ -937,9 +1189,9 @@
     align-items: center;
     padding: 2px 9px;
     border: 1px solid var(--border);
-    border-radius: 999px;
+    border-radius: var(--radius-pill);
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-xs);
     white-space: nowrap;
   }
 
@@ -968,7 +1220,7 @@
     font: inherit;
     text-align: left;
     cursor: pointer;
-    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+
   }
 
   .tile:hover {
@@ -994,7 +1246,7 @@
     display: flex;
     justify-content: space-between;
     gap: var(--space-2);
-    font-size: 13px;
+    font-size: var(--font-sm);
   }
 
   .tile-row span {
@@ -1027,20 +1279,6 @@
     margin-left: auto;
   }
 
-  @media (max-width: 980px) {
-    .row {
-      grid-template-columns: minmax(200px, 1.2fr) 110px minmax(180px, 1fr) 150px;
-    }
-
-    .row > :last-child {
-      display: none;
-    }
-
-    .row-head > :last-child {
-      display: none;
-    }
-  }
-
   @media (max-width: 720px) {
 
     .list {
@@ -1050,7 +1288,16 @@
     }
 
     .row-head {
-      display: none;
+      position: absolute;
+      display: flex;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
     }
 
     .row {

@@ -59,6 +59,7 @@ export interface RequestFilters {
   sort?: string;
   page?: number;
   per_page?: number;
+  signal?: AbortSignal;
 }
 
 export interface RequestWarehouseOption {
@@ -118,7 +119,7 @@ export function listRequests(filters: RequestFilters = {}): Promise<RequestListR
 
   const suffix = query.toString() ? `?${query.toString()}` : '';
 
-  return apiRequest<RequestListResponse>(`/requests${suffix}`, { auth: true });
+  return apiRequest<RequestListResponse>(`/requests${suffix}`, { auth: true, signal: filters.signal });
 }
 
 export function exportRequests(filters: RequestFilters, format: string): Promise<void> {

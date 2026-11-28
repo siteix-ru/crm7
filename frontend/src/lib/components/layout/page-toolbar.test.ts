@@ -185,6 +185,54 @@ describe('ToolbarMenu', () => {
     expect(menu).toContain('onpointerdown={onWindowPointerDown}');
   });
 
+  it('drives wave-1 directory tables from descriptors', () => {
+    for (const name of [
+      'StockTypes.svelte',
+      'PriceTypes.svelte',
+      'StockGroups.svelte',
+      'Warehouses.svelte'
+    ]) {
+      expect(view(name)).toContain('{#each columns as column (column.key)}');
+    }
+    const warehouses = view('Warehouses.svelte');
+    expect(warehouses).toContain('role="table"');
+    expect(warehouses).toContain('role="columnheader"');
+    expect(warehouses).toContain('role="cell"');
+    expect(warehouses).toContain('aria-describedby={`warehouse-meta-${item.id}`}');
+    expect(warehouses).toContain("label: 'Номенклатуры'");
+    expect(warehouses).toContain('@media (max-width: 719.98px)');
+
+    const audit = view('AdminAudit.svelte');
+    expect(audit).toContain('role="list"');
+    expect(audit).toContain('role="alert"');
+    expect(audit).not.toContain('role="table"');
+    expect(audit).toContain('suggestions: audit.map((entry) => entry.action)');
+  });
+
+  it('splits Staff view and filters into separate dialogs', () => {
+    const staff = view('Staff.svelte');
+    expect(staff).toContain('title="Вид"');
+    expect(staff).toContain('<FiltersModal');
+    expect(staff).not.toContain('Вид и фильтры');
+    expect(staff).toContain('role="table"');
+    expect(staff).toContain('listStaffFields(');
+    expect(staff).toContain('saveStaffFilters()');
+    expect(staff).toContain('maxPage(data.total, perPage)');
+    expect(staff).toContain('withReturnTo(`/staff/${staff.id}`');
+  });
+
+  it('splits Requests view and filters into separate dialogs', () => {
+    const requests = view('Requests.svelte');
+    expect(requests).toContain('title="Вид"');
+    expect(requests).toContain('<FiltersModal');
+    expect(requests).not.toContain('Вид и фильтры');
+    expect(requests).toContain("role={viewMode === 'list' ? 'table' : undefined}");
+    expect(requests).toContain('listRequestFields(');
+    expect(requests).toContain('requestTileFields(');
+    expect(requests).toContain('onstop: abortSearch');
+    expect(requests).not.toContain('function headerSort(');
+  });
+
   it('keeps STK-LOTS actions in one menu', () => {
     const lots = view('StockLots.svelte');
     expect(lots).toContain("label: 'Обновить список'");

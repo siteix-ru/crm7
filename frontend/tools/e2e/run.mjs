@@ -249,9 +249,10 @@ const scenarios = [
     role: 'manager',    async run(page) {
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
       const card = page
-        .locator('a.card[href^="#/requests/"]')
+        .locator('[role="row"]')
         .filter({ has: page.locator('.col-count', { hasText: /[1-9]/ }) })
-        .first();
+        .first()
+        .locator('.row-link');
       await expectVisible(card, 'нет заявки с позициями в списке');
       await card.click();
 
@@ -273,7 +274,7 @@ const scenarios = [
         'нет формы добавления события'
       );
 
-      const subject = page.getByLabel('Тема');
+      const subject = page.getByRole('combobox', { name: 'Тема' });
       await expectVisible(subject, 'нет поля темы');
       const saveEvent = page.getByRole('button', { name: 'Сохранить' });
       assert(await saveEvent.isDisabled(), 'кнопка «Сохранить» активна без темы');
@@ -773,7 +774,8 @@ const scenarios = [
       await clientsDialog.getByRole('button', { name: 'Закрыть' }).last().click();
 
       await page.goto(`${BASE}/#/staff`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: 'Вид и фильтры' }).click();
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Фильтры' }).click();
       const filtersDialog = page.getByRole('dialog');
       await filtersDialog.getByRole('button', { name: 'Роль' }).click();
       await filtersDialog.getByLabel('Менеджер', { exact: true }).check();
@@ -830,7 +832,8 @@ const scenarios = [
         'нет поиска по замещениям'
       );
       await expectVisible(page.getByRole('button', { name: 'Сортировка' }), 'нет сортировки');
-      await page.getByRole('button', { name: 'Вид и фильтры' }).click();
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Фильтры' }).click();
       const substitutionFilterDialog = page.getByRole('dialog');
       await expectVisible(
         substitutionFilterDialog.getByText('Статусы'),
@@ -1545,11 +1548,12 @@ const scenarios = [
         'не загрузился список заявок'
       );
 
-      await page.getByRole('button', { name: /^Вид/ }).click();
-      const dates = page.locator('.view-period input[type="date"]');
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Фильтры' }).click();
+      const dates = page.locator('[role="dialog"] .view-period input[type="date"]');
       await dates.nth(0).fill('2000-01-01');
       await dates.nth(1).fill('2000-01-31');
-      await page.getByRole('button', { name: 'Применить' }).click();
+      await page.getByRole('dialog').getByRole('button', { name: 'Применить' }).click();
 
       const title = page.locator('.empty-title');
       await expectVisible(title, 'нет сообщения «Заявки не найдены»');
@@ -1591,7 +1595,8 @@ const scenarios = [
       const client = requestWithClient.client;
 
       await page.goto(`${BASE}/#/requests`, { waitUntil: 'domcontentloaded' });
-      await page.getByRole('button', { name: /^Вид/ }).click();
+      await page.locator('.toolbar-menu-root [aria-haspopup="menu"]').click();
+      await page.getByRole('menuitem', { name: 'Фильтры' }).click();
 
       const dialog = page.getByRole('dialog');
       await dialog.getByRole('button', { name: 'Статусы' }).click();
@@ -1992,7 +1997,7 @@ const scenarios = [
 
       // Заявки здесь не создаём: DELETE /requests/{id} отсутствует,
       // поэтому тестовая заявка оставалась бы в БД после прогона.
-      const tile = page.locator('main a.card[href*="/requests/"]').first();
+      const tile = page.locator('main .tile, main .row-link').first();
       await expectVisible(tile, 'у клиента нет заявок в списке');
       await tile.click();
 
@@ -2018,7 +2023,7 @@ const scenarios = [
 
       await page.goBack();
       await page.waitForTimeout(700);
-      await expectVisible(page.locator('main a.card[href*="/requests/"]').first(), 'возврат из карточки не вернул к списку');
+      await expectVisible(page.locator('main .tile, main .row-link').first(), 'возврат из карточки не вернул к списку');
       assert(
         (await page.evaluate(() => location.hash)) === '#/requests',
         'после возврата не список заявок'

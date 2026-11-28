@@ -26,11 +26,25 @@
   import MultiSelect from '../lib/components/ui/MultiSelect.svelte';
   import Pager from '../lib/components/ui/Pager.svelte';
   import Modal from '../lib/components/ui/Modal.svelte';
+  import FiltersModal from '../lib/components/ui/FiltersModal.svelte';
   import SortDialog from '../lib/components/ui/SortDialog.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
   import ListSkeleton from '../lib/components/ui/ListSkeleton.svelte';
   import EmptyState from '../lib/components/ui/EmptyState.svelte';
   import { loadFilters, saveFilters } from '../lib/filters';
+  import { filterStorageKey } from '../lib/stores/filter-prefs.svelte';
+  import { maxPage } from '../lib/views/pagination';
+  import {
+    REQUEST_FIELDS,
+    REQUEST_OPTIONAL_KEYS,
+    normalizeRequestFields,
+    initialRequestViewMode,
+    listRequestFields,
+    hiddenRequestFields,
+    requestTileFields,
+    requestMetaFields,
+    type ViewMode
+  } from '../lib/views/request-fields';
   import { formatDate, formatDateTime } from '../lib/format';
   import { allTimePeriod, clampPeriod, todayIso } from '../lib/period';
 
@@ -45,6 +59,8 @@
     periodVersion: 2,
     sort: 'created_desc',
     view: 'list',
+    viewExplicit: false,
+    fields: { list: [...REQUEST_OPTIONAL_KEYS], tiles: [...REQUEST_OPTIONAL_KEYS] },
     per_page: 20,
     q: '',
     page: 1
@@ -87,8 +103,21 @@
   );
   let search = $state(String(initialFilters.q ?? ''));
   let searchInput = $state(String(initialFilters.q ?? ''));
-  let searchTimer: ReturnType<typeof setTimeout> | undefined;
   let loadSeq = 0;
+  let searchAbort: AbortController | null = null;
+
+  let legacyView = false;
+  try {
+    const raw = JSON.parse(
+      localStorage.getItem(filterStorageKey('requests', auth.user?.id ?? null)) ?? '{}'
+    );
+    legacyView =
+      (raw.view === 'list' || raw.view === 'tiles') && raw.viewExplicit === undefined;
+  } catch {
+    legacyView = false;
+  }
+  const restoredViewExplicit = legacyView ? true : initialFilters.viewExplicit === true;
+  let viewportWidth = $state(typeof window === 'undefined' ? 1440 : window.innerWidth);
   const currentFullRoute = $derived(
     `${router.current.path}${router.current.query.toString() ? `?${router.current.query.toString()}` : ''}`
   );
@@ -105,23 +134,6 @@
   let exportOpen = $state(false);
   let exporting = $state(false);
   let message = $state('');
-
-  $effect(() => {
-    const term = searchInput.trim();
-    clearTimeout(searchTimer);
-
-    if (term === search) {
-      return;
-    }
-
-    searchTimer = setTimeout(() => {
-      search = term;
-      void load(true);
-      persist();
-    }, 400);
-
-    return () => clearTimeout(searchTimer);
-  });
 
   $effect(() => {
     if (!clientOpen) {
@@ -141,10 +153,22 @@
     };
   });
 
-  let viewMode = $state<'list' | 'tiles'>(initialFilters.view === 'tiles' ? 'tiles' : 'list');
+  let viewMode = $state<'list' | 'tiles'>(
+    initialRequestViewMode(initialFilters.view, legacyView ? undefined : restoredViewExplicit, window.innerWidth)
+  );
+  let viewExplicit = $state(restoredViewExplicit);
+  let fieldsByView = $state<Record<ViewMode, string[]>>(
+    normalizeRequestFields(initialFilters.fields)
+  );
   let viewOpen = $state(false);
-  let viewDraft = $state<'list' | 'tiles'>('list');
+  let filtersOpen = $state(false);
+  let filtersRef: FiltersModal | null = $state(null);
+  let viewDraft = $state<{ view: ViewMode; fields: Record<ViewMode, string[]> }>({
+    view: initialRequestViewMode(initialFilters.view, legacyView ? undefined : restoredViewExplicit, window.innerWidth),
+    fields: normalizeRequestFields(initialFilters.fields)
+  });
   let sortOpen = $state(false);
+  let listAnnouncement = $state('');
 
   const sortFields = [
     { field: 'number', label: 'Номер' },
@@ -176,6 +200,18 @@
   const availableSortFields = $derived(
     sortFields.filter((item) => !item.staffOnly || isStaff)
   );
+  const columns = $derived(listRequestFields(fieldsByView.list, viewportWidth, isStaff));
+  const headFields = $derived([
+    REQUEST_FIELDS.find((field) => field.key === 'number')!,
+    REQUEST_FIELDS.find((field) => field.key === 'subject')!,
+    ...columns,
+    REQUEST_FIELDS.find((field) => field.key === 'status')!
+  ]);
+  const hiddenFields = $derived(hiddenRequestFields(fieldsByView.list, viewportWidth, isStaff));
+  const viewColumns = $derived(
+    ['140px', 'minmax(0, 1.6fr)', ...columns.map((field) => field.width ?? 'minmax(120px, 1fr)'), '120px'].join(' ')
+  );
+  const showRowMeta = $derived(hiddenFields.length > 0 || viewportWidth <= 720);
   const activeFilterCount = $derived(
     (filters.statusCodes.length > 0 ? 1 : 0) +
       (filters.scopes.length > 0 ? 1 : 0) +
@@ -205,6 +241,15 @@
 
     void refreshDraftCount();
     void load(false);
+
+    const breakpoints = [720, 900, 1024, 1200].map((width) =>
+      window.matchMedia(`(min-width: ${width + 1}px)`)
+    );
+    const update = (): void => {
+      viewportWidth = window.innerWidth;
+    };
+    breakpoints.forEach((query) => query.addEventListener('change', update));
+    return () => breakpoints.forEach((query) => query.removeEventListener('change', update));
   });
 
   async function refreshDraftCount(): Promise<void> {
@@ -321,7 +366,27 @@
   }
 
   function persist(): void {
-    saveFilters('requests', { ...filters, view: viewMode, per_page: perPage, q: search, page });
+    saveFilters('requests', {
+      ...filters,
+      view: viewMode,
+      viewExplicit,
+      fields: { list: [...fieldsByView.list], tiles: [...fieldsByView.tiles] },
+      per_page: perPage,
+      q: search,
+      page
+    });
+  }
+
+  function abortSearch(): void {
+    searchAbort?.abort();
+    searchAbort = null;
+  }
+
+  function announceList(text: string): void {
+    listAnnouncement = '';
+    requestAnimationFrame(() => {
+      listAnnouncement = text;
+    });
   }
 
   function resetFilters(): void {
@@ -371,10 +436,6 @@
     return filters.sort.split(',').filter((term) => term !== '');
   }
 
-  function sortIndex(field: string): number {
-    return sortTerms().findIndex((term) => term === field || term.startsWith(`${field}_`)) + 1;
-  }
-
   function applySortTerms(terms: string[]): void {
     filters.sort = terms.length > 0 ? terms.join(',') : filterDefaults.sort;
     changeSort();
@@ -385,49 +446,64 @@
     applySortTerms(terms);
   }
 
-  function sortTerm(field: string): 'asc' | 'desc' | null {
-    const terms = sortTerms();
-
-    if (terms.includes(`${field}_asc`) || terms.includes(field)) {
-      return 'asc';
-    }
-
-    if (terms.includes(`${field}_desc`)) {
-      return 'desc';
-    }
-
-    return null;
-  }
-
-  function headerSort(field: string): void {
-    const terms = sortTerms();
-    const asc = `${field}_asc`;
-    const desc = `${field}_desc`;
-    const isAsc = (term: string): boolean => term === asc || term === field;
-    const isDefault = terms.length === 1 && terms[0] === filterDefaults.sort;
-    let next: string[];
-
-    if (terms.some(isAsc)) {
-      next = terms.map((term) => (isAsc(term) ? desc : term));
-    } else if (terms.includes(desc)) {
-      next = terms.filter((term) => term !== desc);
-    } else if (isDefault) {
-      next = [asc];
-    } else {
-      next = [...terms, asc];
-    }
-
-    applySortTerms(next);
-  }
-
   function changeSort(): void {
     persist();
     void load(true);
   }
 
   function openView(): void {
-    viewDraft = viewMode;
-    warehouseDraft = filters.warehouses.map(String);
+    viewDraft = {
+      view: viewMode,
+      fields: { list: [...fieldsByView.list], tiles: [...fieldsByView.tiles] }
+    };
+    viewOpen = true;
+  }
+
+  function applyView(): void {
+    viewOpen = false;
+  }
+
+  function resetView(): void {
+    viewMode = initialRequestViewMode('list', false, viewportWidth);
+    viewExplicit = false;
+    fieldsByView = {
+      list: [...REQUEST_OPTIONAL_KEYS],
+      tiles: [...REQUEST_OPTIONAL_KEYS]
+    };
+    viewDraft = {
+      view: viewMode,
+      fields: { list: [...fieldsByView.list], tiles: [...fieldsByView.tiles] }
+    };
+    persist();
+    announceList(`Вид сброшен. Найдено: ${total}`);
+  }
+
+  function setViewModeNow(mode: ViewMode): void {
+    viewMode = mode;
+    viewExplicit = true;
+    viewDraft = { ...viewDraft, view: mode };
+    persist();
+    announceList(`Вид: ${mode === 'tiles' ? 'плитки' : 'список'}. Найдено: ${total}`);
+  }
+
+  function isRequestFieldVisible(key: string, mode: ViewMode): boolean {
+    return (
+      REQUEST_FIELDS.find((field) => field.key === key)?.required === true ||
+      viewDraft.fields[mode].includes(key)
+    );
+  }
+
+  function toggleViewField(key: string, mode: ViewMode): void {
+    const next = fieldsByView[mode].includes(key)
+      ? fieldsByView[mode].filter((item) => item !== key)
+      : REQUEST_OPTIONAL_KEYS.filter((item) => item === key || fieldsByView[mode].includes(item));
+    fieldsByView = { ...fieldsByView, [mode]: next };
+    viewDraft = { ...viewDraft, fields: { ...viewDraft.fields, [mode]: [...next] } };
+    persist();
+    announceList(`Вид обновлён. Найдено: ${total}`);
+  }
+
+  function openFilters(): void {
     draft = {
       ...filters,
       statusCodes: [...filters.statusCodes],
@@ -435,22 +511,48 @@
       warehouses: [...filters.warehouses],
       overdue: [...filters.overdue]
     };
+    warehouseDraft = filters.warehouses.map(String);
     selectedClient =
       filters.clientId > 0
-        ? {
-            id: filters.clientId,
-            name: filters.clientName || `Клиент #${filters.clientId}`
-          }
+        ? { id: filters.clientId, name: filters.clientName || `Клиент #${filters.clientId}` }
         : null;
     clientQuery = selectedClient?.name ?? '';
     clientResults = [];
     clientOpen = false;
-    viewOpen = true;
+    filtersRef?.show();
   }
 
-  function resetView(): void {
-    const period = allTimePeriod();
+  async function applyFilterDraft(): Promise<string> {
+    const period = clampPeriod(draft.from, draft.to);
+    const nextScopes = [...draft.scopes].sort();
+    const nextStatuses = [...draft.statusCodes].sort();
+    const nextWarehouses = warehouseDraft.map(Number).sort((a, b) => a - b);
+    const nextOverdue = [...draft.overdue].sort();
 
+    filters = {
+      ...filters,
+      from: period.from,
+      to: period.to,
+      scopes: nextScopes,
+      statusCodes: nextStatuses,
+      warehouses: nextWarehouses,
+      overdue: nextOverdue,
+      clientId: selectedClient?.id ?? 0,
+      clientName: selectedClient?.name ?? ''
+    };
+    page = 1;
+    persist();
+    const result = await load(false);
+    if (result.stale) {
+      return '';
+    }
+    return result.ok
+      ? `Фильтры применены. Найдено: ${result.total}`
+      : 'Не удалось применить фильтры. Попробуйте ещё раз.';
+  }
+
+  async function resetFilterDraft(): Promise<string> {
+    const period = allTimePeriod();
     selectedClient = null;
     clientQuery = '';
     clientResults = [];
@@ -467,58 +569,17 @@
       from: period.from,
       to: period.to
     };
-    viewDraft = 'list';
-  }
-
-  function applyView(): void {
-    viewOpen = false;
-
-    const period = clampPeriod(draft.from, draft.to);
-    const nextScopes = [...draft.scopes].sort();
-    const currentScopes = [...filters.scopes].sort();
-    const nextStatuses = [...draft.statusCodes].sort();
-    const currentStatuses = [...filters.statusCodes].sort();
-    const nextWarehouses = warehouseDraft.map(Number).sort((a, b) => a - b);
-    const currentWarehouses = [...filters.warehouses].sort((a, b) => a - b);
-    const nextOverdue = [...draft.overdue].sort();
-    const currentOverdue = [...filters.overdue].sort();
-    const nextClientId = selectedClient?.id ?? 0;
-    const nextClientName = selectedClient?.name ?? '';
-    const clientChanged =
-      nextClientId !== filters.clientId || nextClientName !== filters.clientName;
-    const filtersChanged =
-      period.from !== filters.from ||
-      period.to !== filters.to ||
-      nextScopes.length !== currentScopes.length ||
-      nextScopes.some((value, index) => value !== currentScopes[index]) ||
-      nextStatuses.length !== currentStatuses.length ||
-      nextStatuses.some((value, index) => value !== currentStatuses[index]) ||
-      nextWarehouses.length !== currentWarehouses.length ||
-      nextWarehouses.some((value, index) => value !== currentWarehouses[index]) ||
-      nextOverdue.length !== currentOverdue.length ||
-      nextOverdue.some((value, index) => value !== currentOverdue[index]) ||
-      clientChanged;
-
-    viewMode = viewDraft;
-
-    if (filtersChanged) {
-      filters.from = period.from;
-      filters.to = period.to;
-      filters.scopes = nextScopes;
-      filters.statusCodes = nextStatuses;
-      filters.warehouses = nextWarehouses;
-      filters.overdue = nextOverdue;
-      filters.clientId = nextClientId;
-      filters.clientName = nextClientName;
-      persist();
-      void load(true);
-      return;
+    const result = await applyFilterDraft();
+    if (result === '') {
+      return '';
     }
-
-    persist();
+    return result.startsWith('Не удалось') ? result : `Фильтры сброшены. ${result}`;
   }
 
-  async function load(reset: boolean): Promise<void> {
+  async function load(
+    reset: boolean,
+    signal?: AbortSignal
+  ): Promise<{ ok: boolean; total: number; stale: boolean }> {
     const seq = ++loadSeq;
 
     if (reset) {
@@ -540,30 +601,34 @@
         to: filters.to,
         sort: filters.sort,
         page,
-        per_page: perPage
+        per_page: perPage,
+        signal
       });
 
       if (seq !== loadSeq) {
-        return;
+        return { ok: false, total: 0, stale: true };
+      }
+
+      const pagesCount = maxPage(data.total, perPage);
+      if (page > pagesCount) {
+        page = pagesCount;
+        persist();
+        return load(false, signal);
       }
 
       items = data.items;
       total = data.total;
-
-      const maxPage = Math.max(1, Math.ceil(data.total / perPage));
-
-      if (page > maxPage) {
-        page = maxPage;
-        persist();
-        void load(false);
-        return;
-      }
-
       persist();
+      return { ok: true, total: data.total, stale: false };
     } catch (cause) {
-      if (seq === loadSeq) {
-        error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить заявки';
+      if (seq !== loadSeq) {
+        return { ok: false, total: 0, stale: true };
       }
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        return { ok: false, total: 0, stale: true };
+      }
+      error = cause instanceof ApiError ? cause.message : 'Не удалось загрузить заявки';
+      return { ok: false, total: 0, stale: false };
     } finally {
       if (seq === loadSeq) {
         loading = false;
@@ -571,10 +636,19 @@
     }
   }
 
-  function applyFilters(): void {
+  async function applyFilters(): Promise<void> {
+    abortSearch();
+    const controller = new AbortController();
+    searchAbort = controller;
     search = searchInput.trim();
     addHistory('requests', search);
-    void load(true);
+    page = 1;
+    persist();
+    const result = await load(false, controller.signal);
+    if (controller.signal.aborted || result.stale) {
+      return;
+    }
+    announceList(result.ok ? `Найдено: ${result.total}` : 'Не удалось выполнить поиск');
   }
 
   async function goToPage(target: number): Promise<void> {
@@ -589,12 +663,14 @@
     }
 
     page = next;
+    persist();
     await load(false);
   }
 
   function changePerPage(): void {
     page = 1;
-    void load(true);
+    persist();
+    void load(false);
   }
 
   async function doExport(format: string, byEmail: boolean): Promise<void> {
@@ -676,27 +752,9 @@
 </script>
 
 <section class="page page-wide">
-  {#snippet headCell(className: string, label: string, field: string)}
-    <button
-      type="button"
-      class="head-cell {className}"
-      class:active={sortTerm(field) !== null}
-      aria-label={sortTerm(field) === 'asc'
-        ? `${label}: по возрастанию`
-        : sortTerm(field) === 'desc'
-          ? `${label}: по убыванию`
-          : `${label}: сортировать`}
-      onclick={() => headerSort(field)}
-    >
-      <span class="head-label">{label}</span>
-      {#if sortTerm(field)}
-        <span class="sort-ind" aria-hidden="true">
-          <Icon name={sortTerm(field) === 'desc' ? 'arrow-down' : 'arrow-up'} size={12} />
-          <span class="sort-num">{sortIndex(field)}</span>
-        </span>
-      {/if}
-    </button>
-  {/snippet}
+  <div class="sr-only" role="status" aria-live="polite" aria-hidden={viewOpen}>
+    {listAnnouncement}
+  </div>
 
   {#if !appSettings.salesEnabled}
     <div class="notice sales-off">
@@ -718,16 +776,15 @@
           title: 'Поиск по заявкам',
           placeholder: 'Тема, клиент, номер, телефон, описание',
           suggestions: items.map((item) => item.subject),
-          onsearch: (query) => {
-            clearTimeout(searchTimer);
+          onsearch: async (query) => {
             searchInput = query;
-            applyFilters();
+            await applyFilters();
           },
           onclear: () => {
-            clearTimeout(searchTimer);
             searchInput = '';
-            applyFilters();
-          }
+            void applyFilters();
+          },
+          onstop: abortSearch
         }}
         items={[
           {
@@ -735,14 +792,26 @@
             label: 'Сортировка',
             icon: 'sort',
             checked: filters.sort !== filterDefaults.sort,
+            dialog: true,
             onclick: openSort
           },
           {
             id: 'view',
-            label: 'Вид и фильтры',
+            label: `Вид: ${viewMode === 'tiles' ? 'Плитки' : 'Список'}`,
             icon: 'view',
-            checked: viewMode === 'tiles',
+            dialog: true,
+            checked: viewMode === 'tiles' ||
+              fieldsByView.list.length !== REQUEST_OPTIONAL_KEYS.length ||
+              fieldsByView.tiles.length !== REQUEST_OPTIONAL_KEYS.length,
             onclick: openView
+          },
+          {
+            id: 'filters',
+            label: 'Фильтры',
+            icon: 'filter',
+            dialog: true,
+            count: activeFilterCount > 0 ? activeFilterCount : 0,
+            onclick: openFilters
           },
           {
             id: 'drafts',
@@ -818,7 +887,7 @@
       </EmptyState>
     {/if}
   {:else}
-    <div class="levels-wrap">
+    <div class="levels-wrap" role={viewMode === 'list' ? 'table' : undefined} aria-label={viewMode === 'list' ? 'Заявки' : undefined}>
       {#if viewMode === 'tiles'}
         <div class="tiles">
           {#each items as item (item.id)}
@@ -839,80 +908,61 @@
                 {#if item.is_overdue}<span class="overdue">Просрочена</span>{/if}
               </div>
               <div class="tile-meta">
-                {#if isStaff}
-                  <span class="meta-item" title={item.client.name}>
-                    <Icon name="clients" size={13} />
-                    <span class="meta-text">{item.client.name}</span>
-                  </span>
-                {/if}
-                <span
-                  class="meta-item"
-                  title={item.manager ? item.manager.name : 'Поиск менеджера'}
-                >
-                  <Icon name="staff" size={13} />
-                  <span class="meta-text">
-                    {#if item.manager}
-                      {item.manager.name}
-                    {:else}
-                      <span class="search-badge">поиск менеджера</span>
-                    {/if}
-                  </span>
-                </span>
-                {#if item.due_at}
-                  <span class="meta-item" class:is-overdue={item.is_overdue} title="Срок исполнения">
-                    <Icon name="calendar" size={13} />
-                    <span class="meta-text">до {formatDate(item.due_at)}</span>
-                  </span>
-                {/if}
-                <span class="meta-item meta-count" title="Номенклатуры в заявке">
-                  <Icon name="stocks" size={13} />
-                  <span>{item.items_count} поз.</span>
-                </span>
+                {#each requestTileFields(fieldsByView.tiles, isStaff, viewportWidth) as field (field.key)}
+                  {#if field.rows(item).length > 0}
+                    <span class="meta-item">
+                      <span class="meta-text">{field.rows(item)[0].label}: {field.rows(item)[0].value}</span>
+                    </span>
+                  {/if}
+                {/each}
               </div>
             </a>
           {/each}
         </div>
       {:else}
-        <div class="levels-head" class:compact={!isStaff}>
-          {@render headCell('col-number', 'Номер', 'number')}
-          {@render headCell('col-subject', 'Тема', 'subject')}
-          {#if isStaff}{@render headCell('col-client', 'Клиент', 'client')}{/if}
-          {@render headCell('col-manager', 'Менеджер', 'manager')}
-          {@render headCell('col-count', 'Номенклатуры', 'positions')}
-          {@render headCell('col-status', 'Статус', 'status')}
-          {@render headCell('col-overdue', 'Просрочка', 'due')}
-          {@render headCell('col-date', 'Дата', 'created')}
+        <div class="levels-head" class:compact={!isStaff} role="row" style:--ct-columns={viewColumns}>
+          {#each headFields as field (field.key)}
+            <span class="head-cell {field.headClass ?? ''}" role="columnheader">
+              {field.headLabel ?? field.label}
+            </span>
+          {/each}
         </div>
 
-        <div class="levels" class:compact={!isStaff}>
+        <div class="levels" class:compact={!isStaff} role="rowgroup" style:--ct-columns={viewColumns}>
           {#each items as item (item.id)}
-            <a class="card" href={`#${withReturnTo(`/requests/${item.id}`, currentFullRoute)}`}>
-              <span class="cell col-number number">{item.number}</span>
-              <span class="cell col-subject subject">{item.subject}</span>
-              {#if isStaff}
-                <span class="cell col-client">
-                  <span class="cell-label">клиент: </span>{item.client.name}
-                </span>
-              {/if}
-              <span class="cell col-manager">
-                <span class="cell-label">менеджер: </span>
-                {#if item.manager}
-                  {item.manager.name}
-                {:else}
-                  <span class="search-badge">поиск менеджера</span>
+            <div class="card" role="row">
+              <div class="cell col-number number" role="cell">
+                <a
+                  class="row-link"
+                  href={`#${withReturnTo(`/requests/${item.id}`, currentFullRoute)}`}
+                  aria-describedby={showRowMeta ? `request-meta-${item.id}` : undefined}
+                >{item.number}</a>
+                {#if showRowMeta}
+                  <span id={`request-meta-${item.id}`} class="row-meta">
+                    {#each requestMetaFields(item, hiddenFields, isStaff) as field (field.label)}
+                      <span><span class="cell-label">{field.label}:</span> {field.value}</span>
+                    {/each}
+                  </span>
                 {/if}
+              </div>
+              <span class="cell col-subject subject" role="cell">{item.subject}</span>
+              {#each columns as field (field.key)}
+                {#if field.key === 'status'}
+                  <span class="cell col-status" role="cell">
+                    <span class="status-text" style={`--status: ${item.status.color}`}>{item.status.title}</span>
+                  </span>
+                {:else if field.key === 'overdue'}
+                  <span class="cell col-overdue" class:is-empty={!item.is_overdue} role="cell">
+                    {#if item.is_overdue}<span class="overdue">Просрочена</span>{:else}—{/if}
+                  </span>
+                {:else}
+                  <span class="cell {field.cellClass ?? ''}" role="cell">{field.value(item)}</span>
+                {/if}
+              {/each}
+              <span class="cell col-status" role="cell">
+                <span class="status-text" style={`--status: ${item.status.color}`}>{item.status.title}</span>
               </span>
-              <span class="cell col-count">
-                <span class="cell-label">номенклатуры: </span>{item.items_count}
-              </span>
-              <span class="cell col-status">
-                <span class="status-text" style={`color: ${item.status.color}`}>{item.status.title}</span>
-              </span>
-              <span class="cell col-overdue" class:is-empty={!item.is_overdue}>
-                {#if item.is_overdue}<span class="overdue">Просрочена</span>{:else}—{/if}
-              </span>
-              <span class="cell col-date date">{formatDateTime(item.created_at)}</span>
-            </a>
+            </div>
           {/each}
         </div>
       {/if}
@@ -941,25 +991,90 @@
     onapply={applySortAndClose}
   />
 
-  <Modal open={viewOpen} title="Вид и фильтры" onclose={() => (viewOpen = false)}>
+    <Modal
+    open={viewOpen}
+    title="Вид"
+    size="md"
+    announcement={listAnnouncement}
+    onclose={() => (viewOpen = false)}
+  >
     <div class="filters-form view-modal">
-      <div class="view-filters-body">
-        <div class="filter-group view-mode-group">
-          <span class="filter-label">Вид</span>
-          <div class="view-mode-grid">
-            <label class="view-mode-card" class:active={viewDraft === 'list'}>
-              <input type="radio" name="req-view" value="list" bind:group={viewDraft} />
-              <Icon name="list" size={18} />
-              <span>Список</span>
-            </label>
-            <label class="view-mode-card" class:active={viewDraft === 'tiles'}>
-              <input type="radio" name="req-view" value="tiles" bind:group={viewDraft} />
-              <Icon name="tiles" size={18} />
-              <span>Плитки</span>
-            </label>
-          </div>
+      <fieldset class="filter-group view-mode-group" aria-label="Отображение">
+        <div class="view-mode-grid">
+          <label class="view-mode-card" class:active={viewDraft.view === 'list'}>
+            <input
+              type="radio"
+              name="req-view"
+              value="list"
+              checked={viewDraft.view === 'list'}
+              onchange={() => setViewModeNow('list')}
+            />
+            <Icon name="list" size={18} />
+            <span>Список</span>
+          </label>
+          <label class="view-mode-card" class:active={viewDraft.view === 'tiles'}>
+            <input
+              type="radio"
+              name="req-view"
+              value="tiles"
+              checked={viewDraft.view === 'tiles'}
+              onchange={() => setViewModeNow('tiles')}
+            />
+            <Icon name="tiles" size={18} />
+            <span>Плитки</span>
+          </label>
         </div>
+      </fieldset>
 
+      <fieldset class="filter-group">
+        <legend class="filter-label">Поля в списке и карточках</legend>
+        <div class="view-field-table">
+          <span></span>
+          <span class="view-field-head">Список</span>
+          <span class="view-field-head">Плитки</span>
+          {#each REQUEST_FIELDS as field (field.key)}
+            <span class="view-field-name">
+              {field.label}{#if field.required}<span class="view-field-required"> •</span>{/if}
+            </span>
+            <label class="view-field-check" title={field.required ? 'Обязательное поле' : undefined}>
+              <input
+                type="checkbox"
+                checked={isRequestFieldVisible(field.key, 'list')}
+                disabled={field.required}
+                aria-label={`${field.label}: список`}
+                onchange={() => toggleViewField(field.key, 'list')}
+              />
+            </label>
+            <label class="view-field-check" title={field.required ? 'Обязательное поле' : undefined}>
+              <input
+                type="checkbox"
+                checked={isRequestFieldVisible(field.key, 'tiles')}
+                disabled={field.required}
+                aria-label={`${field.label}: плитки`}
+                onchange={() => toggleViewField(field.key, 'tiles')}
+              />
+            </label>
+          {/each}
+        </div>
+        <p class="hint">Обязательные поля (•) отключить нельзя — настройки видов независимы.</p>
+      </fieldset>
+
+      <div class="modal-actions">
+        <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
+        <div class="modal-buttons">
+          <Button size="lg" onclick={applyView}>Готово</Button>
+        </div>
+      </div>
+    </div>
+  </Modal>
+
+  <FiltersModal
+    bind:this={filtersRef}
+    trigger={false}
+    count={activeFilterCount}
+    onapply={applyFilterDraft}
+    onreset={resetFilterDraft}
+  >
     <div class="view-period">
       <label class="filter-field">
         <span>Период с</span>
@@ -980,6 +1095,7 @@
         allLabel="Все статусы"
         emptyLabel="Нет статусов"
         maxHeight="300px"
+        size="lg"
       />
     </div>
 
@@ -992,6 +1108,7 @@
           bind:values={warehouseDraft}
           allLabel="Все склады"
           emptyLabel="Нет складов"
+          size="lg"
         />
       </div>
     {/if}
@@ -999,12 +1116,9 @@
     {#if isStaff}
       <div class="filter-group">
         <span class="filter-label">Клиент</span>
-
         {#if selectedClient}
           <div class="client-picked">
-            <span class="client-picked-name" title={selectedClient.name}>
-              {selectedClient.name}
-            </span>
+            <span class="client-picked-name" title={selectedClient.name}>{selectedClient.name}</span>
             <button
               type="button"
               class="client-picked-clear"
@@ -1029,7 +1143,6 @@
               onfocus={onClientFilterFocus}
               onkeydown={onClientFilterKeydown}
             />
-
             {#if clientOpen}
               <div class="client-filter-menu" role="listbox" aria-label="Клиенты" style={clientMenuStyle}>
                 {#if clientSearching}
@@ -1069,6 +1182,7 @@
         options={overdueOptions}
         bind:values={draft.overdue}
         allLabel="Все заявки"
+        size="lg"
       />
     </div>
 
@@ -1080,21 +1194,12 @@
           options={scopeOptions}
           bind:values={draft.scopes}
           allLabel="Все заявки"
+          size="lg"
         />
       </div>
     {/if}
+  </FiltersModal>
 
-      </div>
-
-      <div class="modal-actions">
-        <Button variant="text" size="lg" onclick={resetView}>Сбросить</Button>
-        <div class="modal-buttons">
-          <Button variant="ghost" size="lg" onclick={() => (viewOpen = false)}>Отмена</Button>
-          <Button size="lg" onclick={applyView}>Применить</Button>
-        </div>
-      </div>
-    </div>
-  </Modal>
 
   <Modal open={draftsOpen} title="Черновики заявок" onclose={() => (draftsOpen = false)}>
     {#if draftsLoading}
@@ -1155,7 +1260,7 @@
   .muted {
     margin: 0;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-sm);
   }
 
   .draft-list {
@@ -1190,14 +1295,14 @@
   }
 
   .draft-name {
-    font-size: 14px;
+    font-size: var(--font-md);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
   .draft-meta {
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--muted);
   }
 
@@ -1212,7 +1317,7 @@
     border-radius: 50%;
     background: var(--surface);
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-sm);
     line-height: 1;
     cursor: pointer;
   }
@@ -1248,12 +1353,6 @@
     flex-direction: column;
     gap: var(--space-4);
     width: 100%;
-    max-width: 1280px;
-    margin-inline: auto;
-  }
-
-  .page:has(.tiles) {
-    max-width: 1600px;
   }
 
   .head {
@@ -1276,7 +1375,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
   .notice {
@@ -1319,7 +1418,16 @@
   }
 
   .levels-head {
-    display: none;
+    position: absolute;
+    display: flex;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 
   .levels {
@@ -1375,7 +1483,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 12px;
+    font-size: var(--font-xs);
     font-weight: 600;
     letter-spacing: 0.02em;
     color: var(--muted);
@@ -1383,7 +1491,7 @@
 
   .tile-date {
     flex: 0 0 auto;
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--muted);
     white-space: nowrap;
   }
@@ -1395,7 +1503,7 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     min-height: 2.7em;
-    font-size: 15px;
+    font-size: var(--font-md);
     font-weight: 600;
     line-height: 1.35;
     overflow-wrap: anywhere;
@@ -1419,7 +1527,7 @@
     background: var(--bg);
     background: color-mix(in srgb, var(--status) 10%, var(--surface));
     color: var(--status);
-    font-size: 12px;
+    font-size: var(--font-xs);
     font-weight: 600;
     line-height: 1.6;
   }
@@ -1448,7 +1556,7 @@
     margin-top: auto;
     padding-top: 8px;
     border-top: 1px solid var(--border-secondary);
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--muted);
   }
 
@@ -1496,7 +1604,66 @@
 
   .cell {
     min-width: 0;
-    font-size: 14px;
+    font-size: var(--font-md);
+  }
+
+  .row-link {
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .row-link:hover {
+    color: var(--primary);
+  }
+
+  .row-link:focus-visible {
+    outline: 2px solid var(--focus-soft);
+    outline-offset: -2px;
+  }
+
+  .row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-3);
+    font-size: var(--font-xs);
+    font-weight: 400;
+    white-space: normal;
+  }
+
+  .view-field-table {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 72px 72px;
+    align-items: center;
+    gap: var(--space-1) var(--space-2);
+  }
+
+  .view-field-head {
+    font-size: var(--font-xs);
+    color: var(--text-description);
+    text-align: center;
+  }
+
+  .view-field-name {
+    font-size: var(--font-sm);
+  }
+
+  .view-field-required {
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  .view-field-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: var(--control-height-lg);
+  }
+
+  .hint {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-xs);
+    color: var(--text-description);
   }
 
   .cell-label {
@@ -1509,19 +1676,15 @@
       top: 0;
       z-index: 2;
       display: grid;
-      grid-template-columns: 140px minmax(0, 1.6fr) minmax(0, 1fr) 140px 110px 180px 120px 140px;
+      grid-template-columns: var(--ct-columns);
       align-items: stretch;
       padding: 0;
       background: var(--fill-tertiary);
       border: 1px solid var(--border-secondary);
       border-radius: var(--radius-md) var(--radius-md) 0 0;
-      font-size: 14px;
+      font-size: var(--font-md);
       font-weight: 600;
       color: var(--text);
-    }
-
-    .levels-head.compact {
-      grid-template-columns: 140px minmax(0, 1.6fr) 140px 110px 180px 120px 140px;
     }
 
     .head-cell {
@@ -1536,15 +1699,6 @@
       font: inherit;
       color: inherit;
       text-align: left;
-      cursor: pointer;
-    }
-
-    .head-cell:hover {
-      color: var(--primary);
-    }
-
-    .head-cell.active {
-      color: var(--primary);
     }
 
     .head-label {
@@ -1567,7 +1721,7 @@
       padding: 0 4px;
       border-radius: 999px;
       background: color-mix(in srgb, var(--primary) 14%, white);
-      font-size: 10px;
+      font-size: var(--font-xs);
       line-height: 15px;
       text-align: center;
     }
@@ -1590,12 +1744,6 @@
       text-align: right;
     }
 
-    .levels-head .col-count .sort-ind,
-    .levels-head .col-overdue .sort-ind,
-    .levels-head .col-date .sort-ind {
-      order: -1;
-    }
-
     .levels:not(.tiles) {
       gap: 0;
       background: var(--surface);
@@ -1606,7 +1754,7 @@
 
     .levels:not(.tiles) .card {
       display: grid;
-      grid-template-columns: 140px minmax(0, 1.6fr) minmax(0, 1fr) 140px 110px 180px 120px 140px;
+      grid-template-columns: var(--ct-columns);
       align-items: center;
       gap: 0;
       padding: 0;
@@ -1618,10 +1766,6 @@
 
     .levels:not(.tiles) .card > .cell {
       padding: 12px var(--space-4);
-    }
-
-    .levels:not(.tiles).compact .card {
-      grid-template-columns: 140px minmax(0, 1.6fr) 140px 110px 180px 120px 140px;
     }
 
     .levels:not(.tiles) .card:last-child {
@@ -1661,33 +1805,6 @@
     }
   }
 
-  /* Ноутбуки 1024–1280 px: оставляем таблицу, убираем второстепенную колонку. */
-  @media (max-width: 1279.98px) and (min-width: 1024px) {
-    .levels-head {
-      grid-template-columns: 132px minmax(0, 1.8fr) minmax(0, 1fr) 124px 170px 116px 132px;
-    }
-
-    .levels-head.compact {
-      grid-template-columns: 132px minmax(0, 1.8fr) 124px 170px 116px 132px;
-    }
-
-    .levels-head .col-count {
-      display: none;
-    }
-
-    .levels:not(.tiles) .card {
-      grid-template-columns: 132px minmax(0, 1.8fr) minmax(0, 1fr) 124px 170px 116px 132px;
-    }
-
-    .levels:not(.tiles).compact .card {
-      grid-template-columns: 132px minmax(0, 1.8fr) 124px 170px 116px 132px;
-    }
-
-    .levels:not(.tiles) .col-count {
-      display: none;
-    }
-  }
-
   @media (max-width: 1023.98px) {
 
     .levels:not(.tiles) .cell-label {
@@ -1695,14 +1812,8 @@
     }
 
     .levels:not(.tiles) .card {
-      display: grid;
-      grid-template-columns: minmax(0, 1fr) auto;
-      grid-template-areas:
-        'number date'
-        'subject subject'
-        'status overdue'
-        'client client'
-        'manager count';
+      display: flex;
+      flex-wrap: wrap;
       align-items: baseline;
       gap: 4px var(--space-3);
     }
@@ -1738,7 +1849,7 @@
     .levels:not(.tiles) .col-manager {
       grid-area: manager;
       color: var(--muted);
-      font-size: 13px;
+      font-size: var(--font-sm);
     }
 
     .levels:not(.tiles) .col-count {
@@ -1753,7 +1864,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
       color: var(--muted);
-      font-size: 13px;
+      font-size: var(--font-sm);
     }
 
     .levels:not(.tiles) .col-overdue.is-empty {
@@ -1762,7 +1873,8 @@
   }
 
   .status-text {
-    font-size: 13px;
+    color: var(--status, var(--text));
+    font-size: var(--font-sm);
     font-weight: 500;
     white-space: nowrap;
     overflow: hidden;
@@ -1771,27 +1883,27 @@
   }
 
   .date {
-    font-size: 13px;
+    font-size: var(--font-sm);
     color: var(--muted);
     white-space: nowrap;
   }
 
   .number {
-    font-size: 13px;
+    font-size: var(--font-sm);
     color: var(--muted);
     font-weight: 600;
     white-space: nowrap;
   }
 
   .subject {
-    font-size: 15px;
+    font-size: var(--font-md);
     font-weight: 500;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
   .overdue {
-    font-size: 12px;
+    font-size: var(--font-xs);
     color: var(--danger);
     background: var(--danger-bg);
     border-radius: 999px;
@@ -1836,21 +1948,21 @@
 
   .client-filter-input {
     width: 100%;
-    height: 34px;
+    height: var(--control-height);
     padding: 0 10px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
     background: var(--surface);
     color: var(--text);
     font: inherit;
-    font-size: 14px;
+    font-size: var(--font-md);
     box-sizing: border-box;
   }
 
   .client-filter-input:focus {
     border-color: var(--primary);
     outline: none;
-    box-shadow: 0 0 0 2px var(--focus-ring);
+    box-shadow: inset 0 0 0 2px var(--focus-soft);
   }
 
   .client-filter-menu {
@@ -1887,18 +1999,18 @@
   }
 
   .cf-name {
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
   .cf-meta {
     color: var(--muted);
-    font-size: 12px;
+    font-size: var(--font-xs);
   }
 
   .cf-empty {
     padding: 10px 12px;
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-sm);
   }
 
   .client-picked {
@@ -1917,7 +2029,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
   .client-picked-clear {
@@ -1931,7 +2043,7 @@
     border-radius: 50%;
     background: var(--surface);
     color: var(--muted);
-    font-size: 13px;
+    font-size: var(--font-sm);
     line-height: 1;
     cursor: pointer;
   }

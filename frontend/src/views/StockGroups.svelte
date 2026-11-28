@@ -3,20 +3,44 @@
   import { ApiError } from '../lib/api/client';
   import { listAdminItemGroups } from '../lib/api/groups';
   import type { ItemGroup } from '../lib/api/types';
-  import { appSettings } from '../lib/stores/app-settings.svelte';
   import { router } from '../lib/router.svelte';
-  import Button from '../lib/components/ui/Button.svelte';
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
   import Icon from '../lib/components/ui/Icon.svelte';
   import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
   import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+  import { directoryValue, type DirectoryField } from '../lib/views/directory-fields';
+
+  const columns: DirectoryField<ItemGroup>[] = [
+    {
+      key: 'title',
+      label: 'Название',
+      kind: 'title',
+      href: (row) => `#/stocks/groups/${row.id}`,
+      description: (row) => row.description,
+      value: (row) => row.title
+    },
+    {
+      key: 'positions',
+      label: 'Номенклатуры',
+      headClass: 'count-head',
+      cellClass: 'count',
+      kind: 'count',
+      value: (row) => String(row.positions_count ?? 0)
+    },
+    {
+      key: 'enabled',
+      label: 'Доступен',
+      headClass: 'state-head',
+      kind: 'state',
+      on: (row) => row.enabled !== false,
+      value: (row) => (row.enabled === false ? 'Выключен' : 'Доступен')
+    }
+  ];
 
   let groups = $state<ItemGroup[]>([]);
   let loading = $state(true);
   let error = $state('');
-
-  const groupsEnabled = $derived(appSettings.groupsConfigured);
 
   onMount(() => {
     void load();
@@ -75,16 +99,6 @@
     </div>
   {/if}
 
-  {#if !groupsEnabled}
-    <div class="notice">
-      <span class="notice-icon"><Icon name="info" size={16} /></span>
-      <span>Группы номенклатуры отключены — включите модуль в настройках.</span>
-      <Button variant="ghost" onclick={() => router.navigate('/settings')}>
-        Открыть настройки
-      </Button>
-    </div>
-  {/if}
-
   {#if loading}
     <div class="center"><Spinner size={26} /></div>
   {:else}
@@ -96,28 +110,32 @@
           <table>
             <thead>
               <tr>
-                <th>Название</th>
-                <th class="count-head">Номенклатуры</th>
-                <th class="state-head">Доступен</th>
+                {#each columns as column (column.key)}
+                  <th class={column.headClass} scope="col">{column.label}</th>
+                {/each}
               </tr>
             </thead>
             <tbody>
               {#each groups as group (group.id)}
                 <tr>
-                  <td>
-                    <div class="name">
-                      <a class="title" href={`#/stocks/groups/${group.id}`}>{group.title}</a>
-                      {#if group.description}
-                        <span class="desc">{group.description}</span>
+                  {#each columns as column (column.key)}
+                    <td class={column.cellClass}>
+                      {#if column.kind === 'title'}
+                        <div class="name">
+                          <a class="title" href={column.href?.(group)}>{column.value(group)}</a>
+                          {#if column.description?.(group)}
+                            <span class="desc">{column.description(group)}</span>
+                          {/if}
+                        </div>
+                      {:else if column.kind === 'state'}
+                        <span class="state" class:on={column.on?.(group)}>
+                          {directoryValue(column, group)}
+                        </span>
+                      {:else}
+                        {directoryValue(column, group)}
                       {/if}
-                    </div>
-                  </td>
-                  <td class="count">{group.positions_count ?? 0}</td>
-                  <td>
-                    <span class="state" class:on={group.enabled !== false}>
-                      {group.enabled === false ? 'Выключен' : 'Доступен'}
-                    </span>
-                  </td>
+                    </td>
+                  {/each}
                 </tr>
               {/each}
             </tbody>
@@ -183,7 +201,7 @@
     padding: 10px 12px;
     border-bottom: 2px solid var(--border);
     color: var(--text-description);
-    font-size: 12px;
+    font-size: var(--font-xs);
     font-weight: 500;
     text-align: left;
     white-space: nowrap;
@@ -200,7 +218,7 @@
   td {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
-    font-size: 14px;
+    font-size: var(--font-md);
     vertical-align: middle;
   }
 
@@ -233,7 +251,7 @@
 
   .desc {
     color: var(--text-description);
-    font-size: 13px;
+    font-size: var(--font-sm);
     overflow-wrap: anywhere;
   }
 
@@ -244,7 +262,7 @@
 
   .state {
     color: var(--text-description);
-    font-size: 13px;
+    font-size: var(--font-sm);
     white-space: nowrap;
   }
 
@@ -257,11 +275,10 @@
     border: 1px dashed var(--border-secondary);
     border-radius: var(--radius-md);
     color: var(--text-description);
-    font-size: 14px;
+    font-size: var(--font-md);
     text-align: center;
   }
 
-  .notice,
   .alert {
     display: flex;
     flex-wrap: wrap;
@@ -271,12 +288,7 @@
     border: 1px solid var(--border);
     border-radius: var(--radius-md);
     color: var(--text);
-    font-size: 14px;
-  }
-
-  .notice {
-    border-color: var(--success-border);
-    background: var(--success-bg);
+    font-size: var(--font-md);
   }
 
   .alert {
@@ -284,18 +296,10 @@
     background: var(--danger-bg);
   }
 
-  .notice-icon,
   .alert-icon {
     display: inline-flex;
     flex: 0 0 auto;
     margin-top: 2px;
-  }
-
-  .notice-icon {
-    color: var(--success);
-  }
-
-  .alert-icon {
     color: var(--danger);
   }
 
@@ -349,7 +353,7 @@
     }
 
     td:nth-child(2) {
-      font-size: 13px;
+      font-size: var(--font-sm);
     }
 
     td:nth-child(2)::before {

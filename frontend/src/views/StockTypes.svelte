@@ -8,6 +8,35 @@
   import PageToolbar from '../lib/components/layout/PageToolbar.svelte';
   import ToolbarMenu from '../lib/components/layout/ToolbarMenu.svelte';
   import Spinner from '../lib/components/ui/Spinner.svelte';
+  import { directoryValue, type DirectoryField } from '../lib/views/directory-fields';
+
+  const columns: DirectoryField<ItemTypeAdmin>[] = [
+    {
+      key: 'title',
+      label: 'Название',
+      kind: 'title',
+      href: (row) => `#/stocks/types/${row.id}`,
+      description: (row) => row.description,
+      value: (row) => row.title
+    },
+    { key: 'code', label: 'Код', kind: 'code', value: (row) => row.code },
+    {
+      key: 'positions',
+      label: 'Позиции',
+      headClass: 'count-head',
+      cellClass: 'count',
+      kind: 'count',
+      value: (row) => String(row.positions_count)
+    },
+    {
+      key: 'enabled',
+      label: 'Доступен',
+      headClass: 'state-head',
+      kind: 'state',
+      on: (row) => row.enabled === true,
+      value: (row) => (row.enabled ? 'Доступен' : 'Выключен')
+    }
+  ];
 
   let types = $state<ItemTypeAdmin[]>([]);
   let loading = $state(true);
@@ -70,30 +99,36 @@
           <table>
             <thead>
               <tr>
-                <th>Название</th>
-                <th>Код</th>
-                <th class="count-head">Позиции</th>
-                <th class="state-head">Доступен</th>
+                {#each columns as column (column.key)}
+                  <th class={column.headClass} scope="col">{column.label}</th>
+                {/each}
               </tr>
             </thead>
             <tbody>
               {#each types as type (type.id)}
                 <tr>
-                  <td>
-                    <div class="name">
-                      <a class="title" href={`#/stocks/types/${type.id}`}>{type.title}</a>
-                      {#if type.description}
-                        <span class="desc">{type.description}</span>
+                  {#each columns as column (column.key)}
+                    <td class={column.cellClass}>
+                      {#if column.kind === 'title'}
+                        <div class="name">
+                          <a class="title" href={column.href?.(type)} aria-label={`${column.value(type)}, код ${type.code}`}>
+                            {column.value(type)}
+                          </a>
+                          {#if column.description?.(type)}
+                            <span class="desc">{column.description(type)}</span>
+                          {/if}
+                        </div>
+                      {:else if column.kind === 'code'}
+                        <code>{directoryValue(column, type)}</code>
+                      {:else if column.kind === 'state'}
+                        <span class="state" class:on={column.on?.(type)}>
+                          {directoryValue(column, type)}
+                        </span>
+                      {:else}
+                        {directoryValue(column, type)}
                       {/if}
-                    </div>
-                  </td>
-                  <td><code>{type.code}</code></td>
-                  <td class="count">{type.positions_count}</td>
-                  <td>
-                    <span class="state" class:on={type.enabled}>
-                      {type.enabled ? 'Доступен' : 'Выключен'}
-                    </span>
-                  </td>
+                    </td>
+                  {/each}
                 </tr>
               {/each}
             </tbody>
@@ -127,7 +162,7 @@
     border-radius: var(--radius-sm);
     background: var(--danger-bg);
     color: var(--error-text);
-    font-size: 14px;
+    font-size: var(--font-md);
   }
 
   .alert-icon {
@@ -163,7 +198,7 @@
     padding: 10px 12px;
     border-bottom: 2px solid var(--border);
     color: var(--text-description);
-    font-size: 12px;
+    font-size: var(--font-xs);
     font-weight: 500;
     text-align: left;
     white-space: nowrap;
@@ -180,7 +215,7 @@
   td {
     padding: 10px 12px;
     border-bottom: 1px solid var(--border);
-    font-size: 14px;
+    font-size: var(--font-md);
     vertical-align: middle;
   }
 
@@ -213,7 +248,7 @@
 
   .desc {
     color: var(--text-description);
-    font-size: 13px;
+    font-size: var(--font-sm);
     overflow-wrap: anywhere;
   }
 
@@ -222,7 +257,7 @@
     border-radius: var(--radius-xs);
     background: var(--bg);
     color: var(--text-description);
-    font-size: 12px;
+    font-size: var(--font-xs);
   }
 
   .count {
@@ -232,7 +267,7 @@
 
   .state {
     color: var(--text-description);
-    font-size: 13px;
+    font-size: var(--font-sm);
     white-space: nowrap;
   }
 
@@ -300,7 +335,7 @@
     }
 
     td:nth-child(3) {
-      font-size: 13px;
+      font-size: var(--font-sm);
     }
 
     td:nth-child(3)::before {

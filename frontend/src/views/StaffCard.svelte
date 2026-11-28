@@ -25,6 +25,7 @@
   import { appSettings } from '../lib/stores/app-settings.svelte';
   import { auth } from '../lib/stores/auth.svelte';
   import { router } from '../lib/router.svelte';
+  import { normalizeReturnTo } from '../lib/navigation-context';
   import { formatDateTime } from '../lib/format';
   import Button from '../lib/components/ui/Button.svelte';
   import HelpTip from '../lib/components/ui/HelpTip.svelte';
@@ -40,6 +41,10 @@
   }
 
   let { id }: Props = $props();
+
+  const backHref = $derived(
+    normalizeReturnTo(router.current.query.get('returnTo'), null, router.current.path) ?? '/staff'
+  );
 
   const editableFields = [
     { key: 'name', label: 'ФИО', maxlength: 255 },
@@ -478,7 +483,7 @@
 
 <section class="page">
   <div class="hero">
-    <a class="back" href="#/staff" title="К списку сотрудников" aria-label="К списку сотрудников">
+    <a class="back" href={`#${backHref}`} title="К списку сотрудников" aria-label="К списку сотрудников">
       <Icon name="arrow-left" size={16} />
     </a>
 
