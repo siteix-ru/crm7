@@ -16,14 +16,15 @@
   let { photos, variant = 'list', onopen, flush = false, index = $bindable(0), label = '' }: Props =
     $props();
 
-  const initial = $derived(
-    label
+  const stopWords = new Set(['смартфон', 'модель', 'товар', 'изделие', 'набор', 'телефон']);
+  const initial = $derived.by(() => {
+    const words = label
       .split(/\s+/)
-      .map((part) => part.replace(/^\d+/, ''))
-      .find((part) => part !== '')
-      ?.charAt(0)
-      .toUpperCase() ?? ''
-  );
+      .map((part) => part.replace(/^[\d\W]+/u, ''))
+      .filter(Boolean);
+    const meaningful = words.find((word) => !stopWords.has(word.toLowerCase())) ?? words[0] ?? '';
+    return /^\p{L}/u.test(meaningful) ? meaningful.charAt(0).toUpperCase() : '';
+  });
 
   const photoSize = $derived<'preview' | 'card'>(variant === 'tile' ? 'card' : 'preview');
 
@@ -132,9 +133,9 @@
   class:flush
   class:empty={photos.length === 0}
   class:clickable={onopen !== undefined}
-  role={onopen !== undefined ? 'button' : 'group'}
+  role={onopen !== undefined ? 'button' : undefined}
   tabindex={onopen !== undefined ? 0 : undefined}
-  aria-label={onopen !== undefined ? 'Подробнее о номенклатуре' : 'Фото товара'}
+  aria-label={onopen !== undefined ? (label ? `Подробнее: ${label}` : 'Подробнее о номенклатуре') : undefined}
   style="--photo-ratio: {photoAspect}; --photo-factor: {photoFactor}; --photo-fit: {photoFit};"
   onclick={open}
   onkeydown={onKeydown}
@@ -144,7 +145,9 @@
   {#if currentUrl}
     <img src={currentUrl} alt="" loading="lazy" />
   {:else if photos.length === 0}
-    <div class="placeholder initial" aria-hidden="true">{initial}</div>
+    <div class="placeholder initial" aria-hidden="true">
+      {#if initial}{initial}{:else}<Icon name="picture" size={variant === 'tile' ? 28 : 18} />{/if}
+    </div>
   {:else}
     <div class="placeholder" aria-hidden="true">
       <Icon name="picture" size={variant === 'tile' ? 28 : 18} />
@@ -170,7 +173,9 @@
         next();
       }}>›</button
     >
-    <span class="counter">{index + 1}/{photos.length}</span>
+    <span class="counter" aria-live="polite" aria-label={`Фото ${index + 1} из ${photos.length}`}>
+      {index + 1}/{photos.length}
+    </span>
   {/if}
 </div>
 
@@ -199,6 +204,28 @@
 
   .gallery.clickable {
     cursor: pointer;
+  }
+
+  .gallery.clickable:hover {
+    background: var(--fill-hover);
+  }
+
+  .gallery:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 2px var(--primary);
+  }
+
+  /* Пустая плитка — компактная полоса, а не огромный серый квадрат. */
+  .gallery.tile.empty {
+    aspect-ratio: auto;
+    height: 64px;
+    min-height: 64px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+  }
+
+  .gallery.tile.empty .placeholder.initial {
+    font-size: 24px;
   }
 
   img {

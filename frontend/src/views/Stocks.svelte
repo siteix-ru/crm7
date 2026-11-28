@@ -1629,7 +1629,6 @@
                             photos={first?.photos ?? []}
                             variant="list"
                             label={row.name}
-                            onopen={() => first && openItem(first)}
                           />
                         </div>
                       {/if}
@@ -1821,15 +1820,11 @@
             }}
           >
             {#if showPhotos}
-              <!-- svelte-ignore a11y_click_events_have_key_events -->
-              <!-- svelte-ignore a11y_no_static_element_interactions -->
-              <div class="cell col-photo" onclick={(event) => event.stopPropagation()}>
+              <div class="cell col-photo">
                 <PhotoGallery
                   photos={level.photos ?? []}
                   variant={viewMode === 'tiles' ? 'tile' : 'list'}
-                  flush={viewMode === 'tiles'}
                   label={level.name}
-                  onopen={() => openItem(level)}
                 />
               </div>
             {/if}
@@ -2943,7 +2938,9 @@
   }
 
   .levels.tiles .cell.col-photo {
-    width: 100%;
+    --stock-tile-photo: 180px;
+    width: min(100%, var(--stock-tile-photo));
+    margin-inline: auto;
   }
 
   .levels.tiles .name-col {
